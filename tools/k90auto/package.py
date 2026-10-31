@@ -92,11 +92,19 @@ VARSTORE_LINE = "/redwood/bin/var_store show\n"
 # hackios-xnu-kernel/tools/mk-fw-wifi.py extracted out of the phone's own modem partition (not in git).
 # The kernel's PCIe step 7 (pcie=7, mhi_pcie_fw.c) boots the card with amss20.bin or amss.bin from there;
 # step 9 (mhi_pcie_wlfw.c) sends it the regulatory database, the board data file named by its board id
-# and the M3 image.
+# and the M3 image. bd_p11*.elf, regdb_xiaomi.bin and qdss_trace_config_v2.cfg are what Android's cnss2
+# sends on this phone (pcie_bdf= picks a board data file by name, pcie_qdss=1 sends the QDSS file).
+# lfw-*.bin, when there, are linux-firmware's ath12k/WCN7850/hw2.0 amss.bin and m3.bin, copied by hand
+# (pcie_fw=3). network, when there, is the network wifi_join=1 joins: its name on the first line, its
+# passphrase on the second (git-ignored; the manifest records that it was there, not its hash).
 WIFI_FW = os.environ.get("WIFI_FW") == "1"
 WIFI_FW_DIR = WORKSPACE / "out/fw-wifi"
-WIFI_FW_FILES = (["amss.bin", "amss20.bin", "regdb.bin", "phy_ucode20.elf"] +
-                 sorted(p.name for p in WIFI_FW_DIR.glob("bdwlan.e*")) if WIFI_FW else [])
+WIFI_FW_FILES = (["amss.bin", "amss20.bin", "regdb.bin", "regdb_xiaomi.bin", "phy_ucode20.elf"] +
+                 sorted(p.name for p in WIFI_FW_DIR.glob("bdwlan.e*")) +
+                 sorted(p.name for p in WIFI_FW_DIR.glob("bd_p11*.elf")) +
+                 sorted(p.name for p in WIFI_FW_DIR.glob("qdss_trace_config*.cfg")) +
+                 sorted(p.name for p in WIFI_FW_DIR.glob("lfw-*.bin")) +
+                 [p.name for p in WIFI_FW_DIR.glob("network")] if WIFI_FW else [])
 BASE = WORKSPACE / "out/ios26-resume/air-arm64e-device/on"
 TOOLS = WORKSPACE / "tools/apfs"
 # XPCWATCH="NAME ..." inserts libredwood-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
@@ -901,7 +909,8 @@ def main():
         "rest": REST, "rest_added_count": len(rest_added), "rest_allow": REST_ALLOW, "rest_deny": REST_DENY,
         "seed": {"path": str(SEED), "sha256": sha(SEED), "bytes": seed_bytes} if SEED else None,
         "redwood_diag": REDWOOD_DIAG,
-        "wifi_fw": {name: sha(WIFI_FW_DIR / name) for name in WIFI_FW_FILES} if WIFI_FW else None,
+        "wifi_fw": {name: "present" if name == "network" else sha(WIFI_FW_DIR / name) for name in WIFI_FW_FILES}
+                   if WIFI_FW else None,
         "changes": changes,
         "dirty_worktree": bool(dirty), "worktree_status": dirty,
         # A round can change more than the one variable its request names. Anything passed here is

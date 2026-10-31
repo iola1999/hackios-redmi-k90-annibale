@@ -346,6 +346,19 @@ while time.monotonic() - start < duration:
 print("SAMPLED_SECONDS", time.monotonic() - start, "failed_call", failed, flush=True)
 
 
+FETCH_LINE = re.compile(rb"fetch: (\w+) 0x([0-9a-f]+) 0x([0-9a-f]+)")
+
+
+def fetch_regions():
+    """What the kernel kept in its window for the host, by the "fetch: NAME ADDRESS LENGTH" lines of
+    the logs saved so far (the Wi-Fi card's RAM dump with pcie_rddm=1): the last line per name."""
+    found = {}
+    for path in sorted(run.glob("*.log")):
+        for match in FETCH_LINE.finditer(path.read_bytes()):
+            found[match.group(1).decode()] = (match.group(2).decode(), match.group(3).decode())
+    return found
+
+
 def teardown():
     """Save the log the loader holds and reset, so the next run starts from an idle loader. Returns
     the state it left and whether it sent the reset.
@@ -376,6 +389,11 @@ def teardown():
         call(["get_staged", run / f"{name}.log"], 40, False)
         call(["oem", "log"], 8, False)
         call(["get_staged", run / f"{name}-serial.log"], 40, False)
+        # the reset below clears what the kernel kept for the host, so it is saved first, as NAME.bin
+        for label, (address, length) in fetch_regions().items():
+            staged = call(["oem", "stage", address, length], 8, False)
+            if staged["rc"] == 0 and "FAILED" not in staged["output"]:
+                call(["get_staged", run / f"{label}.bin"], 120, False)
         # A kernel that came back ("returned"; one that held the GPU never does) leaves its file for
         # the host (rwsh "outbox", kern.redwood.outbox) as the run's recording; without one: FAIL.
         staged = call(["oem", "recording"], 8, False) if name == "returned" else None

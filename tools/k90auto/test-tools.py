@@ -99,7 +99,7 @@ elif args[:1] == ["get_staged"]:
         seq = int(seq_path.read_text())
         target.write_text("console log\nrwsh %d start echo hi\nrwsh %d| hi\nrwsh %d exit 0 3 ms\n" % (seq, seq, seq))
     else:
-        target.write_text("console log\n")
+        target.write_text(os.environ.get("FB_KERNEL_LOG", "console log\n"))
 else:
     say("OKAY")
 '''
@@ -273,6 +273,14 @@ class RunAutoTests(unittest.TestCase):
         self.assertIn(["reboot"], sent)
         self.assertEqual([summary["mode"], summary["off_seen"]], ["loader", True])
         self.assertIn("result: idle", summary["status"])
+
+    def test_a_region_the_kernel_names_is_saved_before_the_reset(self):
+        log = "console log\npcie: rddm: copied for the host; fetch: rddm 0x8a1200000 0x780000\n"
+        result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="hung-held", FB_KERNEL_LOG=log)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("rddm.bin", files)
+        stage = sent.index(["oem", "stage", "8a1200000", "780000"])
+        self.assertLess(stage, sent.index(["reboot"]))
 
     def test_stop_into_returned_saves_the_log_and_resets(self):
         result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="returned")
