@@ -80,8 +80,10 @@
 | `kernel-12377-cmd52-bo59` | 同上 | 驱动按两个模块、入口名与附件形状保留渲染管线（`redwoodmetal_pipecache.inc`） | 每次回首屏的 48 条管线里 44 条复用，复用一次约 20 微秒；从今天视图回首屏，开始重画到导入图标纹理 0.76～0.79 秒（`bo58` 0.91～1.06），从应用回首屏 1.06～1.13 秒（`bo58` 1.10～1.17）；同一采样窗口里 iconservicesagent 345 个样本（`bo58` 1263），MTLCompilerService 918 个（`bo58` 1216）；图标画面正确 |
 | `kernel-12377-cmd52-bo60` | 同上 | var 骨架加 `/private/var/empty/Library/Caches` | 作废：模板里已有 `/private/var/empty`，重复的一行让 init 停在这里，后面两行与 logd 的标记文件都没有建；`package.py` 起拒绝与模板重复的目录行 |
 | `kernel-12377-cmd52-bo61` | 同上 | 去掉重复行，缓存目录属主 `_iconservices`；检查点用 `LOADER_IMAGE` 起 loader v13 | 不再打印 `Failed to get cache main folder`；从今天视图回首屏，开始重画到导入图标纹理 0.24～0.26 秒（`bo59` 0.76～0.79）；同一采样窗口里 MTLCompilerService 18 个样本（`bo59` 918）；保持期间取回 402 MB 录屏；用户手指拖动时触摸采样相隔 36～90 毫秒，见 §6 |
+| `kernel-12377-cmd53-bo62` | `12377-cmd53` | 触摸驱动同时读 TLMM 锁存的中断下降沿（`redwood_goodix.c`），`touch_poll_us=4000`；不开录屏与采样器 | 用户拖动时触摸采样间隔中位数 9.3 毫秒（2906 个间隔，`bo61` 36～90）；拖动期间帧率中位数 51.6 帧／秒（`bo61` 42.8），最长 1% 的帧间隔 79 毫秒（`bo61` 150）；用户下拉控制中心切到音乐时两次重启，见 §6 |
+| `kernel-12377-cmd54-bo63` | `12377-cmd54` | 1 MB 及以上的内核数据分配不放保护对象（`xnu26/patches/75-osfmk%vm%vm_map_store.c.patch`） | 自动巡检 4 次打开控制中心并翻页：没有 `RedwoodGPU: no memory for a buffer`，GPU 内存峰值 584 MB，backboardd 与 SpringBoard 没有崩溃 |
 
-内核身份：`12377-cmd25`～`12377-cmd53` 的二进制、哈希与改动写在各自的 `docs/progress/evidence/k90auto/kernel-12377-cmdN/kernel.json`。`bo12` 起的改动与读数见 [backboardd 合成路径的处理器开销](../analysis/2026-10-31-compositor-cpu-path.md) §7～§13。
+内核身份：`12377-cmd25`～`12377-cmd54` 的二进制、哈希与改动写在各自的 `docs/progress/evidence/k90auto/kernel-12377-cmdN/kernel.json`。`bo12` 起的改动与读数见 [backboardd 合成路径的处理器开销](../analysis/2026-10-31-compositor-cpu-path.md) §7～§13。
 
 ## 2. 处理器占用
 
@@ -152,9 +154,15 @@
   - iconservicesagent 的 `-[ISGPUIdleTimer armTimer]` 定 3 秒，到时调用 `+[RBDevice purgeResources]` 释放 RenderBox 的全部管线；回首屏要画日历、时钟的背景时重建同样的 48 条。
   - 重建期间的处理器样本约一半在 MTLCompilerService：带特化常量的函数每次都交给它用 LLVM 特化。Metal 的着色器磁盘缓存要用 `_iconservices` 主目录下的 `/var/empty/Library/Caches`，系统里原来没有这个目录。`userland/var.skel.extra` 补上后不再特化（`bo61`）。
   - 另一半在本驱动的 AIR 翻译与 ir3 编译。驱动按两个模块、入口名与附件形状保留管线（`redwoodmetal_pipecache.inc`），48 条里 44 条直接复用（`bo59`）；带链接函数的 4 条仍重建。
-- 手指拖动不跟手：`bo61` 里用户手指拖动时，触摸采样相隔 36～90 毫秒；芯片的报告率按驱动注释是 240 Hz（小米默认值），没有实测。
-  - 驱动每 9 毫秒看一次中断线电平，多数报告是每 80 毫秒一次的兜底读取读到的。`rwtouch` 注入的手势不经过芯片，每 8 毫秒一个点，所以之前的手势帧率读数没有反映这一点。
-  - `12377-cmd53` 让 TLMM 把中断线的下降沿锁存在状态位里，驱动查看时一并读它（`redwood_goodix.c`），`bo62` 用 `touch_poll_us=4000` 验证。
+- 手指拖动不跟手：触摸采样间隔从 36～90 毫秒（`bo61`）降到 9.3 毫秒（`bo62`）。芯片的报告率按驱动注释是 240 Hz（小米默认值），没有实测。
+  - 原因：驱动每 9 毫秒看一次中断线电平，芯片的中断线不会一直拉低，多数报告是每 80 毫秒一次的兜底读取读到的。`rwtouch` 注入的手势不经过芯片，每 8 毫秒一个点，所以之前的手势帧率读数没有反映这一点。
+  - 改法：`12377-cmd53` 让 TLMM 把中断线的下降沿锁存在状态位里，驱动查看时一并读它（`redwood_goodix.c`）。
+  - 剩余：`touch_poll_us=4000` 实测仍是约 9.2 毫秒查看一次，内核线程的睡眠精度约 9 毫秒。
+- 控制中心切到音乐时重启（`bo62`，用户复现两次）：`12377-cmd54` 起不再出现（`bo63`）。
+  - 两次都是 backboardd 退出。崩溃前它持有约 925 MB、1915 块 GPU 缓冲，内核打印大量 `RedwoodGPU: no memory for a buffer`；Mesa 给命令环申请 4 MB 失败后，`fd_bo_heap_alloc` 没有检查空指针，访问地址 0x18。
+  - 原因：内核从第一个进程起给数据分配加保护对象，大小按 2 的幂取整，再按 4 个这样的槽位分块，GPU 的 2～8 MB 缓冲占用的地址空间是自身大小的两倍以上，到约 1 GB 时就用完了 2267 MB 的数据地址区间。
+  - 改法：1 MB 及以上的数据分配不加保护对象（`xnu26/patches/75-osfmk%vm%vm_map_store.c.patch`），数据区间里不存指针。
+  - 未改：`fd_bo_heap_alloc` 仍不检查空指针；驱动的 `setPurgeableState` 不做任何事，CoreAnimation 标成可清除的缓存纹理不会被回收；mediaremoted 反复以异常 6 退出，没有查。
 - Dock 玻璃：`bo52` 起完整显示，设置底部的搜索栏同样恢复。
   - 原因：`glass_background_no_bleed_lph` 开头在 `texcoord1` 处读距离场（纹理 4、采样器 1），ir3 把这次读取改成着色器启动前的预取，在 A830 上读到全 0；距离场的 w 乘覆盖率为 0 的片段被丢弃，所以整块玻璃只剩另一条管线画的边缘高光。
   - 排查经过见上表 `bo50`～`bo52`，补丁与依据见 `hackios-xnu-kernel/tools/mesa/rebase-26/README.md` 第 6 项。
