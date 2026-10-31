@@ -88,6 +88,15 @@ PROBE_LINE = "/redwood/bin/lsprobe 60 &\n/redwood/bin/lsprobe 300 &\n"
 # over the skeleton, and that one changes every later boot and cannot share a round.
 VARSTORE_SHOW = os.environ.get("VARSTORE_SHOW") == "1"
 VARSTORE_LINE = "/redwood/bin/var_store show\n"
+# WIFI_FW=1 puts the Wi-Fi card's firmware into fw/ of the image, from the directory
+# hackios-xnu-kernel/tools/mk-fw-wifi.py extracted out of the phone's own modem partition (not in git).
+# The kernel's PCIe step 7 (pcie=7, mhi_pcie_fw.c) boots the card with amss20.bin or amss.bin from there;
+# step 9 (mhi_pcie_wlfw.c) sends it the regulatory database, the board data file named by its board id
+# and the M3 image.
+WIFI_FW = os.environ.get("WIFI_FW") == "1"
+WIFI_FW_DIR = WORKSPACE / "out/fw-wifi"
+WIFI_FW_FILES = (["amss.bin", "amss20.bin", "regdb.bin", "phy_ucode20.elf"] +
+                 sorted(p.name for p in WIFI_FW_DIR.glob("bdwlan.e*")) if WIFI_FW else [])
 BASE = WORKSPACE / "out/ios26-resume/air-arm64e-device/on"
 TOOLS = WORKSPACE / "tools/apfs"
 # XPCWATCH="NAME ..." inserts libredwood-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
@@ -738,6 +747,8 @@ def main():
         (dest / "etc/env" / ext_name).write_text("".join(s + "\n" for s in settings))
     if PROBE:
         shutil.copy2(probe, dest / "bin/lsprobe")
+    for name in WIFI_FW_FILES if WIFI_FW else []:
+        shutil.copy2(WIFI_FW_DIR / name, dest / "fw" / name)
     # the desktop's own gesture script: the base image carries a one-shot sequence (unlock, two
     # page swipes and a Control Center pull, then nothing), and an acceptance run needs the eight
     # rounds the harness measures. The probe's line ends with "&": init runs the lines of rc.jobs
@@ -778,6 +789,7 @@ def main():
             f"{name} in root.apfs is not what this pack built"
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
              | ({"/bin/lsprobe"} if PROBE else set())
+             | ({"/fw/" + name for name in WIFI_FW_FILES} if WIFI_FW else set())
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
              | ({"/lib/libredwood-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
@@ -805,6 +817,7 @@ def main():
                 *(["/etc", "/etc/var.seed"] if SEED else []),
                 *(["/etc", "/etc/env", *("/etc/env/" + name for name in EXT_ENV)] if EXT_ENV else []),
                 *(["/bin/lsprobe"] if PROBE else []),
+                *(["/fw", *("/fw/" + name for name in WIFI_FW_FILES)] if WIFI_FW else []),
                 # the two jobs below change this directory's own times as well
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],
@@ -888,6 +901,7 @@ def main():
         "rest": REST, "rest_added_count": len(rest_added), "rest_allow": REST_ALLOW, "rest_deny": REST_DENY,
         "seed": {"path": str(SEED), "sha256": sha(SEED), "bytes": seed_bytes} if SEED else None,
         "redwood_diag": REDWOOD_DIAG,
+        "wifi_fw": {name: sha(WIFI_FW_DIR / name) for name in WIFI_FW_FILES} if WIFI_FW else None,
         "changes": changes,
         "dirty_worktree": bool(dirty), "worktree_status": dirty,
         # A round can change more than the one variable its request names. Anything passed here is

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Verify the loader idle, or recover its existing A slot from identified B-slot Android."""
-import json, subprocess, sys, time
+"""Verify the loader idle, or recover its existing A slot (or LOADER_IMAGE) from identified B-slot Android."""
+import json, os, subprocess, sys, time
 from pathlib import Path
 base=Path(sys.argv[1]);base.mkdir()
 records=[]
@@ -50,7 +50,9 @@ assert "product: annibale" in call(pre+["getvar","product"])
 for variable in ("current-slot","slot-retry-count:a","slot-unbootable:a","slot-successful:a","slot-successful:b"):
     value=call(pre+["getvar",variable])
     if variable=="slot-successful:b": assert "slot-successful:b: yes" in value
-call(pre+["set_active","a"]);call(pre+["reboot"])
+# LOADER_IMAGE=FILE starts that loader image with `fastboot boot` instead of boot_a, as cycle.py's checkpoint does
+call(pre+["set_active","a"])
+call(pre+["boot",os.environ["LOADER_IMAGE"]],60) if os.environ.get("LOADER_IMAGE") else call(pre+["reboot"])
 start=time.monotonic();off=False
 while True:
     found=fastboots()
