@@ -40,7 +40,8 @@
   - `pcie_mlo=1` 按 cnss2 的值在主机能力里发单芯片 MLO 字段：`max_mlo_peer` 32、1 颗芯片、2 条链路（`cmd75`）。
   - `cmd77` 去掉 FW_INIT_DONE 的处理与 3 秒等待：`wd19` 里固件发的是 FW_READY，且只在收到 QDSS 配置之后发。`pcie_qdss=1` 改为 M3 信息之后直接下发，与 cnss2 相同。这一版还没上机。
 - `wifi/lx/ath12k/lx_pci.c`：`wifi_mlo=1` 把 `ab->single_chip_mlo_support` 置位，ath12k 因此在主机能力里发同样的 MLO 字段（`cmd76`）。
-- `wifi/lx/src/lx_80211.c`：驱动注册射频时地址为 0，就改用内核的 `wifi_mac`（`cmd78`）。
+- `wifi/lx/src/lx_80211.c`：驱动注册射频时地址为 0，就改用内核的 `wifi_mac`（`cmd78`）；接口没开以太网卸载时，`lx_ethernet_send()` 按 mac80211 的做法组 802.11 数据帧（`cmd80`）。
+- `wifi/lx/patches/include-linux-dma-mapping.h.patch` 与 `wifi/lx/src/lx_base.c`：`dma_map_single()` 把指针传下来，不在池里的内存复制进池里的一个槽再交给网卡，解除映射时复制回来（`cmd79`）。
 - loader v16（`fastboot boot`，build-id `a48c7fb`）：低端 DMA 内存先按固定地址 `0xA8000000` 申请 128 MB，落在 cnss2 声明的窗口 `0x98000000`～`0xb0010000` 里，避开 loader 自身（`0xA1000000`）与设备树的两段 `lost_reg_mem`；被占用时退回原来的取法（4 GB 以下最高的空闲块）。
 - `wifi/lx/src/lx_base.c` 超过 1200 行，idr 与 rhashtable 拆到新文件 `lx_tables.c`。
 - `tools/k90auto/run-auto.py`：收尾复位之前，按已存日志里的 `fetch: 名字 地址 长度` 行用 `oem stage` 取回这段内存，存成 `名字.bin`；`test-tools.py` 加了对应用例。
@@ -54,6 +55,8 @@
 | HTC 与 WMI | copy engine 收到 HTC ready，WMI service ready 与 ready 事件到达 | 记录最后一条 WMI 日志与 copy engine 状态 |
 | 注册 | 60 秒内出现 `IS UP: the radio is registered`，打印固件给的地址 | 记录驱动的 flag 与最后的 WARN／ERROR |
 | 扫描 | `wifi_scan=1` 的扫描完成并列出周围网络 | 记录扫描请求的返回值与扫描事件 |
+| 加入网络 | `wifi_join=1`：认证、关联、四次握手通过，日志出现 `THE NETWORK IS JOINED` | 记录停在哪一步（没听到目标网络、认证、关联、握手）与状态码 |
+| 数据收发 | `net_trace=` 打出的 en0 帧里，DHCP 请求发出且收到回复，之后有双向的 IP 帧 | 记录发出与收到的帧类型与数量；地址只留在本地日志 |
 | 桌面 | 与 `wf3` 一样进到首屏 | 对照 PCIe 步骤与 GPU 的时间先后 |
 
 ## 3. 轮次
@@ -83,6 +86,11 @@
 | `kernel-12377-cmd76-wd21` | `12377-cmd76`，loader v16 | 同 `wd12`，加 `wifi_mlo=1` | 驱动启动 380 ms 后注册射频，没有 SYS_ERR；固件没有 MAC 地址，没有建接口，见 3.7 |
 | `kernel-12377-cmd76-wd22` | `12377-cmd76`，loader v16 | 同 `wd21`，加 `wifi_mac=` | 与 `wd21` 相同，地址仍为 0：ath12k 不向设备要地址，见 3.7 |
 | `kernel-12377-cmd78-wd23` | `12377-cmd78`，loader v16 | 同 `wd22` | 建出 station 接口，扫描 13 秒，听到 12 个接入点，没有 SYS_ERR，见 3.7 |
+| `kernel-12377-cmd78-wd24` | `12377-cmd78`，loader v16 | 同 `wd23`，去掉 `wifi_scan=1`，加 `wifi_join=1 net_trace=80` | 找到目标网络；登记接入点失败（-12）：接收队列描述符不在网卡能访问的内存里，见 3.8 |
+| `kernel-12377-cmd79-wd25` | `12377-cmd79`，A 槽 loader v14 | 同 `wd24` | 无效：没有触发检查点，旧 loader 不留低端 DMA 内存 |
+| `kernel-12377-cmd79-wd26` | `12377-cmd79`，loader v16 | 同 `wd24` | 认证、关联通过；四次握手超时（reason 15）：握手回复按以太网帧发出，硬件当成 802.11 帧，见 3.8 |
+| `kernel-12377-cmd80-wd27` | `12377-cmd80`，loader v16 | 同 `wd24` | 加入网络；en0 收到 375 帧，发出 0 帧（iOS 没有发起 DHCP），见 3.8 |
+| `kernel-12377-cmd80-wd28` | `12377-cmd80`，loader v16 | 同 `wd24`，加入后经 `rsh.py` 发 `net_test` | DHCP 拿到地址，ARP 解析了路由器；iOS 26 不把这个服务选为主服务，解析与取网页失败，见 3.8 |
 
 ### 3.1 驱动起步（`wd2`～`wd4`）
 
@@ -137,3 +145,24 @@ cnss2 在主机能力里发 `ddr_range` = `{0x98000000, 0x18010000}`（SMMU 的 
 - `wd22`：加 `wifi_mac=`（本地管理地址，首字节 0x02）后地址仍为 0。ath12k（Linux 7.0.14）只从 WMI ready 事件取地址，不调 `device_get_mac_address()`；`12377-cmd78` 在 LinuxKPI 的 `ieee80211_register_hw()` 里补上：地址为 0 时用内核的 `wifi_mac`。
 - `wd23`：射频注册时有地址，station 接口建立。扫描 98 个信道，13079 ms 完成，听到 12 个接入点（2.4 GHz 9 个、5 GHz 3 个，-20～-96 dBm），网络名与 BSSID 只留在本地日志。扫描之后监管域变为 CN（4 条规则），6 GHz 信道全部不可用。
 - 判据「注册」「扫描」通过。加入网络与数据收发还没验证：`wifi_join=1` 要本地固件目录里的 `network` 文件（第一行网络名，第二行密码），由用户提供。
+
+### 3.8 加入网络（`wd24`～）
+
+- `wd24`：`12377-cmd78`，参数同 `wd23`，去掉 `wifi_scan=1`，加 `wifi_join=1 net_trace=80`，本地 `network` 文件放进 RAM 盘。起轮前手机在 Android（A 槽重试用完回退到 B 槽），`cycle.py` 经 LK 自动回到 loader。
+  - 目标网络在 5 GHz 40 信道，-21 dBm，WPA2-PSK、CCMP；密钥 19 ms 算完，信道 20 MHz 设好。
+  - 驱动登记接入点时失败（-12），前一行是 `memory is given to the radio that it cannot reach (1536 bytes)`。原因：ath12k 的 REO 接收队列描述符（每个 traffic class 一份）用 `kzalloc()` 分配后 `dma_map_single()` 交给硬件，这块内存不在网卡能访问的池里。
+  - `12377-cmd79` 的改法：LinuxKPI 头文件补丁让 `dma_map_single()` 把指针传下来；不在池里的内存复制进池里的一个 4 KB 槽，网卡拿到槽的地址，解除映射时复制回来并归还槽。ath12k 映射之后到解除映射之间不碰这块描述符。
+- `wd25`：无效。起轮前没有触发检查点，跑的是 A 槽里刷着的旧 loader（v14），它不给 `pcie=10` 留低端 DMA 内存，驱动没有建起内存池。
+- `wd26`：同 `wd25`，强制检查点，用 `fastboot boot` 起 loader v16。
+  - 接入点登记成功，认证与关联都被接受（我们是它的第 5 个 station）。四次握手收到第 1 条消息并回了第 2 条，接入点又重发两次第 1 条，3077 ms 后以 reason 15（握手超时）解除认证。
+  - 原因：我们的握手回复按以太网帧交给驱动（`IEEE80211_TX_CTL_HW_80211_ENCAP`）。ath12k 的 Wi-Fi 7 发送描述符里没有逐帧的封装类型，封装方式取自接口的 bank 配置；这版固件不支持以太网卸载（没有 `WMI_TLV_SERVICE_ETH_OFFLOAD`），接口是 native wifi，硬件把以太网头当成 802.11 头发出。ath11k 的描述符有逐帧的封装字段，原来的写法在那边可用。
+  - `12377-cmd80` 的改法：接口没开以太网卸载时，`lx_ethernet_send()` 按 mac80211 的做法组 802.11 数据帧：发往接入点，接入点有 WMM 时用 QoS data（握手 TID 7，其余 TID 0），类型前加 LLC/SNAP，有密钥后标记受保护，由硬件加密。
+- 第九批第一轮 `wd27`：`12377-cmd80`，参数同 `wd26`。
+  - 判据「加入网络」通过：四次握手完成，关联后 114 ms 两把密钥交给驱动，日志出现 `THE NETWORK IS JOINED`，en0 的链路变为 up。
+  - en0 收到 375 帧（约 180 KB），都是局域网里其他设备的广播与组播（SSDP、mDNS、ARP、IGMP 等），组播密钥解密正常。en0 发出 0 帧，iOS 没有发起 DHCP，判据「数据收发」未通过。
+  - 原因：`wifi_join` 由内核自己加入网络，wifid 问 apple80211 的 CURRENT_NETWORK 61 次都被拒绝（error 6），它认为没有连上，configd 也不跑 DHCP。以前那台设备靠开机任务 `net_test wifi` 补一个 DHCP 请求，这个任务只在启动参数有 `wifi=1` 时才动作，而 `wifi=1` 在 K90 的内核里会同时打开旧芯片的一组选项，不能用。
+- 第九批第二轮 `wd28`：内核与参数同 `wd27`。日志出现 `THE NETWORK IS JOINED` 后，经 `rsh.py` 在设备上依次执行 `net_test dhcp en0`、`waitaddr en0 12`、`resolve`、两次 `fetch`（http 与 https）、`reach`。判据：拿到 IPv4 地址，域名能解析，两次 `fetch` 都有状态行。
+  - 开机约 100 s 后加入网络。`net_test dhcp en0` 之后 0.8 s en0 拿到 IPv4 地址；服务状态里有路由器、DNS 服务器，路由器的 ARP 已解析。驱动层收发两个方向都通过。
+  - 域名解析立即失败，两次 `fetch` 报 `NSURLErrorDomain -1009`（离线），`reach` 为不可达。configd 没有 `State:/Network/Global/IPv4`，全局 DNS 为空：`dhcp en0` 建的服务不在 `Setup:/Network/Service` 里（Setup 下一个服务都没有），iOS 26 的 configd 不把它选为主服务。以前那台设备的 iOS 16.5 用同样的做法能解析、能取网页。
+  - 结论：Wi-Fi 驱动的扫描、加入网络、收发都已在本机验证；应用能上网还差 iOS 26 网络栈的接入（configd 的网络服务与主服务选择，或者 wifid 经 apple80211 驱动加入网络），属于用户态集成，另开一项。
+
