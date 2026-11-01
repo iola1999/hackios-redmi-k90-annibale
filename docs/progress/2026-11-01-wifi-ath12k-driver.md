@@ -45,6 +45,11 @@
 - loader v16（`fastboot boot`，build-id `a48c7fb`）：低端 DMA 内存先按固定地址 `0xA8000000` 申请 128 MB，落在 cnss2 声明的窗口 `0x98000000`～`0xb0010000` 里，避开 loader 自身（`0xA1000000`）与设备树的两段 `lost_reg_mem`；被占用时退回原来的取法（4 GB 以下最高的空闲块）。
 - `wifi/lx/src/lx_base.c` 超过 1200 行，idr 与 rhashtable 拆到新文件 `lx_tables.c`。
 - `tools/k90auto/run-auto.py`：收尾复位之前，按已存日志里的 `fetch: 名字 地址 长度` 行用 `oem stage` 取回这段内存，存成 `名字.bin`；`test-tools.py` 加了对应用例。
+- `xnu/files/bsd/dev/redwood_apple80211.c`：按 iOS 26 的布局读写 SCAN_REQ、SCAN_RESULT、CURRENT_NETWORK 与 ASSOCIATE（`cmd81`，布局见 3.8）。
+- `xnu26/patches/31a-libkern%c++%OSKext.cpp.patch`：`OSKext::foreachKextInBacktrace()` 在没有 kext 摘要表时直接返回（`cmd82`，原因见 3.8 的 `wd30`）。
+- `tools/k90auto/package.py`：`WIFI_FW=1` 时把 configd 的控制偏好 `com.apple.InterfaceNamer.control.plist`（`ConfigureNewInterfaces` 为真）放进 `fw/`，数据卷模板加两行，开机时复制到 `/private/var/preferences/SystemConfiguration/`。
+- `wifi/lx/src/`：`lx_join.c` 每次加入时打印 PMK 的 16 位指纹（SHA-1 的前两字节）；`lx_80211.c` 按驱动的发送报告打印我们每条握手消息是否被接入点确认、未确认或被驱动丢弃（`cmd83`，只加读数）。
+- 系统盘：`ios165/select-system.py`（iOS 26 共用）加选 `FontServices.framework/CorePrivate/PingFangUI.ttc`，`userland/system26.apfs` 重建，原因见 3.8 的 `wd31`。
 
 ## 2. 判据（读数之前登记）
 
@@ -91,6 +96,10 @@
 | `kernel-12377-cmd79-wd26` | `12377-cmd79`，loader v16 | 同 `wd24` | 认证、关联通过；四次握手超时（reason 15）：握手回复按以太网帧发出，硬件当成 802.11 帧，见 3.8 |
 | `kernel-12377-cmd80-wd27` | `12377-cmd80`，loader v16 | 同 `wd24` | 加入网络；en0 收到 375 帧，发出 0 帧（iOS 没有发起 DHCP），见 3.8 |
 | `kernel-12377-cmd80-wd28` | `12377-cmd80`，loader v16 | 同 `wd24`，加入后经 `rsh.py` 发 `net_test` | DHCP 拿到地址，ARP 解析了路由器；iOS 26 不把这个服务选为主服务，解析与取网页失败，见 3.8 |
+| `kernel-12377-cmd80-wd29` | `12377-cmd80`，loader v16 | 同 `wd24`，`wifi_join=1` 换成 `wifi_station=1`，保持 900 秒 | wifid 接管站点；扫描请求被拒绝（EINVAL），设置的网络列表为空：iOS 26 改了 apple80211 的结构，见 3.8 |
+| `kernel-12377-cmd81-wd30` | `12377-cmd81`，loader v16 | 同 `wd29` | 设置列出附近网络，从设置加入两个网络都完成四次握手；configd 没有给 en0 建网络服务，没有 DHCP；手动 DHCP 后内核 panic，见 3.8 |
+| `kernel-12377-cmd82-wd31` | `12377-cmd82`，loader v16，镜像带 `ConfigureNewInterfaces` | 同 `wd29` | 从设置加入后 configd 自己跑 DHCP，en0 成为主接口，解析、http、https 都成功；本轮第一次加入失败（reason 15），中文显示为方框，见 3.8 |
+| `kernel-12377-cmd83-wd32` | `12377-cmd83`，loader v16，系统盘带 `PingFangUI.ttc` | 同 `wd29` | 中文与日文正常绘制；第一次加入一次成功，握手第 2、4 条都被确认，见 3.8 |
 
 ### 3.1 驱动起步（`wd2`～`wd4`）
 
@@ -165,4 +174,29 @@ cnss2 在主机能力里发 `ddr_range` = `{0x98000000, 0x18010000}`（SMMU 的 
   - 开机约 100 s 后加入网络。`net_test dhcp en0` 之后 0.8 s en0 拿到 IPv4 地址；服务状态里有路由器、DNS 服务器，路由器的 ARP 已解析。驱动层收发两个方向都通过。
   - 域名解析立即失败，两次 `fetch` 报 `NSURLErrorDomain -1009`（离线），`reach` 为不可达。configd 没有 `State:/Network/Global/IPv4`，全局 DNS 为空：`dhcp en0` 建的服务不在 `Setup:/Network/Service` 里（Setup 下一个服务都没有），iOS 26 的 configd 不把它选为主服务。以前那台设备的 iOS 16.5 用同样的做法能解析、能取网页。
   - 结论：Wi-Fi 驱动的扫描、加入网络、收发都已在本机验证；应用能上网还差 iOS 26 网络栈的接入（configd 的网络服务与主服务选择，或者 wifid 经 apple80211 驱动加入网络），属于用户态集成，另开一项。
+- 第九批第三轮 `wd29`：内核同 `wd28`，`wifi_join=1` 换成 `wifi_station=1`：驱动把站点交给内核的 station 接口，wifid 的 apple80211 请求（扫描、信道、当前网络、加入）经它到达驱动，内核不自己加入网络。巡检只留首屏截图，`--hold` 保持 900 秒供用户在设置里操作。判据：apple80211 的 HW_SUPPORTED_CHANNELS、扫描请求得到回答，设置的 Wi-Fi 列表列出附近的网络；用户在设置里加入网络时，记录 wifid 的加入请求、握手结果、configd 是否建出 Wi-Fi 服务并自己跑 DHCP。
+  - 结果：站点交给 wifid 之后，HW_SUPPORTED_CHANNELS、CHANNELS_INFO 都有回答，设置的 Wi-Fi 开关为开；wifid 的扫描请求（SCAN_REQ，5528 字节）被内核以 EINVAL 拒绝，设置的网络列表一直为空（用户在设备上看到的与截图一致）。
+  - 原因：`redwood_apple80211.c` 的结构按 iOS 16.5 逆向，iOS 26 的三项请求变了（对照两版 `IO80211.framework` 的反汇编）：
+    - SCAN_REQ 从 5456 字节变为 5528 字节，前 0x1548 字节的布局不变（scan_type 0x34、信道数 0x44、信道表 0x48、flags 0x1308、名字表 0x1314），0x1310 与 0x154c 之后是新字段。
+    - SCAN_RESULT 与 CURRENT_NETWORK 的缓冲区从 1164 字节变为 2272 字节：16.5 的字段偏移不变，信息元素的空间从 1024 字节变为 2048 字节，0x8d0 之后是新字段。
+    - ASSOCIATE 从 592 字节变为 908 字节，两个认证字段从 16 位变为 32 位，其后所有字段后移 4 字节（名字长度 0x10、BSSID 0x34、密钥长度与类型 0x40、0x44，密钥 0x4c）。
+  - `12377-cmd81` 的改法：扫描请求接受更长的长度、读同样的前缀；扫描结果按调用方给的整个长度清零后填写；连接请求按长度区分两种布局。
+- 第十批第一轮 `wd30`：`12377-cmd81`，参数同 `wd29`。判据同 `wd29`。
+  - 扫描：wifid 的 SCAN_REQ 与 SCAN_RESULT 都有回答，设置的 Wi-Fi 列表列出附近的网络，用户在设备上确认。
+  - 加入：用户从设置先后加入两个网络。wifid 的 ASSOCIATE 为 908 字节，认证 0x1/0x8（WPA2-PSK），密钥是 32 字节、类型 6 的 PMK，位置在 0x4c，与 16.5 的读法一致。
+  - 5 GHz 40 信道的网络（`wd24`～`wd28` 的目标网络）第一次加入时接入点重发三次第 1 条消息后以 reason 15 解除认证，与输错密码的表现相同；第二次加入完成四次握手。2.4 GHz 1 信道的网络一次加入成功。两次成功都在关联后约 120 ms 把密钥交给驱动，日志出现 `THE NETWORK IS JOINED`。
+  - 加入后设置一直转圈。en0 的标志没有 UP，没有地址；configd 的 `Setup:` 下没有任何网络服务，`State:/Network/Interface/en0/Link` 为 Active。wifid 等不到可路由的接口，之后又重发加入请求。
+  - 原因：configd 的 InterfaceNamer 在 iOS 上只在数据卷首次开机时给接口建网络服务；之后出现的接口，只有控制偏好 `ConfigureNewInterfaces` 为真时才调用 `SCNetworkSetEstablishDefaultInterfaceConfiguration()`（configd 开源代码 `Plugins/InterfaceNamer/ifnamer.c`）。`Plugin:InterfaceNamer` 记录的 en0 命名时刻比 `*START*` 晚 29.5 秒，这时首次开机的配置已经建完。
+  - 经 `rsh.py` 执行 `net_test dhcp en0`，3.8 秒后 en0 拿到 IPv4 地址，标志变为 UP、RUNNING。之后不到两分钟内核 panic：trap telemetry 的提交线程（`drain_record_submission_buffer_thread_call`）调用 `OSKext::foreachKextInBacktrace()`，这个内核没有加载过 kext，`gLoadedKextSummaries` 为 NULL，读 `numSummaries` 时 data abort（far 0x8）。提交的是哪一类事件（UBSAN 软陷阱或超时）没有记录。panic 后 loader 回到 idle。
+- 第十批第二轮 `wd31`：`12377-cmd82`（`cmd81` 加 OSKext 的空指针判断），镜像带 `ConfigureNewInterfaces`，参数同 `wd30`。判据：en0 出现后 configd 的 `Setup:/Network/Service` 下有 en0 的服务；用户从设置加入后 configd 自己跑 DHCP，出现 `State:/Network/Global/IPv4`，设置里网络打勾；`net_test resolve` 与 `fetch` 成功；整轮没有 panic。
+  - configd 在 en0 出现后建出 Wi-Fi 服务（`Setup:/Network/Service/…/Interface` 的 `DeviceName` 为 en0，IPv4 为 DHCP），`Setup:/Network/Global/IPv4` 的服务顺序里只有它。
+  - 用户从设置加入 2.4 GHz 的网络后，设置里网络打勾。configd 自己跑完 DHCP：`State:/Network/Global/IPv4` 的主接口为 en0，全局 DNS 有服务器，IPv6 也拿到地址。
+  - 经 `rsh.py` 在设备上测：`resolve` 0.01 s 返回，`reach` 为可达，`fetch http://captive.apple.com/` 状态 200，`fetch https://www.apple.com/` 状态 200（256542 字节，1.20 s）。判据全部通过，整轮保持 900 秒没有 panic。
+  - 本轮第一次加入的是 5 GHz 40 信道的网络：接入点发了 3 次第 1 条消息，我们回了 3 次第 2 条，3086 ms 后 reason 15。用户没有重新输入密码，wifid 回到列表后自动重试，后来的加入成功。两次用的是同一个密码，失败原因在 wifid 给的 PMK 或我们发出的第 2 条，现有读数分不开。`wd30` 的第一次加入也是这样失败的。
+  - 网页与 Wi-Fi 列表里的中文显示为带问号的方框。iOS 26 没有 `Fonts/LanguageSupport/PingFang.ttc`，中文字体改为 `FontServices.framework/CorePrivate/PingFangUI.ttc`（61 MB），系统盘只从框架目录取小文件，这个字体没有选进去。它是可变字体，32 个字形共用 59 MB 的字形表，按字形裁剪省不下空间，整份放进系统盘，`system26.apfs` 从 5,217,959,936 字节变为 5,257,109,504 字节，与旧盘的文件列表只差这一个文件和它的目录。
+- 第十批第三轮 `wd32`：`12377-cmd83`（`cmd82` 加两个读数），系统盘换成带 `PingFangUI.ttc` 的 `system26.apfs`（与手机 DSU 里的不同，走 USB 上传），参数同 `wd30`。判据与读法：
+  - Safari 与 Wi-Fi 列表里的中文正常显示。
+  - 第一次加入若再失败：失败与成功两次的 PMK 指纹不同，问题在 wifid 给的 PMK；指纹相同而第 2 条被确认，问题在第 2 条的内容；第 2 条未被确认或被丢弃，问题在发送。
+  - 中文：设备上 `font_test` 的中文与日文样例回退到 `.PingFangUIDisplaySC-Regular` 并画出字形，韩文仍回退到 LastResort（`Fonts/Core/AppleSDGothicNeo.ttc` 43 MB，没有选进系统盘）。
+  - 加入：本轮第一次加入一次成功，第 2 条（155 字节）与第 4 条（133 字节）都被接入点确认，`wd30`、`wd31` 的第一次加入失败没有复现，原因仍未定位。两个读数留在内核里，失败再出现时按上面的读法判断。
 

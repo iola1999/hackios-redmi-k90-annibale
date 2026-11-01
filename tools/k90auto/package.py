@@ -105,6 +105,17 @@ WIFI_FW_FILES = (["amss.bin", "amss20.bin", "regdb.bin", "regdb_xiaomi.bin", "ph
                  sorted(p.name for p in WIFI_FW_DIR.glob("qdss_trace_config*.cfg")) +
                  sorted(p.name for p in WIFI_FW_DIR.glob("lfw-*.bin")) +
                  [p.name for p in WIFI_FW_DIR.glob("network")] if WIFI_FW else [])
+# configd gives an interface a network service (DHCP and the rest) at the first boot of a data volume;
+# for one that appears later, InterfaceNamer adds a service only when its control preference
+# ConfigureNewInterfaces is set (configd's ifnamer.c: on iOS it "normally" configures no interface after
+# the first boot). en0 appears about 30 s after configd starts, so without the preference it never gets
+# an address, and wifid, which waits for the joined network to become routable, gives the join up. With
+# WIFI_FW the preference goes into fw/ and two lines of the data volume template copy it to
+# /Library/Preferences/SystemConfiguration (a link to /private/var/preferences) before configd starts.
+WIFI_CONTROL = "com.apple.InterfaceNamer.control.plist"
+WIFI_CONTROL_PLIST = plistlib.dumps({"ConfigureNewInterfaces": True})
+WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguration",
+                      f"f\t644\t0\t0\t/private/var/preferences/SystemConfiguration/{WIFI_CONTROL}\t/fw/{WIFI_CONTROL}"]
 BASE = WORKSPACE / "out/ios26-resume/air-arm64e-device/on"
 TOOLS = WORKSPACE / "tools/apfs"
 # XPCWATCH="NAME ..." inserts libredwood-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
@@ -663,7 +674,7 @@ def main():
     # when it builds the skeleton, and this step appends whatever the base root is too old to have.
     skeleton = dest / "etc/var.skel"
     wanted = [line for line in (WORKSPACE / "userland/var.skel.extra").read_text().splitlines()
-              if line and not line.startswith("#")]
+              if line and not line.startswith("#")] + (WIFI_CONTROL_LINES if WIFI_FW else [])
     present = skeleton.read_text()
     appended = [line for line in wanted if line + "\n" not in present]
     # init stops at the first directory it cannot create, so a path the template already has (with
@@ -674,8 +685,10 @@ def main():
     if appended:
         with skeleton.open("a") as out:
             out.write("".join(line + "\n" for line in appended))
+    stale = [line for line in appended if line not in WIFI_CONTROL_LINES]
+    if stale:
         print(f"etc/var.skel in the base root is older than userland/var.skel.extra: added "
-              f"{len(appended)} line(s); rerun userland/build.sh to rebuild the base root")
+              f"{len(stale)} line(s); rerun userland/build.sh to rebuild the base root")
     # The count of lines added is a middle quantity: it says what this step did, not what the image
     # carries. These two names are what a round is measured on, so the pack fails when either is
     # missing from the packed skeleton, whoever broke it and however.
@@ -757,6 +770,8 @@ def main():
         shutil.copy2(probe, dest / "bin/lsprobe")
     for name in WIFI_FW_FILES if WIFI_FW else []:
         shutil.copy2(WIFI_FW_DIR / name, dest / "fw" / name)
+    if WIFI_FW:
+        (dest / "fw" / WIFI_CONTROL).write_bytes(WIFI_CONTROL_PLIST)
     # the desktop's own gesture script: the base image carries a one-shot sequence (unlock, two
     # page swipes and a Control Center pull, then nothing), and an acceptance run needs the eight
     # rounds the harness measures. The probe's line ends with "&": init runs the lines of rc.jobs
@@ -797,7 +812,7 @@ def main():
             f"{name} in root.apfs is not what this pack built"
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
              | ({"/bin/lsprobe"} if PROBE else set())
-             | ({"/fw/" + name for name in WIFI_FW_FILES} if WIFI_FW else set())
+             | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} if WIFI_FW else set())
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
              | ({"/lib/libredwood-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
@@ -825,7 +840,7 @@ def main():
                 *(["/etc", "/etc/var.seed"] if SEED else []),
                 *(["/etc", "/etc/env", *("/etc/env/" + name for name in EXT_ENV)] if EXT_ENV else []),
                 *(["/bin/lsprobe"] if PROBE else []),
-                *(["/fw", *("/fw/" + name for name in WIFI_FW_FILES)] if WIFI_FW else []),
+                *(["/fw", *("/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL])] if WIFI_FW else []),
                 # the two jobs below change this directory's own times as well
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],
@@ -833,7 +848,8 @@ def main():
                 *(["/LaunchDaemons/" + name for name in MSAA_JOBS] if REDWOOD_DIAG else []),
                 *{"/LaunchDaemons/" + name for name, _, _ in JOB_ENV},
                 # the skeleton is rewritten only when the base root is too old to carry a line that
-                # userland/var.skel.extra names; an empty skeleton_appended means it was left alone
+                # userland/var.skel.extra names, or with WIFI_FW (WIFI_CONTROL_LINES); an empty
+                # skeleton_appended means it was left alone
                 *(["/etc/var.skel"] if appended else [])}
     assert set(changes) == expected, f"unexpected changes: {sorted(set(changes) ^ expected)}"
     for name, diff in changes.items():
