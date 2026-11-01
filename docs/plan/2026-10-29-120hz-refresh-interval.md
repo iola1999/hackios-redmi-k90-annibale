@@ -9,8 +9,10 @@
 驱动文件是 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp`，目前没有 slot 301 与 `IOMFBDisplayRefresh` 的任何处理。
 
 1. **覆盖通用 slot 301**：把它指到自写的处理函数，不再落到通用实现。该函数负责设置刷新区间属性，返回值与参数校验按原 slot 的签名走。
-2. **区间按面板当前档位写**：`displayMinRefreshInterval` 与 `displayMaxRefreshInterval` 取当前模式对应的周期。60 Hz 档是 16,666,667 纳秒，120 Hz 档是 8,333,333 纳秒。两值都从模式表算，不写字面量，避免换面板后两份数不一致。
+2. **区间按面板当前档位写**：`displayMinRefreshInterval`、`displayMaxRefreshInterval`、`displayRefreshStep` 取当前模式对应的周期，单位是 2^-32 秒（120 Hz 档为 `2^32/120`）；只有 `displayRefreshStepMachTime` 用 mach 时钟 tick。按 tick 填时 CoreAnimation 会把面板算成 26844 Hz（上游 hakios `0dedaec` 实测）。各值都从模式表算，不写字面量，避免换面板后几份数不一致。
 3. **在 `registerService()` 之前调用原始 `setDisplayRefreshProperties`**：属性必须在 launchd、backboardd、SpringBoard 起来之前进注册表，否则先起的进程拿不到。这与该文件 1487 行记的「属性发布时机」是同一个约束。
+
+上游 hakios 在 iOS 16.5 上只在 `publishModes()` 里设置 `IOMFBDisplayRefresh` 就生效，没有覆盖 slot 301；帧率另外受应用 Info.plist 的 `CADisableMinimumFrameDurationOnPhone` 与 UIKit display link 的请求速率限制，见[上游做法](../analysis/2026-11-01-hakios-upstream-lessons.md) §3。
 
 ## 3. 落地顺序与前置条件
 

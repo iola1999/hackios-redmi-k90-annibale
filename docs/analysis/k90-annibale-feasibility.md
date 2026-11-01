@@ -31,7 +31,7 @@
 | 项目 | 实测值 | 对移植的意义 |
 |---|---|---|
 | SoC | SM8750（骁龙 8 Elite），dtb `qcom,sun` | 比 redwood（SM7325）新 4~5 代 |
-| CPU | 6×`0x514f0014` + 2×`0x513f0014`（Oryon），PSCI(SMC)，MPIDR `0,0x100..0x500 / 0x10000,0x10100` | `core_shift=8` 与 loader 假设一致；`small_cores`=前 6 核；armv9.2，PAC/BTI 齐（arm64e OK）；**无 AArch32**（iOS 16 全 64 位，无害） |
+| CPU | 6×`0x514f0014` + 2×`0x513f0014`（Oryon），PSCI(SMC)，MPIDR `0,0x100..0x500 / 0x10000,0x10100` | `core_shift=8` 与 loader 假设一致；`small_cores`=前 6 核；ARMv8.7-A、无 SVE，PAC/BTI 齐（arm64e OK）；**无 AArch32**（iOS 16 全 64 位，无害） |
 | GIC | `arm,gic-v3` @0x16000000，redist @0x16080000，+ITS | loader 平台表直接可填；XNU 现成支持 |
 | GPU | **Adreno 830**（`qcom,adreno-gpu-gen8-0-1`），固件 `gen80000_gmu.bin/sqe.fw/aqe.fw/zap.mbn` 在机 | freedreno/Mesa 25.0.7 无 a8xx → 第一阶段不启用 GPU |
 | Wi-Fi/BT | PCIe `17cb:1107` = WCN785x（FastConnect 7900，Wi-Fi 7） | 需要 **ath12k** 移植（现有是 ath11k）+ PCIe gen4 PHY |
@@ -42,6 +42,11 @@
 | hypervisor | Android 侧跑在 Gunyah 下（`gunyah_rm` 中断、`vm-bootsys`） | XBL 直接引导我们的镜像，Gunyah 不构成前置；细节待 UEFI 起来后验证 |
 | 引导 | A/B 槽；`xbl`(LUN1/2)、`uefi_a/b`(5MB!)、`abl`、`init_boot` 分离布局；活动槽 `_b` | `uefi_a` 库存 UEFI 已备份，移植参考资料；实验可用空闲的 `_a` 槽 |
 | root | KernelSU（`u:r:ksu:s0`），patch 的是 **init_boot_b** | boot_a/b 内核仍是纯原厂（备份哈希与 4 月 NAS 一致） |
+
+CPU 架构等级的依据：
+
+- 本机 MIDR 的部件号是 `0x001`，与 Snapdragon X（一代 Oryon）相同。GCC 和 LLVM 都把部件号 `0x001` 归为 `oryon-1`，基线 ARMv8.6-A，带 PAuth；[高通文档](https://docs.qualcomm.com/doc/80-78185-2/topic/architecture.html)写明 Snapdragon X 符合 ARMv8.7-A、不实现 SVE。
+- [arm-socs-table](https://github.com/hrw/arm-socs-table) 收录的 SM8750 `/proc/cpuinfo` 特性有 `paca`、`pacg`、`bti`，没有 `sve`、`sme`。ARMv9.0 要求 SVE2，所以 8 Elite 达不到 v9；同表的 SM8850（8 Elite Gen 5）部件号是 `0x002`，特性含 `sve2` 与 `sme`。
 
 设备树已归档：`annibale.fdt`（原件）与 `annibale.dts.gz`（反编译）在本目录。
 
