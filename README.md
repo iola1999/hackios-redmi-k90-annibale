@@ -19,7 +19,7 @@
 本仓库的主要体验方式是把下面这段话交给 AI Agent，由它先完成检查和备份，再给出适用于你设备的启动命令；手动执行的话按第 4～7 节操作，Agent 同样以这些章节和所链接的手册为工作依据。
 
 ```text
-请协助我体验 https://github.com/iola1999/hackios-redmi-k90-annibale。先阅读 README、AGENTS.md 和排查与协作手册，问清我的设备、电脑系统和数据保护要求，再只读核对真实机型、bootloader/root 权限、Android 槽位、OTA 状态及分区大小。按 README 备份重要分区，先计算空间，再核对字节数与 SHA-256，并准备恢复方案。核对公开 commit 与最新调试结果的差异，准备匹配的 K90 构建产物；保留可启动的 Android 槽，系统盘只走 USB RAM。写分区或切换槽位前，列明设备、目标、文件哈希及恢复命令，等我确认。先验收 iOS 桌面，再单独验证触摸和性能；结束时帮我切回 Android 并检查数据。不要自动解锁／锁定 bootloader、清数据或修改 GPT。
+请协助我体验 https://github.com/iola1999/hackios-redmi-k90-annibale。先阅读 README、AGENTS.md 和排查与协作手册，问清我的设备、电脑系统和数据保护要求，再只读核对真实机型、bootloader/root 权限、Android 槽位、OTA 状态及分区大小。按 README 备份重要分区，先计算空间，再核对字节数与 SHA-256，并准备恢复方案。核对公开 commit 与最新调试结果的差异，准备匹配的 K90 构建产物；保留可启动的 Android 槽，系统盘只在 RAM 中运行，经 USB 上传，或从 Android 的 DSU 镜像读入（安装 DSU 前先征得我同意）。写分区或切换槽位前，列明设备、目标、文件哈希及恢复命令，等我确认。先验收 iOS 桌面，再单独验证触摸和性能；结束时帮我切回 Android 并检查数据。不要自动解锁／锁定 bootloader、清数据或修改 GPT。
 ```
 
 ## 3. 当前适配进展
@@ -34,7 +34,7 @@ K90 已通过 A830 GPU 初始化与提交服务的全部阶段，CoreAnimation �
 | 电源与温控 | 电量、电压、温度已交给 iOS 电源服务；双核、按负载调频和温控降档已验证；充电器在线状态待核对 |
 | 手电与振动 | 寄存器路径与 iOS 控制中心链路已通过无人值守测试，灯光与震感待人工确认 |
 | 调试与恢复 | loader 支持日志与截图读取、GPU 停止后的资源保留及 USB 复位；完整正常关闭与全部故障分支待验收 |
-| 数据持久化 | 系统盘与运行数据走 RAM，会写实验槽的 `boot` 分区；保留可启动的 Android 槽用于回退 |
+| 数据持久化 | 系统盘与运行数据在 RAM 中运行，会写实验槽的 `boot` 分区；系统盘可另存一份 Android DSU 镜像（只安装、不启用），省去每轮 USB 上传；保留可启动的 Android 槽用于回退 |
 | 未完成 | Wi-Fi、音频、摄像头、屏幕亮度等外设适配，Metal 路线与更高系统版本的移植，见[路线图](docs/plan/2026-10-26-roadmap.md) |
 
 两个子模块的指针即为本仓库当前验证的源码版本，打包镜像与启动参数按进度记录中的运行清单配套核对。已知风险与遗留问题见[GPU 桌面记录](docs/progress/2026-10-26-gpu-desktop-acceleration.md)。
@@ -107,7 +107,7 @@ shasum -a 256 "$BACKUP_DIR/boot_a.img"
 
 ## 6. 如何启动 iOS
 
-本机实测路径是向实验槽的 `boot` 写入驻留 loader，随后通过 USB 把 iOS 系统盘、内核和 root 镜像传入 RAM。Android 位于 B 槽、实验位于 A 槽是这台测试机的配置；新设备必须先验证自己的 Android 槽。`fastboot boot` 临时启动的适用镜像需要另行验证。
+本机实测路径是向实验槽的 `boot` 写入驻留 loader，随后把 iOS 系统盘、内核和 root 镜像放进 RAM：内核和 root 镜像经 USB 传入；系统盘经 USB 上传，或由 loader 从手机里的 Android DSU 镜像读入（见下文「从 Android DSU 读入系统盘」）。Android 位于 B 槽、实验位于 A 槽是这台测试机的配置；新设备必须先验证自己的 Android 槽。`fastboot boot` 临时启动的适用镜像需要另行验证。
 
 ### 安装驻留 loader
 
@@ -169,6 +169,20 @@ debug=0x10e serial=3 cpus=2 bootcpu=7 small_cores_after=0 fb_threads=2 cpufreq=1
 ```
 
 启用前先确认内核、gen80000 固件和含 CCHE 修复的 Mesa 库齐全；GPU 资源保留后按[真机调试手册](docs/plan/device-test-playbook.md#6-故障定位与恢复)复位。交互轮不设置 `loader_return_after` 自动退出时限。
+
+### 从 Android DSU 读入系统盘
+
+iOS 26 的系统盘 `userland/system26.apfs` 约 5.26 GB，经 USB 上传一次约需 130 秒。可以把它存成 Android「动态系统更新」（DSU）的镜像：Android 的安装程序把它写进 `userdata` 里的一个文件，loader 从 `metadata` 分区的 DSU 记录找到这个文件的位置，直接读进常驻区。DSU 只安装、不启用，Android 照常从自己的槽位启动；开发者选项里的 DSU 设置或安装程序的通知可以随时丢弃它。
+
+手机处于 Android、屏幕已解锁时，在工作区根目录执行：
+
+```sh
+ANDROID_SERIAL="${ANDROID_SERIAL:?}" python3 tools/k90auto/dsu.py install --replace
+```
+
+脚本把系统盘补零到 16 GiB 的槽位、压缩后推送，启动安装程序并等它报告完成，最后把每 MiB 的 SHA-1 与整份镜像的 SHA-256 记进 Git 忽略的 `docs/progress/evidence/k90auto/dsu/`。安装程序可能在手机上弹出确认，需要人工点确认；整个过程不重启手机。`--replace` 先清掉已安装的旧 DSU，只在旧镜像处于未启用、未运行状态时才会执行。安装过程中手机上需要约 25 GB 空闲空间（16 GiB 槽位、2 GiB DSU 数据区与约 5 GB 的临时压缩包），压缩包在安装完成后删除。
+
+之后每一轮，`tools/k90auto/run-auto.py` 先比对本轮系统盘与上述记录的 SHA-256：一致且 loader 支持 `oem dsu` 时，用 `oem dsu load` 从手机存储读入，再按每 1 GiB 一段用 `oem dsu crc` 与本地镜像比对；任何一段不一致、读入失败或记录不符，都清掉常驻区并改走 USB 上传。设 `K90_DSU=0` 可以强制走 USB。实测读入 1.4 秒、比对 1.8 秒（`kernel-12377-cmd82-wd31`）。重建系统盘后要重新执行上面的安装命令，否则各轮会因哈希不符退回 USB 上传。
 
 ## 7. 如何回到 Android
 
