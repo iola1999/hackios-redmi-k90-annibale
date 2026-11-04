@@ -79,7 +79,16 @@
 - DSI 寄存器偏移没有本地来源，要上机核对。
 - DSI 的 DMA 能否经 SMMU 取到内存不知道。不经 DMA 的发法（DSI 测试模式 FIFO）见 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 7 项，寄存器偏移来自 SM8850，要在 SM8750 上核对。
 - 正常亮度与 HBM 的分界不知道。
-- CoreBrightness 可能还要别的属性（标定表）；缺的时候看起来会用默认值（推断）。
+- CoreBrightness 要的属性比本文最初列的多，见第 9 节。
 - iOS 会因温度压低亮度：dada 遇到过电池温度报 43～45 °C 时 iOS 把屏幕压到接近全黑，它的处理是把报给 iOS 的温度设上限（dada 补丁第 24812 行）。
 
 最有用的第一个真机实验是第 2 步：一次构建，不给面板发命令，就能看到 iOS 实际走哪条属性路径、用什么单位，以及 DSI 的 DMA 是否可用；`mg_test` 可以放在同一轮里跑。
+
+## 9. 实测（2026-11-05）
+
+轮次与读数见 [11-05 记录](../progress/2026-11-05-defaults-and-charging.md) §3.7，代码在内核仓库的 `MiniAppleARMBacklight.cpp` 与 `MiniFramebufferDim.inc`。
+
+- 只发布带 `IODisplayParameters` 的 `AppleARMBacklight` 不够：backboardd 在 CoreBrightness 里读空指针，反复崩溃（`rate11-w3`）。CoreBrightness 还经背光节点及其父节点读 `backlight-calibration-parameters`（16.16 定点数的字典，`-[CBBacklightNode getBacklightCalibration:]`，`0x1e2731760`）和 `backlight-marketing-table`（16.16 定点数组成的 data），后者缺失时显示初始化失败。
+- 两项补齐后（`rate12-br1`），iOS 走 IOMFB 路径：`IOMFBBrightnessLevel` 发到 IOMobileFramebuffer，单位是尼特 × 65536，渐变时每秒约 180 次；`brightness` 与 `brightness-nits` 没有出现在日志里。
+- 没有发 DCS。退路改用显示控制器的混合器：`fb_dim=1` 时把画面所在 stage 的常量 alpha 设为亮度比例的平方根（按面板 gamma 约 2.2 推断），截图看不出变化，寄存器回读随滑块变化（`rate13-br2`）。这种做法只能变暗，低亮度下有色阶，与第 6 节的拷贝时压暗相同。
+

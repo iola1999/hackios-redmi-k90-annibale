@@ -15,6 +15,7 @@
 - 新工具：`install-ipa.py`（经 USB 分块推送并安装 IPA）、`ui.py`（读界面元素、按文字点按、截图）。
 - 用户态（`.userland.git` `1c51c1d21`，移植为 userland `36136c4`）：`appinst`、`wifijoin`、`libredwood-ax`、rwsh 的 `pull 路径 偏移`、Mesa 补丁 0010。
 - 内核（`67f8d61`）：电池读数来自电量计 BQ27Z561（`annibale_battery.c`），电流不低于 −50 mA 就算外部供电；`RedwoodBattery.cpp` 在外部供电且状态不是放电时报充电，供电或状态变化时打印一行 `RedwoodBattery: N%, ...`。`12377-rate8` 只含 `RedwoodBattery.cpp` 的改动，`12377-rate9` 两处都含。
+- 内核（`6027b2d`，`12377-rate14`）：发布 `AppleARMBacklight` 与 CoreBrightness 要读的校准参数、亮度表；`fb_dim=1`（默认 0）时由显示控制器的混合器按亮度调暗画面，见 §3.7。
 - 内核（`9922d45`，`12377-rate10` = rate9 加这一笔）：加入后的信号跟随接入点的实际帧；数据路径前 64 行发送读数和硬件模式相关的 WMI 事件。`cycle.py` 默认内核改为 `12377-rate10`。
 - 用户态（`.userland.git` `c9f2428ac`，移植为 userland `46b970b`）：`inject_fpvolume.c`（`libredwood-fpvolume.dylib`，只插入 fileproviderd）让 fileproviderd 接受内存盘上的 `/private/var`，`package.py` 的 `FPVOLUME` 默认打开。
 - 用户态（`.userland.git` `a3f07668f`，移植为 userland `02f4f12`）：`statusbar26.m` 并入 `libredwood-ax.dylib`，状态栏的时间和电池各向屏幕边缘移 12 点；`wifijoin` 取信号最强的扫描记录。`package.py` 的 `AX` 默认加上短信、备忘录、邮件、日历、照片、音乐、地图、App Store、文件。
@@ -37,6 +38,9 @@
 | `kernel-12377-rate10-w2` | rate10 | 同 w1，fileproviderd 带 `OS_ACTIVITY_DT_MODE=YES`、`OS_ACTIVITY_MODE=debug` | 文件 App 的位置只有「最近删除」，见 §3.3 |
 | `kernel-12377-rate11-w3` | rate11（rate10 加亮度服务，未提交） | `fb_lm_dump=1 fb_dim=1` | backboardd 在 CoreBrightness 里反复崩溃，没有桌面，见 §3.7 |
 | `kernel-12377-rate10-fp1` | rate10 | 默认参数加 `libredwood-fpvolume.dylib` | 文件 App 有「我的 iPhone」，见 §3.3 |
+| `kernel-12377-rate12-br1` | rate12（rate11 加校准参数与亮度表） | `fb_dim=1` | backboardd 不再崩溃，控制中心的亮度滑块把尼特数发到内核，见 §3.7 |
+| `kernel-12377-rate13-br2` | rate13（rate12 的日志加混合器 alpha 回读） | `fb_dim=1` | 混合器 alpha 随滑块变化，见 §3.7 |
+| `kernel-12377-rate14-br3` | rate14（rate13 去掉只读的寄存器转储，内核 `6027b2d`） | `fb_dim=1` | 滑块拉到最低 6 尼特、alpha 123，拉到最高 400 尼特、alpha 1023 |
 
 ## 3. 读数
 
@@ -90,11 +94,14 @@
 
 - rate11 发布 `AppleARMBacklight` 服务（`IODisplayParameters` 带 `brightness` 与 `BrightnessMilliNits`），`fb_dim=1` 时按亮度设置显示控制器混合器的常量 alpha。代码在内核工作树，未提交。
 - w3 的寄存器读数：ctl0 的 `intf` 为 0x2、`layer active` 为 0x3；lm0、lm1 都只有 stage 5 接了管道（`src 00004140`、`op 00000400`、`alpha ffff0000`），调暗代码按这个布局启用，flush 为 0x200c0。
-- w3 的 backboardd 在 `[Backlight] instantiating BrightnessSystem` 之后以 SIGSEGV 退出，约 30 次。CoreBrightness 的 `-[CBBacklightNode getBacklightCalibration:]` 读背光节点的 `backlight-calibration-parameters` 字典（`lMinPanel`、`lMidPanel`、`lMaxPanel` 等 10 个键，16.16 定点数），读不到时走默认分支，按一张没有加载的亮度表插值，读空指针。下一步是补齐这些属性。
+- w3 的 backboardd 在 `[Backlight] instantiating BrightnessSystem` 之后以 SIGSEGV 退出，约 30 次。CoreBrightness 的 `-[CBBacklightNode getBacklightCalibration:]` 读背光节点的 `backlight-calibration-parameters` 字典（`lMinPanel`、`lMidPanel`、`lMaxPanel` 等，16.16 定点数），读不到时走默认分支，按一张还没加载的亮度表插值，读空指针。亮度表来自 `backlight-marketing-table`，缺了它显示初始化直接失败。
+- rate12 发布这两项：校准参数取 CoreBrightness 自己的默认值 5、140、400 尼特，三项电流填 0；亮度表 11 个点，按 5 + 395·x^1.55 尼特取值（曲线是假设）。br1 的 backboardd 没有重启，开机后 iOS 经 `IOMFBBrightnessLevel` 把亮度从 400 尼特渐变到约 168 尼特。
+- br2 在控制中心拖动亮度滑块，内核日志里的混合器回读：400 尼特时 alpha 1023/1023，168 尼特时 663，50.5 尼特时 363。截图读的是帧缓冲内存，看不出变暗；屏幕实际亮度要人看。
+- `fb_dim` 默认关闭，默认内核仍是 rate10。打开时每次亮度变化都写混合器并 flush，与 `fb_flip=2` 的翻页一起写 CTL_FLUSH，br1 出现过 `4 writes found the one before not yet taken`，对翻页的影响没有测。
 
 ## 4. 待办
 
 - `12377-rate9` 上机：墙插充电器、高电量时状态栏应显示闪电。
 - Wi-Fi 第 2 条握手消息没有发出：rate10 带发送读数，复现时看描述符的 vdev、pmac、AST 索引与完成记录。
 - Safari 下载项停在「9 KB / 9 KB」、文件没有进「我的 iPhone」。
-- 亮度：背光服务补齐 CoreBrightness 读的属性后再上机。
+- 亮度：`fb_dim=1` 的实际亮度要人看；默认打开前要测一次背光服务对手势帧率的影响。
