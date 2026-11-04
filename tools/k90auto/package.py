@@ -101,12 +101,14 @@ VARSTORE_LINE = "/redwood/bin/var_store show\n"
 # sends on this phone (pcie_bdf= picks a board data file by name, pcie_qdss=1 sends the QDSS file).
 # lfw-*.bin, when there, are linux-firmware's ath12k/WCN7850/hw2.0 amss.bin and m3.bin, copied by hand
 # (pcie_fw=3). network, when there, is the network wifi_join=1 joins: its name on the first line, its
-# passphrase on the second (git-ignored; the manifest records that it was there, not its hash).
+# passphrase on the second (git-ignored; the manifest records that it was there, not its hash). It goes
+# in with the four files as well: rc.jobs.interactive runs userland/src/wifijoin.c, which joins it
+# through wifid at every boot.
 WIFI_FW_DIR = WORKSPACE / "out/fw-wifi"
 WIFI_FW_USED = ["amss20.bin", "regdb.bin", "bd_p11.elf", "phy_ucode20.elf"]
 WIFI_FW_MODE = os.environ.get("WIFI_FW", "used" if all((WIFI_FW_DIR / n).exists() for n in WIFI_FW_USED) else "0")
 WIFI_FW = WIFI_FW_MODE != "0"
-WIFI_FW_FILES = (WIFI_FW_USED if WIFI_FW_MODE == "used" else
+WIFI_FW_FILES = (WIFI_FW_USED + [p.name for p in WIFI_FW_DIR.glob("network")] if WIFI_FW_MODE == "used" else
                  ["amss.bin", "amss20.bin", "regdb.bin", "regdb_xiaomi.bin", "phy_ucode20.elf"] +
                  sorted(p.name for p in WIFI_FW_DIR.glob("bdwlan.e*")) +
                  sorted(p.name for p in WIFI_FW_DIR.glob("bd_p11*.elf")) +
@@ -130,6 +132,10 @@ TOOLS = WORKSPACE / "tools/apfs"
 # with those file names: it puts the named services they connect to, with counts, into the kernel
 # log ("say PID NAME: xpcwatch ..."). For finding the clients that reconnect in a loop.
 XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
+# libredwood-ax.dylib (userland/src/ax.m) goes into these programs unless AX is set to the empty string:
+# on the notification com.redwood.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
+# which tools/k90auto/ui.py reads to tap by name. It does nothing until that notification.
+AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather HelloK90").split()
 # MercuryPosterExtension, the provider of the default wallpaper, gets the Metal device unless
 # POSTER_METAL=0: it draws the wallpaper with its own Metal shaders (default.metallib in its bundle),
 # and without a device the wallpaper window hosts its context empty. It is an ExtensionKit service
@@ -146,7 +152,8 @@ INJECT = (
     "/redwood/lib/libredwood.dylib backboardd\n"
     "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension\n" +
     ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
-     if XPCWATCH_PROCESSES else "")
+     if XPCWATCH_PROCESSES else "") +
+    ("/redwood/lib/libredwood-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "")
 )
 JOBS = "etc/rc.jobs"
 # JOBS_SOURCE=... runs a different touch script than the acceptance one. A diagnostic that has
@@ -292,7 +299,16 @@ REST_DIR = OUT / "rest-jobs"
 # wallpaper: it serves com.apple.proactive.FaceSuggestions.xpc, and on kernel-12377-cmd40-bo16
 # PosterBoard's gallery update got 4099 (connection invalid) from it and every extension's
 # descriptor push to it failed with -2222.
-REST_TRIAL = os.environ.get("REST_ALLOW", "").split()
+# AUDIO=1 starts the audio server for the volume keys, the volume display and the volume slider before
+# there is any sound hardware (docs/analysis/2026-11-02-audio-and-volume.md §6, step 1): audiomxd and
+# the other audio jobs come in with the rest (DENY's word "audio" is let through), and RedwoodAudio.driver,
+# the HAL plug-in iOS routes the speaker port to, is rebuilt for arm64e; the base root's copy is arm64,
+# which the arm64e audiomxd does not load (inferred there).
+AUDIO = os.environ.get("AUDIO") == "1"
+AUDIO_SOURCES = ["userland/src/audio_plugin.c"]
+AUDIO_FLAGS = ["-Os", "-Wall", "-Wextra", "-bundle", "-framework", "CoreFoundation"]
+AUDIO_PLUGIN = "/lib/RedwoodAudio.driver/RedwoodAudio"
+REST_TRIAL = os.environ.get("REST_ALLOW", "").split() + (["audio"] if AUDIO else [])
 REST_ALLOW = ["com.apple.dmd"] + REST_TRIAL
 REST_DENY = ["com.apple.PerfPowerServices"]
 SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0"]
@@ -345,6 +361,9 @@ SB26_SOURCES = ["userland/src/inject_sb26.c", "userland/src/inject_sb26_layers.c
 SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal"]
 XPCWATCH_SOURCES = ["userland/src/xpcwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
+AX_SOURCES = ["userland/src/ax.m"]
+AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
+            "-framework", "CoreGraphics"]
 
 # The run this image is compared against used exactly these.
 BASE_ROOT_SHA256 = "33ed5fc9cb18367c124e6fd26a2fc982f7d80b3a44e04754f87cf74b5aa381f0"
@@ -651,12 +670,20 @@ def main():
     if XPCWATCH_PROCESSES:
         commands["xpcwatch"] = build(XPCWATCH_SOURCES, "/redwood/lib/libredwood-xpcwatch.dylib",
                                      XPCWATCH_FLAGS, xpcwatch)
+    audio = OUT / "RedwoodAudio"
+    if AUDIO:
+        commands["audio"] = build(AUDIO_SOURCES, "", AUDIO_FLAGS, audio, dynamic=False)
+    ax = OUT / "libredwood-ax.dylib"
+    if AX_PROCESSES:
+        commands["ax"] = build(AX_SOURCES, "/redwood/lib/libredwood-ax.dylib", AX_FLAGS, ax)
     probe = OUT / "lsprobe"
     if PROBE:
         commands["probe"] = build(PROBE_SOURCES, "", PROBE_FLAGS, probe, dynamic=False)
     sources = {name: sha(SRC_ROOT / name)
                for name in [*SHIM_SOURCES, *DRIVER_SOURCES, *DRIVER_INCLUDES, *SB26_SOURCES,
                             *(XPCWATCH_SOURCES if XPCWATCH_PROCESSES else []),
+                            *(AX_SOURCES if AX_PROCESSES else []),
+                            *(AUDIO_SOURCES if AUDIO else []),
                             "userland/src/sb_metal_registration_sequence.inc",
                             "userland/src/sb_metal_compression_policy.inc",
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
@@ -716,6 +743,10 @@ def main():
     shutil.copy2(sb26, dest / "lib/libredwood-sb26.dylib")
     if XPCWATCH_PROCESSES:
         shutil.copy2(xpcwatch, dest / "lib/libredwood-xpcwatch.dylib")
+    if AX_PROCESSES:
+        shutil.copy2(ax, dest / "lib/libredwood-ax.dylib")
+    if AUDIO:
+        shutil.copy2(audio, dest / AUDIO_PLUGIN.lstrip("/"))
     shutil.copy2(userland, dest / "lib/libredwood.dylib")
     assert sha(dest / "lib/libredwood.dylib") == sha(userland), \
         "libredwood.dylib in the image is not the one build.sh produced"
@@ -825,6 +856,7 @@ def main():
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
              | ({"/lib/libredwood-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
+             | ({"/lib/libredwood-ax.dylib"} if AX_PROCESSES else set())
              | {"/LaunchDaemons/" + name for name in rest_added}
              | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set()))
     assert set(after) - set(before) == added, \
@@ -837,6 +869,8 @@ def main():
     expected = {"/lib/libredwood-sbmetal-experiment.dylib", "/lib/libredwoodmetal.dylib",
                 "/lib/libredwoodair.dylib", "/lib/libredwood.dylib", "/lib/libredwood-sb26.dylib",
                 *(["/lib", "/lib/libredwood-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
+                *(["/lib", "/lib/libredwood-ax.dylib"] if AX_PROCESSES else []),
+                *([AUDIO_PLUGIN] if AUDIO else []),
                 "/etc/inject.conf",
                 "/etc/rc.jobs", "/" + JOB, *(["/" + ICON_JOB] if ICON_METAL else []),
                 "/xpc/launchd.plist", *["/bin/" + program.name for program in EXTRA_PROGRAMS],

@@ -9,15 +9,16 @@
 | 桌面与系统应用 | 开机自动解锁进入主屏；壁纸、图标、小组件、控制中心、通知中心可用；设置、Safari、短信等系统应用能打开 |
 | 图形与显示 | 本项目的 Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 绘制后缩放到面板，刷新率 120 Hz |
 | 触摸与按键 | 触摸、电源键、音量键可用 |
-| Wi-Fi | 在设置里加入 WPA2 网络，Safari 能打开网页，中文显示正常 |
-| 电池与温控 | 显示电量；处理器和 GPU 按负载调频，过热时逐档降频；充电状态显示不准，正在处理 |
-| 未完成 | 蓝牙、声音、亮度调节、摄像头、蜂窝网络、App Store 与第三方应用安装；手电与振动在 iOS 26 上还不能用 |
+| Wi-Fi | 开机后自动加入 `hackios-xnu-kernel/out/fw-wifi/network` 里写的网络，也可以在设置里加入；Safari 能打开网页，中文显示正常 |
+| 安装应用 | 能安装并运行任意解密过的 IPA，见 §6 |
+| 电池与温控 | 显示电量；插着充电器时显示充电（墙插充电器下待实测）；处理器和 GPU 按负载调频，过热时逐档降频 |
+| 未完成 | 蓝牙、声音、亮度调节、摄像头、蜂窝网络、App Store；网页里的 H.264 视频不能播放（没有硬件解码）；天气取不到数据；手电与振动在 iOS 26 上还不能用 |
 
-性能：在 120 Hz 屏上，翻页约 90～100 帧／秒，控制中心下拉约 95 帧／秒；GPU 最高 1100 MHz，无人值守测试中 GPU 温度最高约 57 °C。
+性能：在 120 Hz 屏上，翻页约 90～100 帧／秒，控制中心下拉约 90 帧／秒；GPU 最高 1100 MHz，无人值守测试中 GPU 温度最高约 57 °C。
 
 限制：
 
-- 系统和运行数据都在内存里，每次开机都是一份干净的系统，设置、加入过的 Wi-Fi 和应用数据不保留。
+- 系统和运行数据都在内存里，每次开机都是一份干净的系统，设置、安装的应用和应用数据不保留。
 - 运行 iOS 时连着电脑的 USB 也不充电，电量会慢慢下降。
 
 最新状态和实测数据以[总账](docs/plan/2026-10-23-tracking.md)为准，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
@@ -101,9 +102,20 @@ ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --hold --se
 可以试的：
 
 - 上滑回主屏、左右翻页、下拉控制中心和通知中心、打开系统应用。
-- 在「设置 → Wi-Fi」加入网络，再用 Safari 上网；每次开机要重新加入。
+- 用 Safari 上网。Wi-Fi 网络名和密码写进 `hackios-xnu-kernel/out/fw-wifi/network`（第一行网络名，第二行密码，Git 忽略），开机后自动加入；没有这个文件时在「设置 → Wi-Fi」里加入，每次开机要重新加入。
 
-提前结束：`python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-<内核名>-use1 --stop`。
+安装应用：iOS 运行期间随时可以装，不用重新打包或重启。两种方式：
+
+- 手机上：用 Safari 下载 `.ipa`，在弹出的提示里点「下载」，约 10 秒后图标出现在主屏。Safari 自己的下载提示会停在下载中或显示失败，不影响安装。
+- 电脑上：手机连着 USB 时执行下面的命令，装好后自动打开，40 MB 的 IPA 约 20 秒。
+
+  ```sh
+  python3 tools/k90auto/install-ipa.py docs/progress/evidence/k90auto/kernel-12377-rate8-use1 App.ipa --open
+  ```
+
+IPA 要是解密过的，App Store 的加密 IPA 不能运行，`install-ipa.py` 发送前会检查并提示。装上的应用重启后就没有了。卸载用 `python3 tools/k90auto/rsh.py <轮次目录> /redwood/bin/appinst remove 应用ID`。
+
+提前结束：`python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-12377-rate8-use1 --stop`。
 
 ## 7. 回到 Android
 

@@ -6,7 +6,7 @@
 
 | # | 做法 | 来源 | 我们的现状 | 下一步与判据 |
 |---|---|---|---|---|
-| 1 | backboardd 环境变量 `CA_FP16_MIN_HEADROOM=1e30`、`CA_ALLOW_EDR_MIRRORING=0`，让 CoreAnimation 不用 16 位浮点帧缓冲 | UniXNU/AdrenoMetal `d2aa73f`、`0055c37`、`9bad6f5` | 23G90 的共享缓存里有这两个变量名（已核对）；整屏 pass 的第二个附件是 RGBA16Float，每帧约 25 MB 写回 | 一轮 `JOB_ENV` 对照：`REDWOOD_PASS_LOG=1` 里第二个附件是否消失，`REDWOOD_PASS_TIMES` 的整屏 pass 时间 |
+| 1 | backboardd 环境变量 `CA_FP16_MIN_HEADROOM=1e30`、`CA_ALLOW_EDR_MIRRORING=0`，让 CoreAnimation 不用 16 位浮点帧缓冲 | UniXNU/AdrenoMetal `d2aa73f`、`0055c37`、`9bad6f5` | 23G90 的共享缓存里有这两个变量名（已核对）；整屏 pass 的第二个附件是 RGBA16Float，每帧约 25 MB 写回 | 已试（`kernel-12377-rate8-fp16`）：第二个附件仍在，整屏 pass 时间不变，不采用。该附件的 `writeMask` 为 0，改由 Mesa 补丁 0010 不写回，见 [11-05 记录](../progress/2026-11-05-defaults-and-charging.md) §3.1 |
 | 2 | 整屏 pass 逐个 draw 计时；CoreAnimation 的大着色器按常量缓冲内容特化编译 | hakios-metal `e59090f`，hakios-xnu-kernel `512d228`、`d53f3e9` | 只有按 pass 的合计（`rebase-26/0008`），不知道 87% 的整屏 pass 时间落在哪几个 draw | 先打印 backboardd 片段着色器的指令数与常量缓冲读取，再在 sysmem 下给单帧逐 draw 计时 |
 | 3 | 画布改为 iPhone XR／11 的 828×1792（2 倍） | hakios-xnu-kernel `09cf881`、`87bf485` | 1206×2622 是为状态栏布局选的（[状态栏布局分析](2026-11-02-status-bar-layout.md)）；像素是 828×1792 的 2.13 倍 | 需用户决定清晰度与帧率的取舍；上游滚动 89～91 → 118 帧／秒，画面变软 |
 | 4 | 隐藏或冻结壁纸做对照 | hakios-xnu-kernel `512d228`、`66b8e63`、`348613f`；hakios-metal `583b67f` | sk1 手势窗口里壁纸扩展用了 519 ms GPU 时间 | SpringBoard 注入库加一个隐藏壁纸窗口的通知，一轮对照手势帧率 |

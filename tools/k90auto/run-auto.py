@@ -15,7 +15,10 @@ seconds from SHOT_FROM on, for a round that wants a time series instead of the l
 Commands for the running iOS go the same way: tools/k90auto/rsh.py drops RUN_DIR/run/cmd-request-*.txt,
 the run sends each one with `oem sh` (to /redwood/bin/rwsh, which must be in the round's rc.jobs),
 writes the loader's answer to cmd-reply-*.json and reads the log a few times over the next 18 s
-into cmd-SEQ.log, which is where rsh.py finds the output.
+into cmd-SEQ.log, which is where rsh.py finds the output. A file for the running iOS goes the same
+way: RUN_DIR/run/push-request-*.txt names a host file of at most 16 MB, the run sends it with
+`oem push` and `stage` into the kernel's inbox and writes push-reply-*.json; rwsh "pull" then writes
+it on the phone (tools/k90auto/install-ipa.py).
 
 Screenshots are otherwise on demand. A run watches RUN_DIR/shot-request; whoever performed an action
 worth recording writes that file (tools/k90auto/shot-now.py does it), and the run takes exactly one
@@ -273,6 +276,18 @@ def serve_commands():
             call(["get_staged", run / f"cmd-{due[1]}.log"], 20, False)
 
 
+def serve_pushes():
+    """Put each file a push request names into the running kernel's inbox, oldest first."""
+    for request in sorted(run.glob("push-request-*.txt")):
+        path = request.read_text().strip()
+        request.unlink()
+        pushed = call(["oem", "push"], 8, False)
+        staged = call(["stage", path], 60, False) if pushed["rc"] == 0 and "FAILED" not in pushed["output"] else pushed
+        ok = staged["rc"] == 0 and "FAILED" not in staged["output"]
+        reply = run / request.name.replace("push-request-", "push-reply-").replace(".txt", ".json")
+        reply.write_text(json.dumps({"path": path, "ok": ok, "output": staged["output"][-300:]}) + "\n")
+
+
 def take_shot(elapsed):
     """One screenshot at the given elapsed second. The name keeps the fixed-interval format so a
     reader converts a file name to a moment the same way it did for the earlier rounds."""
@@ -342,6 +357,7 @@ while time.monotonic() - start < duration:
         take_shot(elapsed)
         shots += 1
     serve_commands()
+    serve_pushes()
     time.sleep(0.5)
 print("SAMPLED_SECONDS", time.monotonic() - start, "failed_call", failed, flush=True)
 

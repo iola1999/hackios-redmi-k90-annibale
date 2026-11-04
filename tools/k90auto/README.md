@@ -127,10 +127,22 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `POSTER_METAL` | `1` | MercuryPosterExtension 插入 Metal 设备登记库；`0` 时壁纸为黑色，见[锁屏壁纸](../../docs/analysis/2026-10-31-mercury-wallpaper.md) |
 | `DIRTY_REGIONS` | 关 | `1` 时 backboardd 只重绘变化区域；默认整帧重绘 |
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
-| `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与常驻系统盘之间的 40.9 MB）；`0` 不放 |
+| `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘，有 `network` 文件时一起放入，开机后由 `wifijoin` 加入；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与常驻系统盘之间的 40.9 MB）；`0` 不放 |
+| `AX` | `SpringBoard Preferences MobileSafari Weather HelloK90` | 插入 `libredwood-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按 |
+| `AUDIO` | 关 | `1` 时放行音频任务（audiomxd 等）并把 `RedwoodAudio.driver` 按 arm64e 重编，用于音量键与音量提示框的第一步 |
 | `SEED` | 无 | 把 `/private/var` 种子打包为 `etc/var.seed`（`cycle.py --seed` 设置） |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
 | `GPU_SPEED` | `3` | 记进 manifest，与载荷的 `adreno8_speed` 不一致时 `make-payload.py` 拒绝 |
+
+开机自动运行的程序（`jobs/rc.jobs.interactive`，`cycle.py` 在产物存在时打包，构建命令见各源文件头）：
+
+- `wifijoin`（`hackios-xnu-kernel/userland/src/wifijoin.c`）：经 wifid 加入 `network` 文件里的网络，最多试 3 次，以 wifid 的当前网络为准判断成功。
+- `appinst watch`（`hackios-xnu-kernel/userland/src/appinst.m`）：每秒查看 Safari 的下载暂存目录、FileProvider 的 Downloads 和 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就复制出来安装。`appinst install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
+
+运行中的操作工具：
+
+- `install-ipa.py 轮次目录 App.ipa [--open]`：经 USB 把 IPA 分块（每块不超过 15 MB）推进内核的 16 MB 收件区，rwsh 的 `pull 路径 偏移` 写到 `/private/var/tmp/ipa/`，等 `appinst list` 出现该应用。需要带 `serve_pushes` 的 `run-auto.py` 和支持偏移的 rwsh。
+- `ui.py 轮次目录 dump|tap 文字|wait 文字|shot 名称|accessibility`：读各进程 `libredwood-ax.dylib` 写的界面元素（文字和屏幕坐标），按文字点按，代替手写坐标。UIKit 的按钮、提示框和主屏图标能读到；SwiftUI 页面（设置的列表、天气）目前读不到。
 
 其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`VARSTORE_SHOW`、`XPCWATCH`、`REDWOOD_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。
 
@@ -155,7 +167,7 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
-- 默认值：内核 `12377-rate7`（`--kernel`），`--seconds 900`，`jobs/rc.jobs.interactive`，`GPU_SPEED=14`，CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
+- 默认值：内核 `12377-rate8`（`--kernel`），`--seconds 900`，`jobs/rc.jobs.interactive`，`GPU_SPEED=14`，CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
 - 固定启动参数 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、`touch_poll_us=4000` 和 Wi-Fi（`pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。之后是 `--boot-args`，最后是 `fbwidth=1206 fbheight=2622 fbpitch=460`（iPhone 17 画布，见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)）。
 - `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 分别替换固定参数、CPU 参数和 GPU 档位。同一个键出现两次时内核取第一个，所以本轮变量是 `FIXED_ARGS` 里的键时要用 `CYCLE_FIXED_ARGS` 整串替换；画布三个键排在最后，可以在 `--boot-args` 里改。`CYCLE_PROGRAMS=路径[:路径]` 往根盘的 `/redwood/bin` 多放程序。
 - 起轮前要求 loader 已枚举、`result` 为 idle、RAM 盘为空，否则停止；设备在 Android 时先调 `recover-loader.py`。每 2 轮做一次检查点：经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再 `fastboot boot` 起 `LOADER`（或 `LOADER_IMAGE=FILE`）；驻留 loader 的 build-id 不含 `a48c7fb` 时也先做检查点。LK 由 `ANDROID_SERIAL` 指定，计数存在 `docs/progress/evidence/k90auto/cycle-state.json`。

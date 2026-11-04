@@ -50,11 +50,17 @@ LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v16.img"
 LOADER_BUILD = "a48c7fb"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # The kernel every round boots unless --kernel names another: the newest one checked on the phone.
-# 12377-rate7 has the Wi-Fi driver of cmd83 and the 120 Hz work of 2026-11-02.
-KERNEL = "12377-rate7"
+# 12377-rate8 is rate7 (the Wi-Fi driver of cmd83, the 120 Hz work of 2026-11-02) with the charging
+# state of RedwoodBattery.cpp reporting a plugged-in phone as charging unless the DSP says discharging.
+KERNEL = "12377-rate8"
 # The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
 # SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
 SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"
+# Programs rc.jobs.interactive starts at boot, packed when they have been built (build commands in
+# tools/k90auto/README.md): appinst watches the download folders for .ipa files, wifijoin joins the
+# network of hackios-xnu-kernel/out/fw-wifi/network.
+BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/appinst/appinst",
+                 "hackios-xnu-kernel/out/ios26-resume/wifijoin/wifijoin"]
 # The boot-args every round has (CYCLE_FIXED_ARGS replaces all of them, for a round whose variable is
 # one of them: the kernel takes the first of two). Diagnostics stay out of here and go in --boot-args.
 FIXED_ARGS = " ".join([
@@ -192,9 +198,11 @@ def main():
     # GPU up to 1100 MHz (speed 14; kernels from 12377-rate6 lower it to what the bin has, older ones
     # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).
     gpu_speed = os.environ.get("GPU_SPEED", "14")
-    # CYCLE_PROGRAMS=path[:path] puts more files into /redwood/bin of the image beside rwsh and var_store.
+    # CYCLE_PROGRAMS=path[:path] puts more files into /redwood/bin of the image beside rwsh, var_store and
+    # the two that rc.jobs.interactive starts when they are built (appinst, wifijoin).
     env = dict(os.environ, GPU_SPEED=gpu_speed, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
                PAYLOAD_PROGRAMS=":".join(["hackios-xnu-kernel/out/ios26-resume/rwsh", "hackios-xnu-kernel/out/ios26-resume/var_store",
+                                          *[p for p in BOOT_PROGRAMS if (WORKSPACE / p).exists()],
                                           *[p for p in os.environ.get("CYCLE_PROGRAMS", "").split(":") if p]]))
     with open(EVIDENCE / f"pack-{args.label}.log", "w") as log:
         if run([sys.executable, HERE / "package.py"], env=env, stdout=log, stderr=subprocess.STDOUT).returncode:
