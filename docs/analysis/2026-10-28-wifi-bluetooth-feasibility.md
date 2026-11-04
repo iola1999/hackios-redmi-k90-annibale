@@ -192,7 +192,7 @@ iOS 26 与 16.5 在这条链上的差别本轮查过，没有实质变化：`IO8
 - 分区备份：`annibale-backup/20261022-2355` 的 `modem_a` 与 `bluetooth_a`，用 7-Zip 读 FAT 目录树，只取文件名与尺寸，没有解出固件内容到仓库。
 - Linux 源码（本轮通过 curl 取主线文件，未入库）：`drivers/bluetooth/btqca.c`（WCN7850 的固件命名与下载分支）、`drivers/bluetooth/hci_qca.c`（速率、时序、流控）、`drivers/net/wireless/ath/ath12k/wifi7/hw.c`（`wcn7850 hw2.0` 的固件目录与 M3 loader）、`hw.h`/`core.c`/`qmi.c`/`mhi.c`（`amss.bin`/`m3.bin`/`board-2.bin` 命名、board 名构造、`sbl_size`/`seg_len` 512 KiB、M3 的物理地址上交）。
 - iOS 26 用户态：`usr/sbin/BlueTool` 的字符串与 IDA 反编译（`getPlatform`、`HWIdentifiers` 芯片串、`firmwareList`、覆盖脚本顺序）、`usr/sbin/wifid` 与 16.5 的字符串对比、`System/Library/LaunchDaemons` 下相关 plist、dyld 共享缓存里 `Falling back to IOCTL path` 的命中。
-- 构建机核对（device 在 `kbuild` 里读 `bsd/conf/files`、构建目录与链接后的核）：`kern_control` 编入 arm64 配置（`optional networking`，`DEVELOPMENT` 带 `networking`），`bsd/skywalk` 只有 `skywalk_stubs.c`、真实实现要 `option skywalk` 而配置里没有。蓝牙只能走控制套接字。
+- 构建机核对（device 在 `kbuild` 里读 `bsd/conf/files`、构建目录与链接后的核）：`kern_control` 编入 arm64 配置（`optional networking`，`DEVELOPMENT` 带 `networking`），`bsd/skywalk` 只有 `skywalk_stubs.c`、真实实现要 `option skywalk` 而配置里没有。这条只适用于容器里的 xnu-8796；iOS 26 用的 12377 内核配置带 `SKYWALK_DEV`，Skywalk 通道可用，见[蓝牙接入调研](2026-11-02-bluetooth-bringup.md) §2。
 - 现有内核代码：`mhi_pcie.c`（阶段 1～6）、`mhi_pcie_power.c`、`redwood_net.c`、`redwood_apple80211.c`、`RedwoodWLAN.cpp`、`redwood_goodix.c`（GENI SE 的轮询式驱动）、`redwood_virtio_net.c`。
 
 ### 5.2 未确认

@@ -72,7 +72,7 @@ I2C 系触摸（goodix/parade/novatek/synaptics/atmel 的 i2c 节点）合并树
 | 项 | 节点路径 | compatible | reg/基址 | GPIO | 电源/时钟 | 状态 |
 |---|---|---|---|---|---|---|
 | MDP | `/soc/qcom,mdss_mdp@ae00000`（`mdss_mdp`） | `qcom,sde_kms` 系 | `0xae00000+0x100000` | — | dispcc | okay |
-| DSI ctrl0 / phy0 | `/soc/qcom,mdss_dsi_ctrl0@ae94000` / `qcom,mdss_dsi_phy0@ae95500` | `qcom,dsi-ctrl-6g` / `qcom,dsi-phy-5nm` | `0xae94000+0x94` / `0xae95500+0x2b4` | — | dispcc + 面板电 | okay |
+| DSI ctrl0 / phy0 | `/soc/qcom,mdss_dsi_ctrl0@ae94000` / `qcom,mdss_dsi_phy0@ae95500` | `qcom,dsi-ctrl-hw-v2.9` / `qcom,dsi-phy-5nm` | `0xae94000+0x1000` / `0xae95500+0x2b4` | — | dispcc + 面板电 | okay |
 | DSI ctrl1 / phy1 | `/soc/qcom,mdss_dsi_ctrl1@ae96000` / `qcom,mdss_dsi_phy1@ae97500` | 同上 | `0xae96000+0x94` / `0xae97500+0x2b4` | — | 同上 | okay |
 | TE | —（`sde_dsi` 属性 `qcom,platform-te-gpio`） | — | — | **GPIO86**，组 `sde_te_active`（function `mdp_vsync`） | — | — |
 | 复位 | —（面板配置属性 `qcom,platform-reset-gpio`） | — | — | **GPIO98** `<&tlmm 98 0>`，组 `sde_dsi_active`；复位序列 `<1 10ms 0 10ms 1 10ms>` | — | — |
@@ -166,7 +166,7 @@ SMMU 关系：外设（含 modem 侧 IPA/PCIe）StreamID 全部汇入 **apps_smm
 | i2c@884000 (SE9) | `qcom,cam-sensor1@0x10`、eeprom@0x51 | 摄像头 |
 | uart@898000 (SE14) | 高速 UART（§2/§6） | 别名 hsuart0 |
 | spi@89c000 (SE15) | `ir-spi@0` | 红外发射 |
-| i2c@980000 (hub0) | `tfa98xx_1@0x36`、`tfa98xx_2@0x34`（Ti 功放）、`sipa_i2c_R@0x6c`、`sipa_i2c_L@0x6e`（Sia91xx） | 音频功放两条线 |
+| i2c@980000 (hub0) | `tfa98xx_1@0x36`、`tfa98xx_2@0x34`（NXP TFA98xx 功放，与 Sia91xx 二选一，实装哪种未确认）、`sipa_i2c_R@0x6c`、`sipa_i2c_L@0x6e`（Sia91xx） | 音频功放两条线 |
 
 触摸、振动、传感器复用总线时的空闲余量：QUP_1 的 SE1（0xa84000）/SE4（0xa90000）与 hub 簇 SE1–9。
 
