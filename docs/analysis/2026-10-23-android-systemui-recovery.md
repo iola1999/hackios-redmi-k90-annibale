@@ -1,6 +1,6 @@
 # Android 系统界面异常与编译缓存修复（2026-10-23）
 
-设备为 REDMI K90（annibale），Android 位于 `_b` 槽。本文记录系统界面异常的本次实测。Android 构建指纹为 `Redmi/annibale/annibale:16/BP2A.250605.031.A3/OS3.0.303.0.WPKCNXM:user/release-keys`。
+设备为 REDMI K90（annibale），Android 位于 `_b` 槽，与本项目脚本的槽位假设一致（Android 在 B 槽、loader 写在 A 槽的 boot 分区，见[引导目标切换 SOP](../plan/device-boot-target-sop.md)）。本文记录系统界面异常的本次实测。Android 构建指纹为 `Redmi/annibale/annibale:16/BP2A.250605.031.A3/OS3.0.303.0.WPKCNXM:user/release-keys`。
 
 ## 1. 表现与检查结果
 
@@ -27,7 +27,7 @@ adb -s "${ANDROID_SERIAL}" shell 'ls -l /data/dalvik-cache/arm64/*MiuiSystemUI* 
 adb -s "${ANDROID_SERIAL}" shell 'pm help'
 ```
 
-本次备份了以下文件，保存在主机 `/tmp/hackios-handoff/android-cache/`；该目录为本次诊断的临时文件，后续操作应另建备份目录。
+本次备份了以下文件，保存在主机的临时目录；后续操作应另建备份目录。
 
 | 文件前缀 | `.dex` 字节数 | `.vdex` 字节数 |
 |---|---:|---:|
@@ -60,14 +60,14 @@ adb -s "${ANDROID_SERIAL}" shell 'dumpsys window windows | grep -E "StatusBar|Na
 
 此前的 `tools/stage-system.sh` 多次把 2,492,227,584 字节的 `system.apfs` 直接写入 userdata 尾部，起始偏移为 245,412,089,856。脚本没有检查该区间的文件系统块分配情况。文件系统仍有可用空间、目标位于分区尾部、Android 能开机，都不足以确认这段区间可以覆盖。
 
-本次未取得损坏文件与上述区间的物理 extent 对照，缓存损坏的具体原因仍未确认。后续调试应通过 loader 的 USB ramdisk 接口把系统盘写入 RAM。向裸分区写测试镜像之前，必须先确认目标区间的所有权及恢复方法；已挂载的 userdata 尾部不能作为默认暂存区。
+本次未取得损坏文件与上述区间的物理 extent 对照，缓存损坏的具体原因仍未确认。现在的 `tools/stage-system.sh` 经 loader 的 USB ramdisk 接口把系统盘写入 RAM；装进 Android DSU 的系统盘以文件形式存放，由 Android 分配空间（[README §5](../../README.md#5-把系统盘装进-android-dsu)）。向裸分区写测试镜像之前，必须先确认目标区间的所有权及恢复方法；已挂载的 userdata 尾部不能作为默认暂存区。
 
 `annibale-backup/20261023-2100/userdata-tail-2492227584.bin` 的创建时间晚于第一次暂存操作。它保存的是备份时刻的尾部内容，不能恢复更早已被覆盖的数据。Android 继续运行后，文件系统状态可能再次变化，整段写回旧尾部备份需要重新评估。
 
 ## 4. loader 调试中的相关问题
 
 - 主机的 Android/LK 序列号是 `${ANDROID_SERIAL}`，loader 的 USB 序列号是 `xnuloader`，应分别指定目标。
-- 日志读取需要 `fastboot -s xnuloader oem log` 后接 `fastboot -s xnuloader get_staged <文件>`。截图同样先 `oem screenshot`，再 `get_staged`；当前主机 fastboot 的 CLI 没有 `upload` 子命令。
-- `oem logwrite` 在缺少 logdump 分区的设备上会覆盖 `boot_a` 开头。代码仅在本次 `flush_log()` 调用期间允许写入，随后立即关闭；后续内核日志不会因此自动写入 `boot_a`。本机已实测能通过 USB 读取日志，调试过程使用 USB 通道。
-- 内核在 loader 所在 CPU 上运行期间，loader 无法处理 USB 命令。主机命令超时需要结合 USB 枚举和后续状态判断，不能直接记录成「设备已重启」或「内核已退出」。本次 `bootcpu=1 cpus=1` 已验证可让 loader 保留 USB 通道。
+- 日志与截图都是先 `oem log`／`oem screenshot` 准备，再 `get_staged <文件>` 取回；当前主机 fastboot 的 CLI 没有 `upload` 子命令。读取顺序见[真机调试手册第 5 节](../plan/device-test-playbook.md#5-读取日志和截图)。
+- `oem logwrite` 在缺少 logdump 分区的设备上会覆盖 `boot_a` 开头。代码仅在本次 `flush_log()` 调用期间允许写入，随后立即关闭；后续内核日志不会因此自动写入 `boot_a`。调试过程使用 USB 通道读日志。
+- 内核在 loader 所在 CPU 上运行期间，loader 无法处理 USB 命令。主机命令超时需要结合 USB 枚举和后续状态判断，不能直接记录成「设备已重启」或「内核已退出」。
 - 设备树记录的显示模式为 `1156×2510`，旧固件的 SimpleFb 配置为 `1440×3168`。GOP 返回的是固件配置，实际面板显示仍需真机确认。

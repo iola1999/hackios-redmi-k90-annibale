@@ -2,9 +2,9 @@
 
 ## 1. 适用范围与检查顺序
 
-本篇用于排查 USB 命令超时、内核停止及重启后的身份变化。先核对当前执行环境和主机实际返回，再保存可读日志、选择软件恢复入口，并检查复位后的身份。软件恢复无法完成，再请求用户按键。
+本篇用于排查 USB 命令超时、内核停止及重启后的身份变化。先核对当前执行环境和主机实际返回，再保存可读日志、选择软件恢复入口，并检查复位后的身份。软件恢复无法完成，再请求用户按键。具体命令见[真机调试手册](../plan/device-test-playbook.md)，各引导目标之间的切换见[引导目标切换 SOP](../plan/device-boot-target-sop.md)。
 
-反复失联已经影响实验，应优先修复并验收调试通道。具体命令见[真机调试手册](../plan/device-test-playbook.md)，实现与真机验收资料见[恢复审查与真机记录](../progress/2026-10-25-gpu-resume-review.md)。
+下文的 A／B 槽按本项目脚本的槽位假设书写：Android 在 B 槽、loader 写在 A 槽的 boot 分区，`cycle.py`、`reboot-lk.py`、`recover-loader.py` 固定执行 `set_active a`。Android 在 A 槽的设备需要对调 A／B 并修改这些脚本，见 SOP 开头。
 
 ## 2. 先区分主机等待、USB 协议和内核状态
 
@@ -12,9 +12,9 @@
 
 USB 枚举确认描述符可见；短命令应答确认协议可达；日志和故障寄存器用于判断内核执行。`hung-held` 是 loader 对内核及资源状态的报告，该状态下仍可有可用的 USB 命令循环。屏幕停止更新也需要按上述层次检查。
 
-GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU probe requires host cold reset before reusing kernel memory` 对应资源保留与内核停止路径；该函数本身没有 USB 操作。应保存现场并复位，继续保护这些页。`oem stop` 和 `loader_return_after` 受内核所处阶段及资源状态限制，无法保证取消早期停滞或允许重用内存。
+GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU probe requires host cold reset before reusing kernel memory` 对应资源保留与内核停止路径，该函数本身没有 USB 操作。应保存现场并复位，继续保护这些页。`oem stop` 和 `loader_return_after` 受内核所处阶段及资源状态限制，无法保证取消早期停滞或允许重用内存。
 
-`fastboot reboot` 同样需要设备接收并分派 USB 命令。annibale 分支先尝试回复，再调用 PSCI_SYSTEM_RESET；回复失败后仍可能执行复位，最终结果要检查 USB 断开、重新枚举和新身份。若 loader 停在命令接收之前，继续发送 reboot 也可能无效。
+`fastboot reboot` 同样需要设备接收并分派 USB 命令。annibale 分支先尝试回复，再调用 PSCI_SYSTEM_RESET；回复失败后仍可能执行复位，最终结果要检查 USB 断开、重新枚举和新身份。loader 停在命令接收之前时，继续发送 reboot 也可能无效。
 
 ## 3. USB 请求生命周期的约束
 
@@ -38,20 +38,18 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 |---|---|---|
 | `xnuloader` 枚举且短查询有应答 | 按实际 `result` 保存日志；需要恢复则执行 loader reboot | 观察断开及重新枚举，核对 product、完整 build-id 和 `idle` |
 | `xnuloader` 枚举但短查询超时 | 停止追加日志／截图传输；确认没有遗留主机客户端后，在有界等待内尝试 reboot | 设备发生复位并读取到新身份；主机收到 OKAY 只覆盖命令应答 |
-| 驻留 loader 可达，需要进入 LK，且状态与 RAM 符合手册前置条件 | 使用 `tools/k90auto/reboot-lk.py` 准备并读回目标字段，再调用 loader reboot | 实际读取到指定设备的 LK product 与槽位；验证范围见[真机后续记录](../progress/2026-10-27-ios26-k90.md) |
+| 驻留 loader 可达，需要进入 LK，且状态与 RAM 符合 `reboot-lk.py` 前置条件 | 使用 `tools/k90auto/reboot-lk.py` 准备并读回目标字段，再调用 loader reboot | 实际读取到指定设备的 LK product 与槽位；用法见 [k90auto 说明 §5](../../tools/k90auto/README.md#5-软件进入-lk-fastboot) |
 | LK fastboot 可达 | 核对 product、current-slot 与 A/B 槽状态，按实验目标选择槽位 | 启动后出现预期 loader 身份及状态 |
 | Android 已启动且 ADB 为 `device` | 核对机型与 `ro.boot.slot_suffix`，通过 ADB reboot bootloader 返回 LK | LK 身份可读，再决定是否恢复 A 槽 |
 | 软件入口不可达，或可达入口的恢复动作失败 | 保存已有输出，并请用户按电源键＋音量下进入 FASTBOOT | 用户确认画面后，主机重新枚举并查询身份 |
-| `adb devices`、`fastboot devices`、`ioreg -p IOUSB` 三处同时查不到设备 | 停止一切命令尝试，请用户长按电源键冷启 | 主机重新枚举；按下一次前先读 `slot-retry-count:a`，不足 3 时先 `set_active a` |
+| `adb devices`、`fastboot devices`、`ioreg -p IOUSB` 三处同时查不到设备 | 停止一切命令尝试，请用户长按电源键冷启 | 主机重新枚举；下一轮前先读 `slot-retry-count:a`，不足 3 时先 `set_active a` |
 | `adb devices` 列出一行但序列号为空 | 按未枚举处理，只轮询，不发任何命令 | 序列号能原样读出来，才算枚举 |
 
-复位后同时检查 fastboot 与 ADB 枚举。A 槽连续实验启动未标记成功，重试次数耗尽后可能回退到 B 槽 Android。ADB 可用就通过 reboot bootloader 返回 LK，检查 `slot-successful:a`、`slot-unbootable:a` 和 `slot-retry-count:a`，核对 A 槽镜像后再决定是否执行 `set_active a`。连续实验按实际读取的重试状态安排恢复。
+复位后同时检查 fastboot 与 ADB 枚举。A 槽连续实验启动未标记成功，重试次数耗尽后可能回退到 B 槽 Android。ADB 可用就通过 reboot bootloader 返回 LK，检查 `slot-successful:a`、`slot-unbootable:a` 和 `slot-retry-count:a`，核对 A 槽镜像后再决定是否执行 `set_active a`。
 
-恢复目标要写清楚：回到 loader idle 可以使用已验证的普通 reboot；进入 LK 需要对应的目标切换入口。请求按键前，记录当前状态下的软件恢复尝试及返回。一次调用被中止、空 stdout、真正超时和 USB 断开分别记录。
+恢复目标要写清楚：回到 loader idle 可以使用已验证的普通 reboot；进入 LK 需要对应的目标切换入口。请求按键前，记录当前状态下的软件恢复尝试及返回。一次调用被中止、空 stdout、真正超时和 USB 断开分别记录。同一故障尚在等待用户操作时，保留一个明确请求即可；收到新的画面或状态反馈，先重新枚举，再决定后续动作。
 
-同一故障尚在等待用户操作，保留一个明确请求即可。收到新的画面或状态反馈，先重新枚举，再决定后续动作。
-
-设备整个从 USB 上消失与「枚举了但不答」是两种处置。2026-10-29 的一次实测：`adb devices` 曾短暂列出一台但序列号为空，`adb reboot bootloader` 回答 `unknown command`，随后两分钟内 `adb devices` 与 `fastboot devices` 都是空，`ioreg -p IOUSB` 与 `system_profiler SPUSBDataType` 也查不到 `annibale`。这种形态软件侧没有恢复路径，反复发命令只会增加主机残留客户端，唯一做法是请用户长按电源键冷启。
+设备整个从 USB 上消失与「枚举了但不答」的处置不同。2026-10-29 一天内连续起轮十几轮后出现过一次：`adb devices` 曾短暂列出一台但序列号为空，`adb reboot bootloader` 回答 `unknown command`，随后两分钟内 `adb devices` 与 `fastboot devices` 都是空，`ioreg -p IOUSB` 与 `system_profiler SPUSBDataType` 也查不到 `annibale`。这种形态软件侧没有恢复路径，反复发命令只会增加主机残留客户端，唯一做法是请用户长按电源键冷启。由此定下的无人值守约束见 [AGENTS.md](../../AGENTS.md) 第 5 节。
 
 ## 5. 把恢复纳入每轮验收
 
@@ -68,6 +66,4 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 每次实验保存输入哈希、启动参数、最后成功阶段、首次失败动作，以及复位后的真实身份。主机模型需要检查错误后的下一条有效命令，真机继续验证固件响应与时序。仅有代码修改、构建成功或设备枚举，恢复验收仍未完成。
 
-上传等待预算应按镜像长度与实测耗时配置。普通采集中止传输会改变设备状态，不能依靠不断杀掉客户端来缩短每轮等待；故障注入应单独安排，并保留恢复入口。已有请求持续无应答后，应切换到身份检查和恢复判断，重复延长同一命令等待缺少新的区分作用。
-
-后续接手先读取本篇与真机手册，核对实际 loader 版本。软件恢复已通过的情况优先复用对应入口；新失败仍要保存适用条件。固件同步调用停滞、完成通知缺失或结构异常、loader CPU／共享硬件受损等情况仍可能需要外部复位。每次验收注明实际覆盖的输入和失败方式。
+上传等待预算应按镜像长度与实测耗时配置。普通采集中止传输会改变设备状态，不能依靠不断杀掉客户端来缩短每轮等待；故障注入应单独安排，并保留恢复入口。已有请求持续无应答后，应切换到身份检查和恢复判断。固件同步调用停滞、完成通知缺失或结构异常、loader CPU／共享硬件受损等情况仍可能需要外部复位。

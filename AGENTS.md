@@ -1,6 +1,6 @@
 # AGENTS.md — hackios-redmi-k90-annibale 工作区约定
 
-HackiOS（XNU + 未修改 iOS 16.5 用户态）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，计划见 `docs/plan/`。
+HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，计划见 `docs/plan/`。
 
 ## 1. 文档写作约定（必须遵守）
 
@@ -56,20 +56,18 @@ HackiOS（XNU + 未修改 iOS 16.5 用户态）移植到 REDMI K90（SM8750，�
 ## 6. 其他
 
 - 过程记录写 `docs/progress/`（按日期命名），规划写 `docs/plan/`，调研/实测数据写 `docs/analysis/`。
-- `annibale-backup/` 是分区备份数据说明，内容勿删。
-- 真机操作前后先看 `docs/plan/device-test-playbook.md` 的陷阱清单。
-- 引导目标之间怎么切（Android／LK／loader 三种身份、五条路径的命令与成功判据、实测耗时、八个陷阱）见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。三条要点：loader 在 A 槽、Android 在 B 槽，两个方向都靠 `set_active` 换槽再 `reboot`；进 loader 用 `set_active a` 加 `reboot`，从 LK `fastboot boot` 一个 handoff 载荷不会把 loader 带起来；枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
+- `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
+- 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 的陷阱。
+- 引导目标之间怎么切（Android／LK／loader 三种身份、各条切换路径的命令与成功判据、陷阱）见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。脚本与文档假设 loader 在 A 槽、Android 在 B 槽。两个方向都靠 `set_active` 换槽再 `reboot`；从 LK 用 `fastboot boot` 启动完整的 loader 镜像可以临时进 loader，单独的 handoff 载荷不行；枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
+- loader 镜像与其中 UEFI 的构建见 [annibale UEFI 与 loader 镜像构建](docs/analysis/annibale-uefi-build.md)，UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支，克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
 - USB 命令超时、内核停止或重启后身份变化，先看[USB 恢复与减少人工按键的调试经验](docs/analysis/2026-10-25-usb-recovery-lessons.md)。判断无应答前检查 stdout、stderr 与实际耗时，区分驻留 loader、LK 与 Android；请求按键前记录当前轮软件恢复失败的结果，同一待用户动作合并提示。同一设备的命令串行执行，异常后的资源保留规则继续遵守。
 - Android 通知栏、手势条消失或 SystemUI 反复崩溃时，先看 [系统界面修复记录](docs/analysis/2026-10-23-android-systemui-recovery.md)。该文档也记录 userdata 尾部暂存的风险、备份边界和 loader USB 日志读取方法；真机调试优先通过 USB 把系统盘传入 RAM。
-- 接手、排查、构建和真机操作前阅读 [项目排查与协作手册](docs/plan/debugging-and-collaboration.md)，按其中的前提、操作、成功条件和失败处理执行；近期实测见 [2026-10-23 调试案例](docs/analysis/2026-10-23-boot-debugging-sop.md)。旧文档与新结果有差异时核对源码、产物和实测时间，设备当前状态重新读取。
-- 当前真机启动与早期桌面结果见[运行记录](docs/progress/2026-10-23-runtime-debugging.md)；触摸报告模式、TLMM 地址、BQ 电量、充电状态与 CPU 拓扑的后续判断见[桌面交互案例](docs/analysis/2026-10-24-interactive-runtime.md)，该文档记录增量阅读截止位置。硬件调试文件的读取也可能访问寄存器，操作前核对范围及恢复方式。
-- 2026-10-24 已确认的触摸、按键、高性能核心与绘制采样见[输入和绘制记录](docs/progress/2026-10-24-input-and-rendering.md)；Metal、GLES 与 UniXNU 的路径选择见[图形加速对照](docs/analysis/2026-10-24-metal-route.md)；gen80000 固件选择、SMMU／HFI 修复和分阶段实测见[GPU 初始化记录](docs/progress/2026-10-24-gpu-initialization.md)；HWSCHED、GPU 映射、CP 与 zap 的下一阶段顺序见[命令执行启动调研](docs/analysis/2026-10-24-a830-command-startup.md)。
-- GPU 阶段定义和最新验收边界见[A830 命令执行案例](docs/analysis/2026-10-24-a830-command-startup.md)：2026-10-25 已完成 kind 5 应答、HWSCHED START ACK 和 GPU context 启用；该文档记录本次阅读截止阶段。2026-10-26 阶段 14～23 全部通过，桌面由 freedreno 在 A830 上绘制，LPAC 路由、阶段 22 队列等待和 Mesa CCHE 失效见 [GPU 桌面记录](docs/progress/2026-10-26-gpu-desktop-acceleration.md)。逐轮输入见[恢复审查记录](docs/progress/2026-10-25-gpu-resume-review.md)。系统版本已允许扩展到 iOS 17+，版本取舍和最终验收条件见[图形加速恢复工作计划](docs/plan/2026-10-24-gpu-handoff.md)。
-- 帧流出现多秒静默或桌面停住时，先分清 3 秒网格洞与永久停止：网格洞的起点在 35-buffer 提交段末尾，262 个 2.9～3.1 秒间隔里 256 个卡在 `done→w1`，随后 5～7 毫秒内恢复；永久停止的终末段分散在五个子步骤且不恢复，甲组末帧之后没有新的 commit。读法见[洞的起止动作](docs/analysis/2026-10-29-hole-boundary-trigger.md)与[帧流永久停止的边界](docs/analysis/2026-10-29-frame-stop-boundary.md)，15 秒周期与锚点见[跨轮统计](docs/analysis/2026-10-29-15s-period-cross-round.md)，冻结前的共同征兆见[冻结征兆对照表](docs/analysis/2026-10-29-freeze-symptom-table.md)。
-- 帧率与显示节拍：`tl: v` 的三个时间戳都由内核驱动取，只量驱动节拍（默认 16.667 毫秒，`fb_hz=120` 时 8.333），面板扫描率在日志里没有读数，三种面板可能用现有帧行区分不了，见[显示节拍](docs/analysis/2026-10-29-display-beat.md)。每帧成本分解见[帧预算](docs/analysis/2026-10-29-frame-budget.md)。
-- 慢 draw 与 `tl:` 探针的读数口径：[慢 draw 的读数判据](docs/analysis/2026-10-29-slow-draw-reading-criteria.md)、[缺页计数口径](docs/analysis/2026-10-29-slow-draw-fault-accounting.md)、[`tl: b` 实测语义](docs/analysis/2026-10-29-tl-b-semantics.md)。要点：`tl: b` 按主循环醒睡打印、不按帧；缺页计数是整个进程的口径，只作旁证。
-- 反汇编 QuartzCore 与查 26 虚表槽位用 `hackios-xnu-kernel/tools/dsc/`，用法、三个已知槽的复核与 `CA_HEARTBEAT_RATE`／15 秒截止时间线索见[26 虚表定位](docs/analysis/2026-10-29-quartzcore-vtable-26.md)与[QuartzCore 静态补全](docs/analysis/2026-10-29-quartzcore-static-followup.md)。当时卡点与历次结论见[会话复盘](docs/analysis/2026-10-29-session-review.md) §6。
-- 设备不在 USB 上时按[离线工作队列](docs/plan/2026-10-29-offline-work-queue.md)找可推进的项；下一轮实验的身份、载荷、探针与判据见[下一轮方案](docs/plan/2026-10-29-next-round-plan.md)，判据在读数之前登记，结果按其中的分支处理。
+- 接手、排查、构建和真机操作前阅读 [项目排查与协作手册](docs/plan/debugging-and-collaboration.md)，按其中的前提、操作、成功条件和失败处理执行。旧文档与新结果有差异时核对源码、产物和实测时间，设备当前状态重新读取。
+- 硬件资料：设备树资源见[硬件资源图谱](docs/analysis/annibale-hw-map.md)；触摸报告模式、TLMM 地址、BQ 电量、充电状态与 CPU 拓扑见[桌面交互案例](docs/analysis/2026-10-24-interactive-runtime.md)。硬件调试文件的读取也可能访问寄存器，操作前核对范围及恢复方式。
+- GPU：A830 的启动阶段、成功判据与关键修复见[A830 命令执行](docs/analysis/2026-10-24-a830-command-startup.md)，GPU 桌面、LPAC 路由与 Mesa CCHE 失效见 [GPU 桌面记录](docs/progress/2026-10-26-gpu-desktop-acceleration.md)。
+- iOS 26 桌面：解锁、着色器编译与 GPU 挂起的修复见[可用桌面记录](docs/progress/2026-10-30-ios26-usable-desktop.md)；开机次序与处理器占用见[开机次序与性能](docs/progress/2026-10-31-boot-order-and-performance.md)。
+- 帧率与 120 Hz：手势帧率的卡点见 [120 Hz 手势瓶颈](docs/analysis/2026-11-01-120hz-gesture-bottleneck.md) 与 [GPU 升频之后的长帧](docs/analysis/2026-11-02-120hz-after-gpu-clock.md)。
+- 反汇编 QuartzCore 与查 iOS 26 虚表槽位用 `hackios-xnu-kernel/tools/dsc/`，用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)。
 - 经验文档优先记录排查方法、底层原理、判断依据和验收边界；已由代码或工具链解决的问题简短提及，具体命令集中在当前操作手册。
 - 从会话整理经验的可复用指令见 [经验整理 Prompt](docs/plan/experience-review-prompt.md)，整理方式调整后同步更新该文档。
 - 原始日志、截图、转储和本轮产物清单保存在 `.gitignore` 覆盖的本地调试目录，文字结论与必要的日志摘录写进 Markdown；提交前检查父仓库及各子模块的变更归属。

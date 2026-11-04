@@ -13,7 +13,7 @@
 | 5 | 着色器编译结果跨开机保存，并随镜像带一份 | hakios-xnu-kernel `39dd3bb`、`5c819b8`、`8ecae63`；hakios-metal `9d52b51`、`6a77e42`、`3d3400f` | Mesa 构建 `shader-cache` 为 `disabled`（已核对）；驱动的管线缓存只在进程内 | 打开 Mesa 着色器缓存、目录放在 `/private/var/db`、随开机种子带上；判据是开机后编译次数与图标出现时间 |
 | 6 | Mesa 26.3 的 ir3 A8xx 修复回移（`189ee824` 等） | Shad0w23333/UniXNU-OnePlus13T | `rebase-26/0006` 关掉了片段着色器纹理预取，可能正是 `189ee824` 修的问题（推断） | 回移后撤掉 0006，看 Dock 玻璃与整屏 pass 时间 |
 | 7 | 亮度经 DSI 测试模式 FIFO 发 DCS，不需要 DMA 与 SMMU | ShueiTsuki/data-a-live 补丁 `0139`～`0141`、`0263`～`0264` | [亮度调研](2026-11-02-brightness-control.md) §5、§8 的 DMA 问题未定 | 寄存器偏移来自 SM8850，要在 SM8750 上核对 |
-| 8 | 在 Qualcomm 上出声的几处坑 | UniXNU-sheng `dea464e`、`4583f03`、`b49ce39`、`6e892fe`、`1b75289` | [音量调研](2026-11-02-audio-and-volume.md)没有这些 | 写进音量调研的出声部分：主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下、传输类型 |
+| 8 | 在 Qualcomm 上出声的几处坑 | UniXNU-sheng `dea464e`、`4583f03`、`b49ce39`、`6e892fe`、`1b75289` | [音量调研](2026-11-02-audio-and-volume.md)只有指针 | 音量调研 §7 已列出这几项：主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下、传输类型；细节在移植出声时核对 |
 | 9 | 实现 SwapWait，让 `fb_queue=2` 能和下一帧重叠 | data-a-live `0218` | `MiniIOMobileFramebuffer.cpp` 的 SwapWait 直接返回成功，靠 `fb_queue=1` 保证安全 | 约 150 行；判据是 SwapEnd 阻塞时间与有无闪烁 |
 | 10 | A830 打开 ACD | Shad0w23333/UniXNU-OnePlus13T | 我们在没有 ACD 表的情况下跑到 1100 MHz | 固定手势脚本下对比挂起、故障与 GPU 最高温度 |
 

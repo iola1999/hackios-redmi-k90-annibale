@@ -1,6 +1,6 @@
 # K90 蓝牙接入调研（2026-11-02）
 
-本文回答蓝牙能不能在 K90 的 iOS 26 上起来，以及按什么顺序做。只读调研：读了本仓库源码、Android 设备树、`bluetooth_a` 分区里的固件清单和参考仓库 dada（小米 15，同为 SM8750 上的 iOS 26）的内核补丁，没有操作设备，也没有构建。早先的方案（内核按高通流程起芯片、按 Broadcom 回答身份）见 [Wi-Fi 与蓝牙可行性](2026-10-28-wifi-bluetooth-feasibility.md) §3。
+本文回答蓝牙能不能在 K90 的 iOS 26 上起来，以及按什么顺序做。只读调研：读了本仓库源码、Android 设备树、`bluetooth_a` 分区里的固件清单和参考仓库 dada（小米 15，同为 SM8750 上的 iOS 26）的内核补丁，没有操作设备，也没有构建。
 
 引用写法：`P:行号` 是 dada 的 `kernel/xnu-12377.121.6-dada.patch`；`dada:` 开头是该仓库里的路径；`DTS:行号` 是解压后的 `docs/analysis/data/annibale.dts.gz`。
 
@@ -14,7 +14,7 @@
 
 - 能做。iOS 26 一侧的接法 dada 已经走通到「蓝牙已打开、BLE 能扫描」：`dada:base/tools/dada-ios.sh:19` 记的是 `verified w94z3: PoweredOn, LE scan`。仓库里没有配对、经典蓝牙或蓝牙音频的记录。
 - K90 的蓝牙芯片与 Wi-Fi 是同一颗 WCN7850（kiwi），蓝牙走 SE14 的 UART，电源轨大部分已经由现有 Wi-Fi 代码投票打开。剩下的工作是四块：SE14 UART 驱动与高通固件下载、给 `bluetoothd` 的 Skywalk 通道、BlueTool 替身、系统盘与启动任务的改动。估计 1200 行左右内核与用户态代码，各文件按 AGENTS.md §2 控制在 1200 行以内。
-- 早先文档说 12377 内核没有 Skywalk，这一点不成立：`hackios-xnu-kernel/xnu26/files/config/MASTER.arm64.bcm2837` 的 `DEVELOPMENT` 带 `SKYWALK_DEV`，`out/xnu12377-rate7.bin` 里有 `nx_kpipe_*` 与 `kern_nexus_register_domain_provider`。
+- 12377 内核带 Skywalk：`hackios-xnu-kernel/xnu26/files/config/MASTER.arm64.bcm2837` 的 `DEVELOPMENT` 带 `SKYWALK_DEV`，`out/xnu12377-rate7.bin` 里有 `nx_kpipe_*` 与 `kern_nexus_register_domain_provider`。
 
 ## 3. dada 的做法
 
@@ -37,7 +37,7 @@
 ## 4. 我们现在有什么
 
 - `hackios-xnu-kernel/xnu/files/bsd/dev/redwood_bt_probe.c`（boot-arg `bt_probe=1`）：注册两个控制套接字名，只记日志，getopt 回零（:131-144），所以 `bluetoothd` 拿到的是空的 nexus UUID。已编进内核，没有上机跑过。
-- BT_EN：`mhi_pcie_power.c:419-442,771-774`（`pcie_bt_en=1`），wd11 读回为高（[驱动接入记录](../progress/2026-11-01-wifi-ath12k-driver.md)）。
+- BT_EN：`mhi_pcie_power.c:419-442,771-774`（`pcie_bt_en=1`，`cycle.py` 的默认参数带着它），wd11 读回为高（[驱动接入记录](../progress/2026-11-01-wifi-ath12k-driver.md) 3.2）。
 - 电源轨：`mhi_pcie_power.c:199-210` 的 Wi-Fi 电源表已经覆盖蓝牙的各路供电和 RF_CLK1。
 - 可复用：固件读取 `redwood_image_file("fw", …)`（`mhi_pcie_fw.c:48`）；QUP1 上轮询的 GENI SPI 驱动（`redwood_touch_bus_private.h:253-260`）；loader 已经传入 `mac-address-bluetooth0`（`xnuloader/loader_05_layout_run_kernel.inc:724,731`）。
 - iOS 一侧的阻碍：
@@ -71,7 +71,7 @@
 - HAMILTON 与 ganges 不同：芯片拒绝的命令、需要代答的命令、厂商命令的行为大概率不一样。
 - 与在线 Wi-Fi 共存没有验证：切 BT_EN 可能让 WLAN 固件出错（推断）。
 - `bluetoothd` 第一次启动前地址要准备好：dada 靠 launchd 每 10 秒左右重启 `bluetoothd`（P:81621-81622），我们的 REST 任务没有 KeepAlive。
-- 内核吞掉了 Broadcom 的 Write_BD_ADDR，iOS 报的地址可能和芯片实际地址不同，配对时可能出问题（推断）。
+- 内核替芯片回答 Broadcom 的 Write_BD_ADDR，这条命令不到芯片，iOS 报的地址可能和芯片实际地址不同，配对时可能出问题（推断）。
 - dada 用的 `bluetoothd` 偏移来自 iPhone18,1 的 23G90，我们的 iPhone18,3 二进制还没有抽出来核对。
 
 最有用的第一个真机实验是第 1 步：不改 iOS，一轮就能确定 SE14 是否为蓝牙链路、UART 固件在不在、ROM 版本、该用哪个 NVM、补丁是否被接受、射频能否收到广播。

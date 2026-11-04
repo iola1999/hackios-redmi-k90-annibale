@@ -1,6 +1,6 @@
 # 开机后的处理器占用与 launchd 任务集（2026-10-31）
 
-用户在 2026-10-31 反馈：开机后主屏没有图标，打开一个应用后图标才出现；没有壁纸和右上角电池图标；滑动卡、机身发热。本文记录处理器占用的来源、修法与修后读数。图标的原因与处理器占用无关，单列在 §5。
+用户在 2026-10-31 反馈：开机后主屏没有图标；没有壁纸和右上角电池图标；滑动卡、机身发热。本文记录处理器占用的来源、修法与修后读数。图标的原因与处理器占用无关，见 §5。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 - 修法是按需登记其余任务。`tools/k90auto/package.py` 的 `REST=1` 调用 `userland/mkjobs.py --rest`，把带 Mach 服务、程序在系统盘上的 LaunchDaemon 与 LaunchAngel 全部登记，去掉 `RunAtLoad`、`KeepAlive` 等启动条件，只在有进程查找它的服务时才启动。16.5 能出完整桌面的载荷用的是同一种任务集（[任务缓存分析](2026-10-28-ios26-icon-model-and-launchd-cache.md) §2）。
 - `mkjobs.py` 的 `DENY` 是 16.5 时期写的，这一启动改两处：放行 `com.apple.dmd`，去掉 `com.apple.PerfPowerServices`。理由见 §3。
 - 修后（`kernel-12377-cmd24-rest2`）没有进程持续占用处理器，20 秒中断采样数从 315249 降到 34872。天气小组件显示「Location Access Needed」，`geod` 与定位服务开始应答。
-- 图标、壁纸与电池图标没有随之出现，三者另有原因。
+- 图标、壁纸与电池图标没有随之出现，三者另有原因：图标见[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md)，壁纸见[锁屏壁纸](2026-10-31-mercury-wallpaper.md)，电池图标见[合成路径的处理器开销](2026-10-31-compositor-cpu-path.md)。
 
 ## 2. 读数
 
@@ -25,7 +25,6 @@
 | 进程数 | 129 | 254 | 238 |
 
 - `xpc1` 的 SpringBoard 主线程 12 次回溯都在同一条链上：libxpc 同步发送 ← Sleep+0x57d4 ← Sleep+0x58b0 ← Sleep+0x5518 ← Sleep+0x52bc ← Sleep+0x54d64（dispatch 块）。Sleep.framework 的 `sub_274B2E574` 在连接为空时打「rebuilding connection」并新建连接，`sub_274B7DB70` 逐条重发待发消息（「retrying message」）。服务不存在时每次发送立即失败，失败又清空连接，循环没有退避。
-- 2026-10-28 的 `bbm26` 已记下 SpringBoard 对 `com.apple.sleepd.sleepserver` 有 3806 次失败查找（[服务登记缺口](2026-10-28-ios26-daemon-registration-gap.md) §2），当时没有归到处理器占用上。
 - 中断采样（`kern.redwood.prof`，20 秒）：`rest1` 共 315249 个样本，空闲占 74%，主要占用者是 PerfPowerServices、ScreenTimeAgent、appprotectiond；`rest2` 共 34872 个样本，空闲占 84%，没有单个进程超过 4%。
 
 ## 3. `DENY` 的两处改动
@@ -47,11 +46,5 @@
 
 ## 5. 开机图标不出现与处理器占用无关
 
-- `rest1` 里 SpringBoard 已经空闲，开机后 3 分钟内图标仍不出现，翻页也不出现。图层读数（`notify com.redwood.layers.Icon`）显示 17 个 `SBIconImageView` 都没有子图层；从设置返回主屏后，每个 `SBIconImageView` 下都有 `SBHIconLayerView` → `ICRIconLayer` → `ICRIconRenderingLayer`，图标全部出现。
-- `rest1` 在开机约 7 分钟时 `kill -9` SpringBoard，`rest2` 在解锁后约 10 秒 `restart SpringBoard`，两次重启后的 SpringBoard 都在解锁后直接显示全部图标和两个小组件。
-- Wi-Fi 地址的假设已排除（`mac1`）。根因是每次开机 `/private/var` 都是空的，见[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md)。
-
-## 6. 待办
-
-- 壁纸：PosterBoard 仍报 `PBFPosterExtensionDataStoreErrorDomain -2222`、`FBProcessManager 2`。另一个 23G90 移植（Bergamota `tools/sweetnet/sweetpb26.m`）对 PosterBoard 做了四处改动，与本项目已做的文件保护与 purgeable 两处有重叠，其余两处待对照。
-- 电池图标：`STUIStatusBarBatteryView` 由两个 `CAShapeLayer`、一个填充层和一个 `compositingFilter` 为 `destOut` 的百分比文字层组成，软件合成下显示，GPU 合成下不显示。
+- `rest1` 里 SpringBoard 已经空闲，开机后 3 分钟内图标仍不出现。图层读数（`notify com.redwood.layers.Icon`）显示 17 个 `SBIconImageView` 都没有子图层；从设置返回主屏后，每个 `SBIconImageView` 下都有 `SBHIconLayerView` → `ICRIconLayer` → `ICRIconRenderingLayer`，图标全部出现。
+- `rest1`、`rest2` 重启后的 SpringBoard 都在解锁后直接显示全部图标和两个小组件。根因是每次开机 `/private/var` 都是空的，见[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md)。

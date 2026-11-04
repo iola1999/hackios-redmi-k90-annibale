@@ -1,20 +1,20 @@
 # GPU 升频之后的长帧（2026-11-02）
 
-本文汇总 11-02 各轮的逐帧拆分，说明 GPU 升到 832～1100 MHz、显示改为 GPU 完成即上屏之后，手势里剩下的长帧落在哪里。轮次身份与帧率见[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md)，拆分口径见[120 Hz 手势帧率的卡点](2026-11-01-120hz-gesture-bottleneck.md) §2。
+本文汇总 11-02 各轮的逐帧拆分，说明 GPU 升到 832～1100 MHz、显示改为 GPU 完成即上屏之后，手势里剩下的长帧落在哪里。轮次与帧率见[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md)，拆分口径见[120 Hz 手势帧率的卡点](2026-11-01-120hz-gesture-bottleneck.md) §2。
 
 ## 1. 结论
 
-- 控制中心下拉从 rt2 的 68.0 帧／秒升到 100～108 帧／秒，左滑从 80.1 升到 104～106。三项起作用的改动：GPU 档位（342 → 1100 MHz）、解除映射不再等 GPU 空闲、`fb_beat=0`。
+- 1125×2436 画布下，控制中心下拉从 rt2 的 68.0 帧／秒升到 100～108 帧／秒，左滑从 80.1 升到 104～106。起作用的三项改动：GPU 档位（342 → 1100 MHz）、解除映射不再等 GPU 空闲、`fb_beat=0`。
+- 画布改为 1206×2622 后（dc1 起），控制中心下拉约 86～88 帧／秒（§8）。整屏 pass 的第二个颜色附件不再从内存读回后（dc2），升到 95.5 帧／秒（§6）。
 - best1 的手势窗口里 88% 的帧用一个节拍。剩下的长帧中，G 超过一拍的 287 个，P 超过一拍的 155 个。
-- G 超过一拍的帧，GPU 本身仍然是主要部分：这些帧里 backboardd 各次提交的 GPU 执行时间合计 p50 7.0 ms。sk1 控制中心下拉每帧 GPU 时间 p50 5.0 ms、p90 7.2 ms，滑动 p50 2.8 ms、p90 7.4 ms。
-- 每次提交从内核交出到 GMU 记下的提交时刻约 0.7 ms，与 GPU 是否空闲无关。原因未查明。
-- 面板驱动每帧的处理器时间在手势密集的 5 秒窗口里达到 7.3 ms，其中逐行哈希约 1.6 ms，其余是缩放。`fb_queue=1` 下 SwapEnd 要等上一帧拷完，这段时间直接计入 P。整屏动画跳过哈希后（`12377-rate7`）C 的中位数降到 3.04 ms。
-- backboardd 的 GPU 时间约 87% 花在整屏合成 pass 上，其中把 tile 从内存读回和写回各占约两成。整屏 pass 的第二个颜色附件是 1206×2622 的 RGBA16Float，CoreAnimation 声明不需要读入，驱动此前仍每个 bin 读回（§6）。
-- dc1 起画布是 1206×2622，控制中心下拉约 86～88 帧／秒，比 1125×2436 时低约 18 帧／秒（§8）。
+- G 超过一拍的帧，GPU 执行本身仍是主要部分：这些帧里 backboardd 各次提交的 GPU 执行时间合计 p50 7.0 ms。sk1 控制中心下拉每帧 GPU 时间 p50 5.0 ms、p90 7.2 ms，滑动 p50 2.8 ms、p90 7.4 ms。
+- backboardd 的 GPU 时间约 87% 花在整屏合成 pass 上，其中把 tile 从内存读回和写回各占约两成（§6）。
+- 每次提交从内核交出到 GMU 记下提交时刻约 0.7 ms，与 GPU 是否空闲无关，原因未查明（§3）。
+- 面板驱动每帧的处理器时间在手势密集的 5 秒窗口里达到 7.3 ms，其中逐行哈希约 1.6 ms。`fb_queue=1` 下 SwapEnd 要等上一帧拷完，这段时间直接计入 P。整屏动画跳过哈希（`12377-rate7`）后 C 的中位数降到 3.04 ms（§5）。
 
 ## 2. 时钟对齐
 
-- `tl: R` 的时刻取自 GMU always-on 计数，`tl: Q`、`tl: s`、`tl: v` 取自 `mach_absolute_time`。两者都换算成微秒打印。
+- `tl: R` 的时刻取自 GMU always-on 计数，`tl: Q`、`tl: s`、`tl: v` 取自 `mach_absolute_time`，都换算成微秒打印。
 - rate4 与 rate6 两次开机读到的差值都是 772 µs（always-on 比 mach 大）。下面的计算都先减去这个差值。
 - best1 共 18253 条 `tl: R`。提交从排进 GPU 到开始执行（sop − sub）的中位数是 −2 µs，GPU 空闲时提交立即开始。
 
@@ -47,6 +47,7 @@ best1 手势窗口里 3830 帧中有 936 帧的 G 超过一拍。逐帧拆开（
 - 典型的慢帧有一次 2 万字左右的提交，单次执行 5～7 ms，例如 best1 的第 3744 帧，一次 21626 字的提交执行了 6.9 ms。
 - sk1 按提交字数分组：2 万字以上的提交执行时间 p50 4.8 ms，5 千字以下 0.7 ms。
 - 其他进程在手势帧里的 GPU 时间：sk1 壁纸扩展 MercuryPosterExtension 合计 519 ms，iconservicesagent 297 ms，SpringBoard 69 ms。
+- backboardd 的提交在 GPU 上排队的时间里，89% 排在它自己前面的提交之后，排在壁纸扩展之后的约 9%（sk1、best1）。给 backboardd 单独一个高优先级队列的收益上限小，暂不做。
 
 ## 5. 面板驱动的处理器时间
 
@@ -57,13 +58,12 @@ sk1 面板驱动每 5 秒一行的统计：
 | 手势密集 | 97 | 7326 µs | 1831 | 0 |
 | 动画但多数帧无变化 | 113 | 1623 µs | 162 | 489 / 567 |
 
-- 无变化的帧只做逐行哈希，每帧约 1.6 ms，哈希只在 presenter 一个线程上做，缩放要等它做完才开始。
-- pf1 的处理器采样里，`dirtyBand` 1353 个样本，`drawRows` 142 个。
-- 整屏动画里每一行都变，哈希不省任何绘制。
+- 无变化的帧只做逐行哈希，每帧约 1.6 ms。哈希只在 presenter 一个线程上做，缩放要等它做完才开始；pf1 的处理器采样里 `dirtyBand` 1353 个样本，`drawRows` 142 个。
+- 整屏动画里每一行都变，哈希省不下任何绘制。`12377-rate7` 起，连续两帧改动九成以上的行、间隔不到 25 ms 时，后 6 帧不做逐行哈希整帧画，再哈希两帧确认。hs1 的手势窗口里一拍帧从 88% 到 90%，C 的中位数从 4.08 ms 降到 3.04 ms，长帧比例从 11.7% 降到 10.3%，手势帧率与 pt3 的差异在波动范围内。
 
 ## 6. 每个 pass 的 GPU 时间
 
-hs1 起 backboardd 带 `REDWOOD_PASS_TIMES=1`（tracepoint 取 `render_pass`、`compute`、`blit`、`nondraw`、`tile_loads`、`tile_stores`），每 5 秒按 pass 种类汇总一次。pt3 的汇总有误：一个种类在打印后复用旧槽位时，沿用了上一窗口的计数、总时长与最长值，只有第一个窗口可用。hs1 起的库已改正。
+读法：backboardd 的任务环境变量加 `REDWOOD_PASS_TIMES=1`，tracepoint 取 `render_pass`、`compute`、`blit`、`nondraw`、`tile_loads`、`tile_stores`（命令见 [k90auto 说明](../../tools/k90auto/README.md)），AIR 库带 `tools/mesa/rebase-26/0008`。日志每 5 秒按 pass 种类（画布尺寸、GMEM bin 数、颜色附件数、深度／模板格式）汇总一组 `pass times` 行，每行是一种 pass 的次数、合计与最长时间。附件的格式与读入、写回方式用 `REDWOOD_PASS_LOG=1` 记录。
 
 hs1 整轮（1125×2436 画布）backboardd 的 GPU 时间：
 
@@ -75,29 +75,25 @@ hs1 整轮（1125×2436 画布）backboardd 的 GPU 时间：
 | 1125×2436 sysmem pass | 1280 | 0.21 s | 163 µs | 1.2% |
 
 - 整屏合成 pass 每次都把 4 个 bin 从内存读回 GMEM，再写回去，读回与写回合计占 backboardd GPU 时间的四成左右。
-- tile store 的次数是 tile load 的 1.6 倍：整屏 pass 有两个颜色附件，没有深度／模板附件（ft3 的 pass 记录为 `gmem 4 bins 2 rt`）。
-- c7 用 `REDWOOD_PASS_LOG=1` 记下了附件：
+- 整屏 pass 有两个颜色附件，没有深度／模板附件（`gmem 4 bins 2 rt`），所以 tile store 的次数是 tile load 的 1.6 倍。c7 记下的附件：
 
 | 附件 | 格式 | 尺寸 | 读入 | 写回 |
 |---|---|---|---|---|
 | 颜色 0 | BGRA8Unorm（80） | 1206×2622 | `Load` | `Store` |
 | 颜色 1 | RGBA16Float（115） | 1206×2622 | `DontCare` | `Store` |
 
-- 颜色 1 每像素 8 字节，整屏约 25 MB。CoreAnimation 声明不需要它原来的内容，驱动此前不区分读入方式，freedreno 在每个 bin 都把它读回 GMEM。改动见[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §1。颜色 1 的写回是 CoreAnimation 要求的，保留。
-- 颜色 1 不再读回之后（dc2，11-05）：整屏 pass 每次 907 → 795 µs，tile load 合计 3.46 → 1.30 s，控制中心下拉 87.9 → 95.5 帧／秒，左右翻页与 dc1 相当，截图无差异。
+- 颜色 1 每像素 8 字节，整屏约 25 MB。CoreAnimation 声明不需要它原来的内容，驱动原先不区分读入方式，freedreno 在每个 bin 都把它读回 GMEM。`0009-fd-resource-contents-undefined.patch` 与 AIR 的配套改动在 pass 第一次绘制前把 `MTLLoadActionDontCare` 的颜色附件标为内容无效，不再读回；颜色 1 的写回是 CoreAnimation 要求的，保留。
+- dc2（11-05）与 dc1 对比：整屏 pass 每次 907 → 795 µs，tile load 合计 3.46 → 1.30 s，控制中心下拉 87.9 → 95.5 帧／秒，左右翻页与 dc1 相当，截图无差异。
 - 手势时整屏 pass 每帧 1～2.5 次，每次 0.65～1.47 ms；主屏静止时仍以每秒约 20 次的频率画整屏 pass，每次约 1.16 ms。
 
 ## 7. 试过的方向
 
-- `fb_filter=2`：ff2 与 bt0 的差异在轮次间波动范围内。
-- 整屏动画跳过逐行哈希（内核 `12377-rate7`，hs1）：手势窗口里一拍帧从 88% 到 90%，C 的中位数从 4.08 ms 降到 3.04 ms，长帧比例从 11.7% 降到 10.3%；手势帧率与 pt3 的差异在波动范围内。保留。
+- `fb_filter=2`（ff2）：与 bt0 的差异在轮次间波动范围内，不采用。
 - backboardd 全部走 sysmem（`FD_MESA_DEBUG=sysmem`，sm1）：每帧 GPU 时间超过 7 ms 的帧减少（滑动 141 → 31，控制中心 107 → 36），中位数变大（滑动 2.8 → 3.3 ms）；整轮 GPU 时间从 17.8 s 增加到 23.1 s，整屏 pass 每次 1092 µs。不采用。
-- `MTLLoadActionDontCare` 按清屏处理（dc1）：只改了颜色 0，tile load 次数没有变化（67911 对 67682）。颜色 0 用的是 `MTLLoadActionLoad`，改动已撤回。`DontCare` 在颜色 1 上，见 §6。
 - `fb_threads=3`（ft3）：C 的中位数从 3.34 ms 降到 2.79 ms，手势帧率与 dc1 相当。1206×2622 画布下长帧主要是 G 超过一拍（318 个），缩短拷贝时间没有带来帧率变化。保持 2。
 - `cpus=7`（c7）：手势帧率与 dc1 相当（控制中心下拉 85.6 对 87.9），GPU 最高 57.5 °C。保持 4。
-- SpringBoard 的 commit：sk1 用 run loop 观察者夹住 CoreAnimation 的 commit（order 2000000），整轮只记到 4 次超过 50 µs。iOS 26 的 UIKit 在自己的更新周期里提交，这个位置看不到，读数不采用。
-- 给 backboardd 单独一个高优先级队列：backboardd 的提交在 GPU 上排队的时间里，89% 排在它自己前面的提交之后，排在壁纸扩展之后的约 9%（sk1、best1）。收益上限小，暂不做。
+- SpringBoard 的 commit（sk1）：用主线程 run loop 观察者夹住 CoreAnimation 的 commit（order 2000000），整轮只记到 4 次超过 50 µs。iOS 26 的 UIKit 在自己的更新周期里提交，这个位置看不到。
 
 ## 8. 画布改为 1206×2622 之后
 
-2026-11-02 另一个会话为状态栏布局把 `cycle.py` 的默认画布改成 `fbwidth=1206 fbheight=2622 fbpitch=460`（[状态栏布局分析](2026-11-02-status-bar-layout.md)），从 dc1 起的轮次都是这个画布，像素比 1125×2436 多约 15%。dc1 的手势帧率：控制中心下拉 87.9、左滑 98.8、右滑 92.1 帧／秒；整屏 pass 每次 906 µs，次数与 hs1 相当。之后的读数以 dc1 为基线。比较两轮前先核对日志里 backboardd 的 `initial main screen size`。
+`cycle.py` 从 dc1 起默认 `fbwidth=1206 fbheight=2622 fbpitch=460`（[状态栏布局分析](2026-11-02-status-bar-layout.md)），像素比 1125×2436 多约 15%。dc1 的手势帧率：控制中心下拉 87.9、左滑 98.8、右滑 92.1 帧／秒；整屏 pass 每次 906 µs，次数与 hs1 相当。之后的读数以 dc1 为基线；比较两轮前先核对日志里 backboardd 的 `initial main screen size`。

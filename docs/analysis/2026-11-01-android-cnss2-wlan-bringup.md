@@ -1,12 +1,12 @@
 # K90 Wi-Fi：Android cnss2 的上电与 WLFW 顺序（2026-11-01 实测）
 
-ath12k 在 K90 上跑到 WMI_INIT 后固件崩溃（[ath12k 驱动接入记录](../progress/2026-11-01-wifi-ath12k-driver.md)）。为了逐项对照，在 Android（B 槽，KernelSU）开机后读取了 cnss2 的日志。本文记录 Android 在这台手机上给 WCN7850 供电、启动固件、走 WLFW 的实际做法，以及与我们 `pcie=10` 路径的差异。
+Android（B 槽，KernelSU）开机后读取的 cnss2 日志：Android 在这台手机上给 WCN7850 供电、启动固件、走 WLFW 的实际做法，与我们 `pcie=10`（ath12k）路径的差异，以及 WCN7850 固件崩溃的读法。崩溃的根因是主机能力缺 MLO 字段（第 5 节），排查轮次与修复见 [ath12k 驱动接入记录](../progress/2026-11-01-wifi-ath12k-driver.md) 3.2。
 
 ## 1. 来源
 
 - `dmesg`，以及挂载 debugfs 后 `ipc_logging/` 下的 `cnss`、`cnss-long`、`mhi_1107_00.01.00` 三个缓冲区。
 - `regulator/regulator_summary`，PMK8550 的 regmap（`regmap/0-00/registers`）。
-- 原始文件在本地证据目录 `docs/progress/evidence/k90auto/android-cnss-20261101/`（Git 忽略）。其中含本机 MAC 地址与芯片序列号，摘录时不要带出。
+- 原始文件在本地调试目录 `docs/progress/evidence/k90auto/android-cnss-20261101/`（Git 忽略）。其中含本机 MAC 地址与芯片序列号，摘录时不要带出。
 
 ## 2. 供电
 
@@ -53,17 +53,19 @@ cnss2 先做一次冷启动校准，再断电重启进 mission 模式。设备�
 
 ## 4. 与 `pcie=10` 路径的差异
 
-| 项 | Android cnss2 | ath12k（`12377-cmd61`） |
+右列是 `tools/k90auto/cycle.py` 的默认参数下 ath12k 的做法。
+
+| 项 | Android cnss2 | 本项目默认（ath12k） |
 |---|---|---|
-| 电压 | 第 2 节的 OL CPR 值，之后交给 PDC | apps 固定投票，s5f 932、s3g 1864，不配 PDC |
-| 睡眠时钟 | PMK8550 GPIO3 输出 32 kHz | 引脚是输入加下拉，没有时钟（`12377-cmd64` 起 `pcie_sleep_clock=board` 可设成 Android 的配置） |
+| 电压 | 第 2 节的 OL CPR 值，之后交给 PDC | apps 固定投票，s5f 954、s3g 1866（`12377-cmd62` 起）；`pcie_aop_pdc=1` 另把 WLAN PDC 配置发给 AOP |
+| 睡眠时钟 | PMK8550 GPIO3 输出 32 kHz | `pcie_sleep_clock=board` 把引脚设成 Android 的配置 |
 | 冷启动校准 | 先校准再 mission，`cal_done` 1 | 不校准，`cal_done` 0 |
-| BDF | `bd_p11.elf` | `bdwlan.elf`（高通参考板的默认文件） |
+| BDF | `bd_p11.elf` | `bd_p11.elf`（`pcie_bdf=bd_p11.elf`；不指定时是高通参考板的 `bdwlan.elf`） |
 | REGDB | `regdb_xiaomi.bin` | `regdb.bin` |
-| feature list | 0x6 | 0x18（QDSS_CFG_MISS、PCIE_PERST_NO_PULL） |
+| feature list | 0x6 | 0x18（QDSS_CFG_MISS、PCIE_PERST_NO_PULL）；`wifi_hostcap=1` 改发 cnss2 的值 |
 | nm_modem | 不发 | 0xe（内部睡眠时钟、host C-state、PCIe 全局复位） |
 | QDSS 配置 | 下发 | 不下发 |
-| MLO 字段 | 发，`max_mlo_peer` 32（cnss2 源码，日志不打印） | 不发：PHY capability 报 `single_chip_mlo_support` 0 |
+| MLO 字段 | 发，`max_mlo_peer` 32（cnss2 源码，日志不打印） | `wifi_mlo=1` 让 ath12k 发同样的字段；不发时固件崩溃（第 5 节） |
 | PCIe | Gen2，运行中在 Gen1／Gen2 间调整 | 限 Gen1 |
 
 固件版本相同（`WLAN.HMT.2.0-02977`），M3 相同。feature list 0x6 的两个位在 ath12k 的头文件里没有定义，名称待按 cnss2 源码核对。
@@ -77,9 +79,8 @@ cnss2 先做一次冷启动校准，再断电重启进 mission 模式。设备�
 - 开头是目录：版本 1，头长 0x208，每项 0x40 字节，依次是起始地址、物理地址、长度、20 字节描述、20 字节文件名。数据按目录顺序紧接在头后面。
 - 目录的 8 项：`Q6-SFR`（0x50 字节，故障原因）、`Q6-SRAM`（0x1400000 起 4 MB）、`WLAON_DUMP`、三段 ETB 跟踪（SoC 32K、Q6 2K、WCSS 32K）、`PHYA-M3`、`PHYB-M3`（各 0x48000）。
 - 故障原因：`cmnos_thread_patch.c:1270:0x8Asserted in:0x1f26a9c:0x1f269ac, line#386`。第 1270 行是固件致命错误的统一出口：`Asserted in` 后面是调用致命错误函数（`0x1279434`）处的返回地址和上一层的返回地址，`line#N` 是传给它的编号。`wd15` 的 `line#3268` 能在 `amss20.bin` 里对上 `r0 = 0xcc4` 加 `call 0x1279434`，可以印证这种读法。`:0x8` 的含义未知。
-- `Q6-SRAM` 里有出错线程的栈，按 Hexagon 的帧链（每帧 `{上一帧, 返回地址}`）走出 25 层。从线程入口往上依次经过 copy engine 的处理、一次间接分发、带 `Coex pmac pre sleep`／`RTT pmac post awake` 字符串的函数，最后由 `0x18ca524` 构造的对象经 `0x18ca790`（`r4 = 0x200` 后跳到 ROM 的 `0x1f26964`）分配内存，ROM 里报 fatal 386。请求的元素个数是 `n - 3`，`n` 为 0，详见[驱动接入记录](../progress/2026-11-01-wifi-ath12k-driver.md) 3.4。
+- `Q6-SRAM` 里有出错线程的栈，按 Hexagon 的帧链（每帧 `{上一帧, 返回地址}`）走出 25 层。从线程入口往上依次经过 copy engine 的处理、一次间接分发、带 `Coex pmac pre sleep`／`RTT pmac post awake` 字符串的函数，最后由 `0x18ca524` 构造的对象经 `0x18ca790`（`r4 = 0x200` 后跳到 ROM 的 `0x1f26964`）分配内存，ROM 里报 fatal 386。请求的元素个数是 `n - 3`，`n` 为 0。
 - `0x1f2xxxx`、`0x1cbxxxx`、`0x12xxxxx` 不在 `amss20.bin` 的任何段里，推测是芯片 ROM，看不到代码。
-- `Q6-SRAM` 里还有固件的开机控制台文字，含两行 `Thread create: can't allocate Tcb.. entry 0x12b0074`、`entry 0x1293838`。出错线程的栈底正是 `0x1293838` 开始的函数，所以这两行不表示线程没有建成；没有 Android 的转储对照，不能判断它们是否正常。
 
 ERRDBG1 在 Android 固件下是 0x21 或 0x1，含义仍未知。
 
@@ -91,4 +92,4 @@ n 的来源（`wd19` 的转储加 `amss20.bin` 反汇编）是主机能力里的
 - 处理函数把解码后的整条主机能力消息（0x238 字节）拷到 `0x1535f38 + 0xc8`，因此 `0x1536142` 是消息结构体的偏移 0x142，即 `max_mlo_peer`。偏移按 ath12k 的 `qmi_wlanfw_host_cap_req_msg_v01` 计算；处理函数读 `feature_list_valid`、`feature_list` 的位置（0x159、0x160）与这个布局一致。
 - 写入条件：`mlo_chip_id`、`mlo_group_id`、`max_mlo_peer`、`mlo_num_chips` 四个 valid 都不为 0，`mlo_chip_id` 为 0，`mlo_num_chips` 不超过 1。
 
-cnss2 的 `cnss_wlfw_host_cap_parse_mlo()` 对 KIWI、MANGO、PEACH 总会发这组字段：`mlo_capable` 1、chip id 0、group id 0、`max_mlo_peer` 32、1 颗芯片、2 条链路（hw link id 0、1）。来源是 LineageOS `android_kernel_qcom_sm8650-modules` 的 `qcom/opensource/wlan/platform/cnss2/qmi.c`（lineage-22.2 分支），比本机的平台早一代；本机日志里主机能力的几行在这份源码里都有对应的打印，MLO 字段本身不打印。ath12k 只在 PHY capability 报告 `single_chip_mlo_support` 时才发这组字段，这版固件报的是 0。`wd20` 补上这组字段后校准完成。
+cnss2 的 `cnss_wlfw_host_cap_parse_mlo()` 对 KIWI、MANGO、PEACH 总会发这组字段：`mlo_capable` 1、chip id 0、group id 0、`max_mlo_peer` 32、1 颗芯片、2 条链路（hw link id 0、1）。来源是 LineageOS `android_kernel_qcom_sm8650-modules` 的 `qcom/opensource/wlan/platform/cnss2/qmi.c`（lineage-22.2 分支），比本机的平台早一代；本机日志里主机能力的几行在这份源码里都有对应的打印，MLO 字段本身不打印。ath12k 只在 PHY capability 报告 `single_chip_mlo_support` 时才发这组字段，这版固件报的是 0。`wd20` 补上这组字段后校准完成，`wd21` 起 ath12k 用 `wifi_mlo=1` 发这组字段，固件不再崩溃。

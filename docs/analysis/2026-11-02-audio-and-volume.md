@@ -21,7 +21,7 @@
 - 按键：`input26_service.c:363-376,423` 发 HID consumer 页 0x0C 的 0xE9／0xEA。iOS 26 的 SpringBoard（`SBVolumeControl`、`SBAVSystemControllerCache`）从 AVSystemController 读音量，服务端在 audiomxd 里（`SpringBoard.framework` 里的格式串 `Caching newEffectiveVolume: %f from AVSystemController`）。只有 HID 事件时，音量值改不了，提示框不出现或显示旧值（推断，真机没有验证过：唯一一次 iOS 26 的音量键探针落在画面冻结期间）。
 - audiomxd：23G90 没有 `mediaserverd`；`usr/libexec/audiomxd` 在系统盘上，但 `hackios-xnu-userland/userland/mkjobs.py:221` 的 DENY 词 `audio` 挡住了 `com.apple.audiomxd`，`tools/k90auto/package.py:276-289` 沿用这张表。audiomxd 承载 `coremedia.systemcontroller.xpc`、`volumecontroller.xpc`、`SystemSoundServer-iOS`、`audio.hapticd` 和 `AudioSession`。它没有卡住或崩溃，只是没有启动。
 - 插件：系统盘上有 `RedwoodAudio.driver`，但 11-01 的产物 `hackios-xnu-kernel/userland/root/lib/RedwoodAudio.driver/RedwoodAudio` 是 arm64 的 Mach-O bundle（`build.sh:426`）。
-- 系统盘：`VirtualAudio.plugin` 和 115 个 UISounds 都在（`ios165/select-system.py:155-156,201`）。[启动程序审计](2026-10-28-launchd-programs-audit.md) 第 53 行说 `System/Library/Audio/` 整个没带，实际上 UISounds 带了，只去掉了 usbaudio 一类插件。
+- 系统盘：`VirtualAudio.plugin` 和 115 个 UISounds 都在（`ios165/select-system.py:155-156,201`），`System/Library/Audio/` 下只去掉了 usbaudio 一类插件（[启动程序审计](2026-10-28-launchd-programs-audit.md)）。
 - 内核：只有继承自 redwood（POCO X5 Pro）的一套：`redwood_audio.c`（`/dev/redwood-audio`、音量 ioctl、`rec_sound` 录音）、`redwood_adsp.c`（旧的 APR 协议、redwood 的地址 0x86700000、没有平台判断）、`redwood_sound.c`、`redwood_speaker.c`（AW88261）、`redwood_guard.c`（软件扬声器保护）、`redwood_mic.c`。没有 SM8750 的音频代码。K90 上不能传 `adsp=1`、`sound=N`、`speaker_probe=N`，它们会去碰 redwood 的地址。
 
 ## 4. dada 的做法
@@ -39,7 +39,7 @@
 ## 5. K90 的硬件
 
 - 功放在 hub_i2c0（0x980000，SDA GPIO64、SCL GPIO65）（DTS:25697-25760、41942-41966）。设备树和 dtbo 里两组芯片都标为 `ok`，是双供应商设计，装的是哪一种还不知道：
-  - `tfa98xx_1@0x36`（复位 GPIO108，中断 GPIO66，听筒／扬声器切换 GPIO67）与 `tfa98xx_2@0x34`（复位 GPIO107，中断 GPIO84）。TFA98xx 是 NXP（现归汇顶）的芯片，[硬件地图](annibale-hw-map.md) 第 169 行写成了 TI。
+  - `tfa98xx_1@0x36`（复位 GPIO108，中断 GPIO66，听筒／扬声器切换 GPIO67）与 `tfa98xx_2@0x34`（复位 GPIO107，中断 GPIO84）。TFA98xx 是 NXP（现归汇顶）的芯片。
   - SIA9197x，地址 0x6e／0x6c，复位与切换脚相同。
 - 复位、中断、切换和总线引脚与 dada 相同。
 - I2S（`sec_tdm_pinctrl`）：GPIO121 时钟、123 帧、122 数据入、124 数据出，功能 `i2s1_*`（DTS:30905-30913、7176-7280），与 dada 相同。
@@ -68,5 +68,6 @@
 - TFA 芯片可能需要容器文件才能出声。
 - 没有 DSP 扬声器保护，只有软件保护。
 - 固件体积会影响载荷的装载方式。
+- 同类项目在 Qualcomm 平台上出声时遇到的几处问题（主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下、传输类型）列在 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 8 项，移植第 3～5 步时逐项核对。
 
 最有用的第一个真机实验是第 1 步：不写任何硬件，就能回答音量键、提示框和音量值能不能工作，同时验证后面真正出声要依赖的整个 iOS 一侧。

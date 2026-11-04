@@ -453,8 +453,7 @@ def probe(lines):
 def fence_probe(lines):
     """Did anything time out waiting for a fence, and where.
 
-    The fence-timeout hypothesis (docs/analysis/2026-10-28-ui-freeze-fence-timeout-hypothesis.md)
-    predicts a line saying a command did not finish within two seconds at each stall. A hit that
+    The fence-timeout hypothesis predicts a line saying a command did not finish within two seconds at each stall. A hit that
     lines up with a stall supports it; no hit at all says the block is outside the fence path. Read
     it with ring_coverage(): a round whose ring holds a few seconds of log cannot rule anything out
     by absence.

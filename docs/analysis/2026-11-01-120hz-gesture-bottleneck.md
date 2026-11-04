@@ -1,14 +1,14 @@
 # 120 Hz 手势帧率的卡点（rt2 离线分析，2026-11-01）
 
-本文用 `kernel-12377-rate1-rt2` 的日志逐帧拆分手势动画的耗时，排出离 120 帧／秒还差在哪里，以及下一批真机轮次的变量。轮次身份与读数见[120 Hz 轮次记录](../progress/2026-11-01-120hz-rounds.md)，开关见[验证方案](../plan/2026-11-01-rate-scaling-ir3-rounds.md)。本文的逐帧数字都可以用 `python3 tools/k90auto/frame-split.py <轮次目录> 120` 复现。
+本文用 `kernel-12377-rate1-rt2` 的日志逐帧拆分手势动画的耗时，找出离 120 帧／秒还差在哪里。逐帧数字都可以用 `python3 tools/k90auto/frame-split.py <轮次目录> 120` 复现。轮次见[120 Hz 轮次记录](../progress/2026-11-01-120hz-rounds.md)；按本文结论做的 GPU 升频和之后的长帧拆分见 [GPU 升频之后的长帧](2026-11-02-120hz-after-gpu-clock.md)。
 
 ## 1. 结论
 
-- GPU 时间是第一卡点。rt2 的 4393 个动画帧里有 1921 帧（44%）的 GPU 时间超过一个节拍（8.33 ms）；1492 个长帧（显示间隔两拍及以上）中，1294 个的 GPU 时间超过一拍。
-- rt1、rt2 以及 `bo58` 之后的各轮都按 `GPU_SPEED=3` 打包，GPU 最高 342 MHz；`bo40`～`bo57` 用的是 `GPU_SPEED=7`，最高 607 MHz。文档和提交说明里没有找到改档的原因。
-- 掉到 60 帧／秒以下的有两段：一段是控制中心下拉（53.5 帧／秒，GPU 时间中位数 17.4 ms），另一段是壁纸扩展 MercuryPosterExtension 和 backboardd 同时在画（62.7 帧／秒）。
-- backboardd 处理器侧排第二：131 个长帧是 P 超过一拍。用户手动滑动期间，外部 buffer 解除映射前等 GPU 空闲的时间每 5 秒累计 150～499 ms。
-- 面板驱动 `fb_queue=1` 的链路目前还有余量：一拍帧的节拍等待中位数 3.71 ms。GPU 变快之后，两拍帧的 P + G + C 会接近两拍的预算，那时再用 `fb_filter=2` 缩短拷贝。
+- GPU 时间是 rt2 的第一卡点。4393 个动画帧里有 1921 帧（44%）的 GPU 时间超过一个节拍（8.33 ms）；1492 个长帧（显示间隔两拍及以上）中，1294 个的 GPU 时间超过一拍。
+- rt2 的 GPU 最高 342 MHz：`package.py` 不设 `GPU_SPEED` 时默认 3，`bo58` 之后各轮都按 3 打包，`bo40`～`bo57` 用的是 7（607 MHz）。`cycle.py` 从 11-02 起默认 `GPU_SPEED=14`（1100 MHz）。
+- 掉到 60 帧／秒以下的有两段：控制中心下拉（53.5 帧／秒，GPU 时间中位数 17.4 ms），以及壁纸扩展 MercuryPosterExtension 和 backboardd 同时在画的一段（62.7 帧／秒）。
+- backboardd 处理器侧排第二：131 个长帧是 P 超过一拍。其中外部 buffer 解除映射前等 GPU 空闲的时间，用户手动滑动期间每 5 秒累计 150～499 ms；`12377-rate2` 起解除映射不再等 GPU（[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §3）。
+- 面板驱动 `fb_queue=1` 的链路还有余量：一拍帧的节拍等待中位数 3.71 ms。
 
 ## 2. 数据与口径
 
@@ -44,14 +44,7 @@ GPU 时间和每帧的工作量直接相关。按 backboardd 每帧的提交次�
 | 3 | 203 | 16.63 | 21.18 | 27263 | 96% |
 | 4 及以上 | 112 | 22.04 | 34.82 | 33609 | 98% |
 
-## 4. GPU 档位
-
-- rt2 全程打印 `RedwoodGPU: GPU at 342 MHz`。内核的调频函数（`hackios-xnu-kernel/xnu/files/bsd/dev/adreno8_hfi.c` 的 `adreno8_speed_tick`）按负载在下限 342 MHz 和 `adreno8_speed=N` 给的上限之间切换。温控规则：GPU 传感器到 70 °C 逐档下调，低于 60 °C 逐档恢复，到 75 °C 直接降到最低档。
-- 各轮 manifest 里的 `gpu_speed`：`bo40`～`bo57` 是 7；`bo58`～`bo63`、rt1、rt2 是 3。`package.py` 不设 `GPU_SPEED` 时默认 3。
-- GPU 时间随频率变化的已有读数：`bo15` 在今天视图翻页，频率从 342 MHz 提到 607 MHz 后，GPU 忙碌比例从 94% 降到 56%，GPU 最高 49.8 °C（[合成路径的处理器开销](2026-10-31-compositor-cpu-path.md)）。当时还是 60 Hz，瓶颈在 backboardd，所以帧率没有跟着涨。
-- 估算：G 按 0.6 倍缩放（`bo15` 的比例）后，超过一拍的帧从 44% 降到 17%。这个估算按线性折算，没有计入总线带宽和温控降档。
-
-## 5. 慢场景
+## 4. 慢场景
 
 tour 动作对应的动画段：
 
@@ -65,41 +58,28 @@ tour 动作对应的动画段：
 
 - 用户手动滑动的 187～230 秒里有 10 段 40 帧以上的动画，帧率在 55.9～121.5 之间。最长的一段 913 帧，79.4 帧／秒，G 的中位数 8.43 ms、p90 17.30 ms。
 - 壁纸扩展 MercuryPosterExtension 每秒的提交次数：123～124 秒为 75～128 次，189～193 秒为 27～97 次，其他时段为 0 或个位数。同一时间的两段动画分别是 72.5 和 62.7 帧／秒，G 的中位数 9.69 和 13.32 ms。
-- 壁纸扩展的慢提交打印（`commit N took N ms`）共 95 条，中位数 50 ms，p90 87 ms。着色器名都带 `space::` 前缀（如计算着色器 `updateCylinderVertexPositions`、片段着色器 `rasterizeCylinderFragment`），来自壁纸自身的动画。它和 backboardd 共用 GPU，它的执行时间会计入 backboardd 帧的 G。
+- 壁纸扩展的慢提交（`commit N took N ms`）共 95 条，中位数 50 ms，p90 87 ms，着色器名都带 `space::` 前缀（如计算着色器 `updateCylinderVertexPositions`），来自壁纸自身的动画。它和 backboardd 共用 GPU，执行时间会计入 backboardd 帧的 G。
+- 减少壁纸扩展的 GPU 占用有两种做法：换静态壁纸做对照，或限制它的出帧频率。两种都会改变用户看到的效果，需要用户先决定。
 
-## 6. backboardd 处理器侧
+## 5. backboardd 处理器侧
 
 - P 超过一拍的长帧有 131 个；三拍及以上分组的 P 中位数是 25.56 ms。
-- 有 297 帧（其中 222 个是长帧）在 SwapEnd 进入时 GPU 已经做完，或在其后 0.5 ms 内做完，说明 backboardd 先等 GPU 再交帧。例：200.82～200.90 秒每帧提交三次，backboardd 的 tid 474 每帧等 fence 12～14 ms，等完后 0.4 ms 内渲染线程 tid 423 调用 SwapEnd。哪段代码让渲染线程等 GPU，还没有确认。
-- 解除映射时等 GPU 空闲：`adreno8_bo.c` 的 `adreno8_bo_unmap` 每解除一个外部 buffer 的映射，都先调用 `adreno8_context_wait_idle`。187～230 秒每 5 秒有 363～766 次解除映射，等待合计 150～499 ms；79～134 秒的 tour 期间，每个统计窗口（5～10 秒）合计 18～118 ms。等待的是哪个进程、哪个线程，日志里没有记录。
-- 运行时建管线：backboardd 在 200～210 秒打印了 55 次建渲染管线，合计 76.5 ms，平均每次约 1.4 ms。建管线是否在渲染线程上进行还没有核对；如果是，效果第一次出现的那一帧要多花这段时间。
+- 先等 GPU 再交帧：有 297 帧（其中 222 个是长帧）在 SwapEnd 进入时 GPU 已经做完，或在其后 0.5 ms 内做完。例如 200.82～200.90 秒每帧提交三次，backboardd 的 tid 474 每帧等 fence 12～14 ms，等完后 0.4 ms 内渲染线程 tid 423 调用 SwapEnd。哪段代码让渲染线程等 GPU，没有确认。
+- 运行时建管线：backboardd 在 200～210 秒打印了 55 次建渲染管线，合计 76.5 ms，平均每次约 1.4 ms。是否在渲染线程上建管线没有核对；如果是，效果第一次出现的那一帧要多花这段时间。
 
-## 7. 面板驱动链路
+## 6. 面板驱动链路
 
-- `fb_queue=1` 时，SwapEnd 会一直阻塞到上一帧的像素拷完，backboardd 的下一帧从那个时刻才开始做。因此相邻两帧的 P + G + bw + C 必须放进两拍，也就是 16.67 ms。
-- 一拍帧：P、G、C 的中位数加起来是 3.27 + 7.37 + 2.50 = 13.1 ms，剩下的时间由 bw 吸收。
-- 两拍帧：P 中位数 7.60 ms、C 中位数 3.10 ms。G 降到 6 ms 左右时三项合计约 16.7 ms，这条链路会成为下一个卡点。缩短 C 可以用 `fb_filter=2`，动画期间改用最近邻缩放；上游手机上最近邻每帧 1.7 ms，双线性 3.6 ms。
-- `fb_queue=2` 能把两帧共用的预算放宽到三拍。不过 iOS 26 的 CoreAnimation 只在两块 surface 之间轮换，`bo55` 正是因为这一点改成了 1；要改回 2，得先解决这个问题。
+- `fb_queue=1` 时，SwapEnd 一直阻塞到上一帧的像素拷完，backboardd 的下一帧从那个时刻才开始做，相邻两帧的 P + G + bw + C 必须放进两拍（16.67 ms）。
+- 一拍帧：P、G、C 的中位数合计 3.27 + 7.37 + 2.50 = 13.1 ms，剩下的时间由 bw 吸收。
+- 两拍帧：P 中位数 7.60 ms、C 中位数 3.10 ms，G 降到 6 ms 左右时三项合计约 16.7 ms，这条链路会成为卡点。
+- `fb_queue=2` 能把两帧共用的预算放宽到三拍，但 iOS 26 的 CoreAnimation 只在两块 surface 之间轮换，`bo55` 因此改成 1；要改回 2，得先解决这个问题。
 
-## 8. 上游做法对照
+## 7. 120 Hz 的开关
 
-- `fb_filter=2`、`fb_pri=92`：已经实现，排进下一批（[上游做法](2026-11-01-hakios-upstream-lessons.md) §4）。
-- 按 pass 记录 GPU 时间（上游 `5e26504`、`f5831e0`）：上游在 A635 上测到，每个全屏 sysmem 混合 pass 要 14～24 ms。我们提交两次及以上的帧，G 的中位数在 13～22 ms，但还不知道时间花在哪些 pass 上、其中哪些走了 sysmem。这一项不需要设备，可以先离线做好，随后面的轮次一起带上（上游做法 §6）。
-- ir3 关掉 preamble 重编：rt1 里用了私有内存的 stage 只有 11 个，backboardd 一个都没有，这项不再上真机。
+`cycle.py` 的 `FIXED_ARGS` 默认带下面这组开关，各开关的实现说明在内核源码注释里：
 
-## 9. 下一批
-
-真机轮次，每轮只改一个变量：
-
-- R1：沿用 rt2 的开关，只在打包时加 `GPU_SPEED=7`。判据如下：
-  - 日志出现 `RedwoodGPU: GPU at 607 MHz`，且 speed changes 大于 0。
-  - `frame-split.py` 统计的 G 超过一拍的帧，比例低于 rt2 的 44%；tour 下拉控制中心那段高于 53.5 帧／秒。
-  - 记录 GPU 传感器的最高温度；温度到 70 °C 时调频会逐档下调，记下降档的次数。
-- R2：在 R1 基础上加 `fb_filter=2`，判据见[验证方案](../plan/2026-11-01-rate-scaling-ir3-rounds.md) §4。
-- R3：在 R2 基础上加 `fb_pri=92`。
-
-可以离线先做的：
-
-- 解除映射时的等待按进程和线程记录，在现有的每 5 秒统计行里加上等得最久的进程名和 tid，用来判断等待是否发生在渲染线程上。
-- 按 pass 记录 GPU 时间，用来拆开控制中心这类多次提交的帧。
-- 壁纸扩展的 GPU 占用：换一张静态壁纸做对照，或者限制壁纸扩展的出帧频率。两种做法都会改变用户看到的效果，需要用户先决定。
+- `fb_hz=120`：面板驱动按 120 Hz 的节拍出帧。
+- `fb_ca_hz=120`：发布 `IOMFBDisplayRefresh`，告诉 CoreAnimation 刷新间隔（`MiniFramebufferPacing.inc`）；不设时 CoreAnimation 按固定 60 Hz 出帧。rt1 起 CoreAnimation 采用了 120 Hz，见[轮次记录](../progress/2026-11-01-120hz-rounds.md)。
+- `dl_max=1`：SpringBoard 丢掉 UIKit 进程内动画（iOS 26 的类名 `UIKit.InProcessAnimationManager`）的 display link 速率请求，这类动画按显示的速率出帧，rt2 起生效。
+- `fb_flip=2`：启动帧缓冲与 splash 区里的第二块缓冲轮流显示，显示控制器在刷新开始时换地址（`MiniFramebufferFlip.inc`）。
+- `fb_beat=0`：GPU 完成后立即显示，不等驱动自己的节拍，11-02 起默认（[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §3）。

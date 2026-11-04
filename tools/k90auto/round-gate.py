@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Whether one round's logs can carry an acceptance number, by the six criteria of
-docs/analysis/2026-10-29-frame-budget.md §5.3.
+"""Whether one round's logs can carry an acceptance number, by the six criteria below.
 
     tools/k90auto/round-gate.py ROUND_DIR [--injected N]
 

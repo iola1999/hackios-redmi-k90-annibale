@@ -35,7 +35,7 @@
 - 调光：DCS `0x51`（`bl_ctrl_dcs`），按 HS 模式发（DTS:40867）；范围 5～0x3fff（DTS:40868-40869），开机初值 0x35a（DTS:40865），出厂上限 0x1a5e（DTS:40883）；`qcom,mdss-dsi-bl-inverted-dbv`，两字节按大端（DTS:40904）。设备树里的例子：`51 34 bc` 开高亮（DTS:41011），`51 00 2e` 是 doze。
 - 开机序列含 `35 00`、`53 20`、`51 00 00`、`11`、`29`；`53 28` 打开渐变（DTS:41021）。
 - `mdp-transfer-time-us` 7300 µs（DTS:40972），120 Hz 下每帧只有约 1 ms 空闲；`dma-trigger = trigger_sw`，`dma-schedule-line = 1`。
-- DSI 控制器：ctrl0 在 0xae94000，长 0x1000，`qcom,dsi-ctrl-hw-v2.9`；INTF1 在 0xae36000（DTS:41195-41208）。[硬件地图](annibale-hw-map.md) 第 75 行写的 `+0x94` 不对。面板驱动现有的映射正好止于 0xae94000，DSI 要单独 `ml_io_map`；`flip_clocks()` 已经打开 AHB 时钟（`MiniFramebufferFlip.inc:113`）。
+- DSI 控制器：ctrl0 在 0xae94000，长 0x1000，`qcom,dsi-ctrl-hw-v2.9`；INTF1 在 0xae36000（DTS:41195-41208）。面板驱动现有的映射正好止于 0xae94000，DSI 要单独 `ml_io_map`；`flip_clocks()` 已经打开 AHB 时钟（`MiniFramebufferFlip.inc:113`）。
 - 正常区间与 HBM 的分界不知道，以 0x1a5e 为上限是推断。
 
 ## 5. 从内核发 DCS 命令
@@ -77,7 +77,7 @@
 
 - 面板卡住只能重启恢复。
 - DSI 寄存器偏移没有本地来源，要上机核对。
-- DSI 的 DMA 能否经 SMMU 取到内存不知道。
+- DSI 的 DMA 能否经 SMMU 取到内存不知道。不经 DMA 的发法（DSI 测试模式 FIFO）见 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 7 项，寄存器偏移来自 SM8850，要在 SM8750 上核对。
 - 正常亮度与 HBM 的分界不知道。
 - CoreBrightness 可能还要别的属性（标定表）；缺的时候看起来会用默认值（推断）。
 - iOS 会因温度压低亮度：dada 遇到过电池温度报 43～45 °C 时 iOS 把屏幕压到接近全黑，它的处理是把报给 iOS 的温度设上限（dada 补丁第 24812 行）。

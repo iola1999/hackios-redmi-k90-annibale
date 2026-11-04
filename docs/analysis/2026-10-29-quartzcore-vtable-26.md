@@ -1,206 +1,152 @@
-# iOS 26 共享缓存中 AppleCLCDDisplay 虚表与槽 0x138 的静态定位（2026-10-29）
+# iOS 26 QuartzCore 静态分析：窗口服务器虚表、槽位与刷新周期（2026-10-29）
 
-设备在 2026-10-29 从 USB 掉线，这一项全部在离线状态下完成：解析本机 `23G90__iPhone18,3` 的 split dyld 共享缓存，给 `userland/src/inject.c` 里取自 iOS 16.5 的虚表常量找 iOS 26 的对应值。下文记录方法、每一步的实测读数、用 16.5 做的自检，以及可直接替换的常量与一条启动期断言。所有结论来自缓存文件与静态反汇编，没有真机验证。
+本文用 `hackios-xnu-kernel/tools/dsc/` 解析 iOS 26（23G90，`iPhone18,3`）的 dyld 共享缓存，给 [`inject.c`](../../hackios-xnu-userland/userland/src/inject.c) 里取自 iOS 16.5（20F66）的虚表常量找 26 的对应值，并读 `CA_HEARTBEAT_RATE` 所在的函数。结论都来自缓存文件与静态反汇编，没有真机验证。
+
+槽位一律写成「vtable + 0x10 + offset」里的 offset，与 `inject.c` 的 `VSLOT` 一致。
 
 ## 1. 结论
 
-26 的 `CA::WindowServer::AppleCLCDDisplay` 虚表基址是 `0x1ee97f868`，位于 `dyld_shared_cache_arm64e.33.dylddata` 的 QuartzCore `__AUTH_CONST.__const`（实测）。虚表长 `0xa10` 字节，含 320 个函数指针；头两个字（offset-to-top 与 typeinfo）都是 0（实测）。
+| 项 | iOS 16.5 | iOS 26 | 类型 |
+|---|---|---|---|
+| `AppleCLCDDisplay` 虚表 | `0x1d5b44520`（246 槽） | `0x1ee97f868`（320 槽） | 实测 |
+| `is_ready` | 0xb0 → `0x1882f0908` | 0xe0 → `0x183f4fdfc` | 推断 |
+| `ignore_update_p` | 0x138 → `0x1882e0c90` | 0x150 → `0x183efe30c` | 实测 |
+| `begin_update` | 0x170 → `0x1882ddda4` | 0x198 → `0x183efb4d4` | 实测 |
+| `finish_update` | 0x178 → `0x1882c8568` | 0x1a0 → `0x183f5631c` | 实测 |
+| `CA_HEARTBEAT_RATE` 所在函数 | 0x2d8 → `0x1882d3930` | 0x318 → `0x183f380d8` | 实测 |
+| `EAGLServer` 虚表 | `0x1d5b45c58`（62 槽） | `0x1ee982228`（75 槽） | 推断 |
+| `renderer` | 0x1a0 → `0x1882e2548` | 0x1b0 → `0x183f37dc0` | 推断 |
+| `render_update` | 0x178 → `0x18835770c` | 0x1d8 → `0x183f4a8ac` | 推断 |
+| `GLESContext` 虚表 | `0x1d5b3b540`（138 槽） | `0x1ee982ab0`（164 槽） | 推断 |
+| 心跳默认周期 | `0x188553b60` = 1/60 秒 | `0x184242688` = 1/60 秒 | 实测 |
 
-26 上 `vtable + 0x10 + 0x138 = 0x1ee97f9b0` 存的是 `0x184072d88`，函数体只有三条指令：`mov w8,#0x7377; ldrb w0,[x0,x8]; ret`，读 `this+0x7377` 的字节（实测）。这个槽与 `ignore_update_p` 无关，把钩子装在这里会改掉一个取字节的虚函数。
+「实测」指直接读缓存文件得到、可以重算的值。「推断」指地址与槽值同样可以重算，但类归属或函数对应关系靠构造函数与函数体比对得出，没有运行期验证。
 
-26 的 `ignore_update_p` 等价函数是 `0x183efe30c`，位于槽 `0x150`，即 `vtable + 0x10 + 0x150 = 0x1ee97f9c8`（地址与函数体为实测，槽位对应为推断，依据见第 5、6 节）。
+- 26 的槽 0x138 存 `0x184072d88`，函数体只有 `mov w8,#0x7377; ldrb w0,[x0,x8]; ret`，读 `this+0x7377` 的一个字节，与 `ignore_update_p` 无关。
+- `inject.c` 仍用 16.5 的常量。在 26 上 `replace_virtual` 读到的槽值与期望值不同，打印 `found …, expected …; left alone`，不装钩子。
+- 26 的虚函数顺序相对 16.5 大范围重排，槽位不能按序号换算。例如带 `powering on display and entering flipbook` 字符串的虚函数从 0x108 移到 0x8d8；`EAGLServer` 的 `renderer` 与 `render_update` 在表内的先后顺序反了过来。
 
-同一组另外三个已知槽的 26 取值：`begin_update` 在 `0x198`（`0x183efb4d4`），`finish_update` 在 `0x1a0`（`0x183f5631c`），`is_ready` 只有候选 `0xe0`（`0x183f4fdfc`），未确认，见第 8 节。
+## 2. 工具
 
-| 项 | iOS 16.5 | iOS 26 |
-|---|---|---|
-| 虚表基址 | `0x1d5b44520` | `0x1ee97f868` |
-| 槽 0xb0（is_ready） | `0x1882f0908` | 候选 `0x183f4fdfc`（槽 0xe0） |
-| 槽 0x138（ignore_update_p） | `0x1882e0c90` | `0x183efe30c`（槽 0x150） |
-| 槽 0x170（begin_update） | `0x1882ddda4` | `0x183efb4d4`（槽 0x198） |
-| 槽 0x178（finish_update） | `0x1882c8568` | `0x183f5631c`（槽 0x1a0） |
-| 函数指针数量 | 246 | 320 |
+`hackios-xnu-kernel/tools/dsc/` 直接读拆分的共享缓存文件，不加载缓存。入口是 `dsc.py`，按职责拆成 `cache.py`（缓存与指针解码）、`macho.py`（Mach-O 解析、提取与导出表）、`disasm.py`（反汇编、引用与虚拟调用扫描，依赖 Python 的 capstone）和 `vtables.py`（虚表候选与槽匹配）。缓存格式、指针规则和提取的布局规则写在 `cache.py` 与 `macho.py` 的文件头说明里，参数写在 `dsc.py` 的文件头说明里，示例见 §9。
 
-## 2. 输入与工具
+缓存目录用 `--cache` 指定。不给时先找当前目录下的 `hackios-xnu-kernel/ios26/23G90__iPhone18,3`，再找工具所在 `hackios-xnu-kernel` 目录下的 `ios26/23G90__iPhone18,3`。26 的缓存由 `hackios-xnu-kernel/ios26/fetch.sh` 从 IPSW 取出（85 个文件，4.9 GB）；16.5 的缓存在 `hackios-xnu-kernel/ios165/20F66__iPhone10,3_6/`（43 个文件，arm64）。
 
-26 的缓存目录是 `hackios-xnu-kernel/ios26/23G90__iPhone18,3/`，共 85 个 `dyld_shared_cache_arm64e*` 文件（主文件加 `.01` 到 `.83`、`.atlas`），合计 4.9 GB。16.5 的缓存目录是 `hackios-xnu-kernel/ios165/20F66__iPhone10,3_6/`，43 个 `dyld_shared_cache_arm64*` 文件，架构是 arm64（实测）。
+| 子命令 | 作用 |
+|---|---|
+| `info`、`images`、`image` | 头字段与镜像数；镜像地址与路径；一个镜像的段表与节表 |
+| `map ADDR ...` | 地址落在哪个子缓存、文件偏移、镜像、段与节 |
+| `read`、`disasm` | 十六进制与反汇编，反汇编解析 adrp 页面并标注目标 |
+| `vtscan NAME` | 在 `__const` 里找虚表候选（§4） |
+| `slots ADDR [--strings]` | 解码虚表槽，可附上槽函数引用的字符串 |
+| `vtmatch` | 两个构建的虚表按槽内字符串匹配 |
+| `vcalls NAME --offset OFF` | 按槽偏移找虚拟调用点，认 arm64 的 `ldr+blr` 和 arm64e 的 `autda+add+blraa` |
+| `refs`、`findstr`、`exports` | 直接 `bl` 与 adrp 数据引用；字符串地址；导出 trie |
+| `extract NAME -o PATH` | 抽成独立 Mach-O |
 
-解析与反汇编用 Python 3.13 加 capstone 5.0.7，脚本放在仓库外的临时目录 `/tmp/dsc26/`，没有入库。`/usr/bin/dyld_info` 存在，但把主缓存文件当输入时报 `file not found`，没有起作用（实测）。idalib 的 `idb_open` 打开主缓存文件直接失败（实测），IDA 这条路需要先把 QuartzCore 抽成独立 Mach-O 才能用。
+idalib 打不开主缓存文件，`/usr/bin/dyld_info` 对主缓存报 `file not found`，IDA、`otool`、`llvm-objdump`、`nm` 都用 `extract` 的输出。输出只供静态分析：数据段里的指针保持缓存编码，IDA 不还原，代码段不受影响；IDA 的 `imagebase` 等于缓存里的镜像基址（26 为 `0x183ed3000`），地址不用换算。
 
 ## 3. 缓存格式与指针解码
 
-主缓存头按 `dyld_cache_header` 解析：magic 在 0x00，legacy mapping 表偏移与条数在 0x10／0x14（两个 u32），uuid 在 0x58，cacheType 在 0x68，images 表偏移与条数在 0x88／0x90（两个 u64），共享区起点与大小在 0xe0／0xe8（实测，两份缓存同构）。
+- 两份缓存的头同构，共享区都从 `0x180000000` 起。uuid：26 为 `46e741b70e753f19a3080464f4140b00`，16.5 为 `e5420db330d033aa8b7e05b5038bb46d`。images 表 26 有 4315 条、16.5 有 2710 条；合并所有子缓存的 mapping 表后 26 有 106 个 mapping、16.5 有 51 个，地址换文件偏移只靠这张表。
+- 16.5 的指针：低 36 位是绝对地址，第 36～43 位带非零标记（见过 0x20、0x80），解码时掩掉，例如 `0x201882e0c90` 解出 `0x1882e0c90`。
+- 26 的指针：bit 63 为 1 是带认证的 rebase，目标等于共享区起点加低 32 位；bit 63 为 0 时目标等于共享区起点加低 36 位。这条规则用 `__objc_classlist` 的两项交叉验证过。
+- 缓存没有本地符号（`localSymbolsOffset` 与 `localSymbolsSize` 都是 0），导出表只有 C 符号，C++ 类名与 RTTI 字符串搜不到（`AppleCLCDDisplay` 0 次命中）。虚表属于哪个类只能靠构造函数判断。
 
-实测头字段：26 的 magic 是 `dyld_v1  arm64e`，uuid `46e741b70e753f19a3080464f4140b00`，共享区 `0x180000000` 起、长 `0x142cf8000`；16.5 的 magic 是 `dyld_v1   arm64`，uuid `e5420db330d033aa8b7e05b5038bb46d`，共享区 `0x180000000` 起、长 `0xa9eec000`。
+## 4. 定位虚表的方法
 
-images 表每条 32 字节，布局是 `uuid[16]` + `address`（u64）+ `textSegmentSize`（u32）+ `pathOffset`（u32）。按这个布局读出 26 有 4315 条、16.5 有 2710 条，QuartzCore 的 path 都能正确落在 `/System/Library/Frameworks/QuartzCore.framework/QuartzCore`（实测）。
+1. 扫描：`vtscan` 在镜像的 `__const` 里找「16 字节零（offset-to-top 与 typeinfo）+ 连续指向本镜像 `__TEXT` 的已解码指针」，`--min-slots` 默认 3。26 的 `__AUTH_CONST.__const` 有 308 个候选，需要按结构再筛。
+2. 成组排列：显示类在两个版本里都是四张依次排列、大部分槽共用实现的虚表，最后一张是 `AppleCLCDDisplay`。16.5 是 `0x1d5b35c60`、`0x1d5b37820`、`0x1d5b43d00`、`0x1d5b44520`（各 246 槽）；26 是 `__AUTH_CONST.__const` 开头的 `0x1ee97d9b8`、`0x1ee97e408`、`0x1ee97ee58`、`0x1ee97f868`（各 320 槽，0xa10 字节）。
+3. 构造函数：找把「vtable + 0x10」写进 `[x0]` 的工厂函数，比较分配大小、构造参数与尾部字段。`AppleCLCDDisplay` 的工厂在 16.5 是 `0x1883a634c`（分配 0xb20 字节，清零 `[x0+0xb18]`），在 26 是 `0x184075600`（分配 0x7530 字节，清零 `[x0+0x7528]`），构造的第 3、4 个参数都是 0；同组另外两个工厂也一一对应。
+4. 唯一字符串或常量：`vtmatch` 按槽函数引用的字符串匹配两个版本的虚表，`findstr`、`refs` 找只出现一次的常量。`AppleCLCDDisplay` 与 `EAGLServer` 都只匹配到一处字符串，这个办法只适合带日志字符串的类。
+5. 自检：先在 16.5 上按同一流程读 `inject.c` 的四个 `AppleCLCDDisplay` 槽，读出的值与 `inject.c` 的期望值逐个相同，地址换算、指针解码和「vtable + 0x10 + offset」的约定由此确认。
 
-每个子缓存文件自带一份 `dyld_cache_header` 和一张 32 字节的 mapping 表（`address`、`size`、`fileOffset`、`maxprot`、`initprot`）。把所有文件的表合并后，26 得到 106 个 mapping，16.5 得到 51 个（实测）。地址到文件偏移的换算就靠这张表，子缓存名（`.27`、`.33.dylddata` 等）只作记录。
+## 5. AppleCLCDDisplay 的槽
 
-指针编码在两个版本里不同，实测规律如下。16.5 的 `__DATA_CONST` 里，低 36 位是绝对地址，第 36 到 43 位带有非零标记（观察到的值有 `0x20`、`0x80`），解码时必须把这几位掩掉；例如 `0x201882e0c90` 解出 `0x1882e0c90`。26 的 `__AUTH_CONST` 与 `__DATA_CONST` 里，bit 63 为 1 表示带认证的 rebase，目标等于共享区起点加低 32 位；bit 63 为 0 时目标等于共享区起点加低 36 位。
+26 虚表 `0x1ee97f868` 的头两个字都是 0。磁盘上的槽存的是 chained 编码，运行期读到的是解码后的地址：
 
-26 的解码规则用 `__objc_classlist` 交叉验证过：`0x001000006cd924e0` 解出 `0x1ecd924e0`，落在 QuartzCore `__DATA_DIRTY.__objc_data`（`0x1ecd923a0` 起）；`0x001000006daf8518` 解出 `0x1edaf8518`，落在 `__AUTH.__objc_data`（`0x1edaf81d0` 起）。两条都对得上（实测）。
-
-## 4. 用 16.5 做的自检
-
-先按 [`inject.c`](../../hackios-xnu-userland/userland/src/inject.c) 里的四个已知函数指针验证整条链路。QuartzCore 在 16.5 里加载在 `0x18827b000`，`__TEXT` 段 `0x18827b000` 起、长 `0x34d000`；`__DATA_CONST` 在 `0x1d5b31860`，长 `0x5ca18`（实测）。
-
-`0x1d5b44520` 落在 `__DATA_CONST.__const`（`__const` 起点 `0x1d5b34530`，长 `0x243c8`），对应文件是 `dyld_shared_cache_arm64.27.dylddata` 的 `0x230520`（实测）。按「vtable + 0x10 + offset」读四个槽，得到的值与 `inject.c` 里的期望值逐个相同（实测）。
-
-| 槽 | 16.5 读出（原始字） | 解码地址 | `inject.c` 期望 |
+| 槽 | 原始字 | 解码地址 | 函数 |
 |---|---|---|---|
-| 0xb0 | `0x00000201882f0908` | `0x1882f0908` | `0x1882f0908` |
-| 0x138 | `0x00000201882e0c90` | `0x1882e0c90` | `0x1882e0c90` |
-| 0x170 | `0x00000201882ddda4` | `0x1882ddda4` | `0x1882ddda4` |
-| 0x178 | `0x00000201882c8568` | `0x1882c8568` | `0x1882c8568` |
+| 0xe0 | `0x8016980403f4fdfc` | `0x183f4fdfc` | `is_ready` 的等价逻辑 |
+| 0x138 | `0x80156cac04072d88` | `0x184072d88` | 读 `this+0x7377` 的字节 |
+| 0x150 | `0x8014b59003efe30c` | `0x183efe30c` | `ignore_update_p` |
+| 0x198 | `0x8017679803efb4d4` | `0x183efb4d4` | `begin_update` |
+| 0x1a0 | `0x80177d9c03f5631c` | `0x183f5631c` | `finish_update` |
 
-四个值全部对上，说明地址换算、文件映射、chained 指针解码和「vtable + 0x10 + offset」这条约定都是对的。这一步是方法正确性的第一道验证。
+这几个函数在 26 的四张显示类虚表里都落在同一个 offset，与 16.5 的情况一致。各函数的对应依据：
 
-16.5 的虚表边界也量了：从 `0x1d5b44520` 起，前 16 字节是全零的头两个字，随后是 246 个指向 `__TEXT` 的指针，到 `0x1d5b44ce0` 处出现一个指向 `0x1d5b591f8` 的数据指针，虚表到此结束（实测）。
+- `ignore_update_p`：保留 16.5 的结构，字段偏移变了。先读 `this+0x293`（16.5 为 `+0x233`）的第 4 位决定是否早退，再读 update 对象 `+0x130`（16.5 为 `+0xf0`）的 0xa 位，写回 `this+0x7368`（16.5 为 `+0x9f2`），返回取反后的布尔值。
+- `begin_update`：两边都有立即数 `0x3f80000000000000`（16.5 在 `0x1882ddea4`，26 在 `0x183efb5c0`）。
+- `finish_update`：开场都是 `stp d15,d14,[sp,#-0xa0]!`，栈帧 16.5 为 0x720、26 为 0x7a0。
+- `is_ready`：两个版本全镜像都只有一条 `mov w2, #-0x7ffffffd`（等待调用的参数 0x80000003），分别在 16.5 的 `is_ready` 与 26 的 `0x183f4fdfc` 里，控制流逐段对应（下表）。26 的函数还打印 `Display::complete_powering_on`，`is_ready` 的判定在 26 上合进了电源完成函数。镜像内没有对 0xe0 的虚拟调用，也没有直接调用者。
 
-## 5. 26 上定位虚表
-
-### 扫描思路
-
-在 QuartzCore 的常量段里找「16 字节零前缀 + 连续指向本镜像 `__TEXT` 的已解码指针」。26 的候选段是 `__AUTH_CONST.__const`（`0x1ee97d9b0`，长 `0x15cb0`）与 `__DATA_CONST.__const`（`0x1e61f1860`，长 `0xf2d0`）（实测）。
-
-扫描结果：16.5 的 `__DATA_CONST.__const` 有 293 个候选，26 的 `__AUTH_CONST.__const` 有 308 个候选，26 的 `__DATA_CONST.__const` 只有 17 个（实测）。数量本身说明不了问题，需要按四个一组的虚表结构筛选。
-
-### 四个一组的虚表
-
-16.5 有四个依次排列的 246 槽虚表：`0x1d5b35c60`、`0x1d5b37820`、`0x1d5b43d00`、`0x1d5b44520`，其中最后一个是 `AppleCLCDDisplay`（实测）。两两相同的槽数在 226 到 243 之间（共 246），说明它们共享大部分实现。
-
-26 的 `__AUTH_CONST.__const` 开头有四个依次排列的 320 槽虚表：`0x1ee97d9b8`、`0x1ee97e408`、`0x1ee97ee58`、`0x1ee97f868`，每个 `0xa10` 字节；两两相同的槽数在 298 到 314 之间（共 320）（实测）。两边都是一组四个、排列顺序相同。
-
-### 构造函数比对
-
-决定性的证据在构造函数。16.5 里给 `AppleCLCDDisplay` 装虚表指针的工厂函数在 `0x1883a634c`，指令序列是：分配 `0xb20` 字节、调用构造 `0x1883a3eb0` 且第 3、4 个参数为 0、把 `vtable + 0x10` 写入 `[x0]`、再把 `[x0 + 0xb18]` 清零（实测）。
-
-26 里结构相同的工厂函数在 `0x184075600`：分配 `0x7530` 字节、调用构造 `0x184073a5c` 且第 3、4 个参数为 0、把 `vtable + 0x10` 写入 `[x0]`、再把 `[x0 + 0x7528]` 清零（实测）。它写入的是 `0x1ee97f868 + 0x10`。
-
-其余两个成员也能一一对上：16.5 的 `0x1883a643c`（构造参数 0、1，随后调用一次）对应 26 的 `0x184075780`（构造参数 0、1，随后调用一次）；16.5 的 `0x1883a6528`（构造参数 2、2，先写基类虚表再写自身）对应 26 的 `0x184075914`（同样先写 `0x1ee97e408` 再写 `0x1ee97ee58`）（实测）。
-
-### 字符串特征
-
-`AppleCLCDDisplay` 有一处只有它实现的虚函数，会读环境或默认值 `CA_HEARTBEAT_RATE`。16.5 的四个成员里只有 `0x1d5b44520` 的第 93 号槽（偏移 `0x2d8`）引用这个字符串，函数在 `0x1882d3930`；26 的四个成员里只有 `0x1ee97f868` 的第 101 号槽（偏移 `0x318`）引用它，函数在 `0x183f380d8`（实测）。
-
-两个函数体也一致：都从对象尾部那个被构造函数清零的字段读一个 double（16.5 是 `[x0 + 0xb18]`，26 是 `[x0 + 0x7528]`），再决定取默认值还是倒数（实测）。
-
-### 判定
-
-三条独立证据指向同一个结论：`0x1ee97f868` 是 26 的 `AppleCLCDDisplay` 虚表。构造函数形状、四个虚表的排列顺序、`CA_HEARTBEAT_RATE` 的唯一槽位，三者互相独立（推断，证据强度高）。
-
-## 6. 四个已知槽在 26 上的位置
-
-16.5 的四个函数在 26 里都能靠特征常量或函数体形状找到，并且在 26 的四个虚表里都落在同一个下标（实测），与 16.5 的行为一致。
-
-`ignore_update_p` 的对照最直接。16.5 的实现是 21 条指令，先读 `this+0x233` 的第 4 位决定是否早退，再读 update 对象 `+0xf0` 的 `0xa` 位，最后把结果写进 `this+0x9f2` 的标志字并返回取反后的布尔值。
-
-26 的实现在 `0x183efe30c`，把这个结构原样保留：读 `this+0x293` 的第 4 位早退，读 update 对象 `+0x130` 的 `0xa` 位，写入 `this+0x7368` 的字节，再用两次 `ldarb` 读 `[this+0x300]+4` 与 `+5` 做选择，最后 `eor w8,w8,#1` 后 `and w0,w8,#1` 返回。
-
-```text
-16.5  0x1882e0c90: ldrb w8,[x0,#0x233]     |  26  0x183efe30c: ldrb  w8,[x0,#0x293]
-      0x1882e0c94: tbnz w8,#4,+0x4c        |       0x183efe310: tbnz  w8,#4,+0x3c
-      0x1882e0c98: mov  w0,#0               |       0x183efe314: mov   w8,#0
-      0x1882e0c9c: ret                     |       0x183efe318: b     +0x54
-      0x1882e0ca0: ldr  w8,[x1,#0xf0]      |       0x183efe31c: ldr   x8,[x1,#0x130]
-      0x1882e0ca4: mov  w9,#0xa            |       0x183efe320: mov   w9,#0xa
-      0x1882e0ca8: ands w8,w8,w9           |       0x183efe324: ands  x9,x8,w9
-      0x1882e0cac: cset w9,ne              |       0x183efe328: cset  w8,ne
-      0x1882e0cb0: add  x10,x0,#0x9f2      |       0x183efe32c: mov   w10,#0x7368
-      ...                                  |       0x183efe330: ldrb  w11,[x0,x10]
-      0x1882e0ce0: eor  w0,w8,#1           |       0x183efe368: eor   w8,w8,#1
-      0x1882e0ce4: ret                     |       0x183efe36c: and   w0,w8,#1
-```
-
-`begin_update` 的对照用常量 `0x3f80000000000000`：16.5 的 `0x1882ddda4` 在 `0x1882ddea4` 处有这条立即数，26 的 `0x183efb4d4` 在 `0x183efb5c0` 处有同一条（实测）。`finish_update` 的对照用开场形状：16.5 的 `0x1882c8568` 以 `stp d15,d14,[sp,#-0xa0]!` 打头、随后 `sub sp,sp,#0x720`；26 的 `0x183f5631c` 用同一个开场、`sub sp,sp,#0x7a0`（实测）。
-
-`is_ready` 的对照只做到候选。16.5 的 `0x1882f0908` 末尾是 `tst x8,#4; cset w0,eq`，并调用一次带 `mov w2,#-0x7ffffffd` 的辅助函数；26 全文只有一个 `mov w2,#-0x7ffffffd`，在 `0x183f4fe54`，属于 `0x183f4fdfc`（虚表下标 30，偏移 `0xe0`）（实测）。但这个函数还引用字符串 `Display::complete_powering_on`，16.5 里没有这条字符串，函数体也比 16.5 的 `is_ready` 长。它可能是 `is_ready` 被内联进 `complete_powering_on`，也可能这个虚函数的位置换了含义，所以只记为候选（推断，证据不足）。
-
-四个槽在 26 四个虚表里的一致性：`0x183efe30c`、`0x183efb4d4`、`0x183f5631c`、`0x183f4fdfc` 在 `0x1ee97d9b8`、`0x1ee97e408`、`0x1ee97ee58`、`0x1ee97f868` 四张虚表里都落在下标 44、53、54、30（实测），与 16.5 里四个成员共享同一下标的行为吻合。
-
-### 槽 0x138 的实际内容
-
-`0x1ee97f868 + 0x10 + 0x138 = 0x1ee97f9b0`，原始字 `0x80156cac04072d88`，解码为 `0x184072d88`（实测）。反汇编：
-
-```text
-0x184072d88: mov  w8,#0x7377
-0x184072d8c: ldrb w0,[x0,x8]
-0x184072d90: ret
-```
-
-它读的是 `this+0x7377` 的一个字节，和 `ignore_update_p` 的两次参数、标志位读改写都没有关系。26 上继续用槽 0x138 会在一个取字节的虚函数上装钩子，`inject.c` 里的 `expected` 比对会失败并打印 `left alone`，这与运行期日志一致。
-
-## 7. 与运行期读数的对照
-
-运行期在 `0x1d5b44520 + 0x148` 读到 `0x9907980677eb9604`，本机 26 缓存同一地址（`dyld_shared_cache_arm64e.27` 文件偏移 `0x1b90668`）的 8 字节是 `0x9907980697059604`（实测）。
-
-两组值的高 32 位 `0x99079806` 与低 16 位 `0x9604` 相同，只有中间两个字节不同（`0x9705` 对 `0x77eb`）。按地址算，`0x1d5b44520` 在 26 缓存里属于 `ImagePlaygroundInternal.framework` 的 `__TEXT`（`0x1d5431000` 起），这一段是只读代码段。
-
-从 6 个字节相同可以推断，运行期这份缓存的装载地址与静态地址一致，slide 为 0；2 个字节的差异说明设备上跑的缓存构建与本机 23G90 转储不完全一致，或者该页在运行期被改写过。两种情况都要求把启动期断言写进 `inject.c`，不能假定静态地址一定命中。
-
-## 8. 对 `inject.c` 的改写建议
-
-常量替换按下表进行，左侧是现有宏，右侧是 26 的取值。`EAGLServer` 与 `GLESContext` 的六处常量不在这一项范围内，仍需按同样方法单独定位。
-
-| 宏与槽 | 16.5 | 26 |
+| 步骤 | 16.5 `0x1882f0908` | 26 `0x183f4fdfc` |
 |---|---|---|
-| `VT_APPLE_CLCD_DISPLAY` | `0x1d5b44520` | `0x1ee97f868` |
-| `is_ready` 槽 | `0xb0` | 候选 `0xe0`，先不上钩 |
-| `ignore_update_p` 槽 | `0x138` | `0x150` |
-| `begin_update` 槽 | `0x170` | `0x198` |
-| `finish_update` 槽 | `0x178` | `0x1a0` |
+| 守卫 | 标志字 `[this+0x9f2]` 的 bit 3 为 1 | 状态对象 `[this+0x300]` 的 byte+5 为 1 |
+| 等待 | 参数 `[this+0x318]`、0、0x80000003 | 参数 `this+0x6460`、0、0x80000003 |
+| 等待成功后 | 清 bit 3，加锁调用 (this, 0)，解锁 | 置 byte+4，加锁调用 (this, 0)，解锁 |
+| 返回 | bit 2 为 0 时返回 1 | byte+4 非零返回 1，否则返回 byte+5 != 0 |
 
-对应的期望函数指针（26，静态地址）：`ignore_update_p` = `0x183efe30c`，`begin_update` = `0x183efb4d4`，`finish_update` = `0x183f5631c`。
+在 26 上改 `inject.c` 的这组钩子时：
 
-启动期断言用差值形式，不依赖 slide 的具体数值。同一个缓存里的虚表地址与函数地址共享同一个 slide，所以「槽值减静态函数地址」应当等于「运行期虚表地址减静态虚表地址」。
+- 同一缓存里虚表与函数共享同一个 slide，启动期可以用差值断言：「槽值减静态函数地址」等于「运行期虚表地址减静态虚表地址」，并要求头两个字为 0。断言失败时按 `replace_virtual` 现有的做法整组跳过并打印原因。
+- 四张虚表指向同一批函数，改一张只影响从这张表发出的调用，需要先确认 `CAWindowServer` 实际创建的是哪个类。
+- `is_ready` 真机确认前不上钩。
 
-```c
-#define VT_APPLE_CLCD_DISPLAY_26  0x1ee97f868UL
-#define SLOT_PTR(vt, off)  ((volatile uintptr_t *)((uintptr_t)(vt) + 0x10 + (off)))
+## 6. EAGLServer 与 GLESContext
 
-/* 同一个缓存内的两个地址共享同一个 slide，只比较差值。 */
-static int
-slot_matches(uintptr_t vt_runtime, size_t off, uintptr_t fn_static)
-{
-	uintptr_t slot = *SLOT_PTR(vt_runtime, off);
-	return slot - fn_static == vt_runtime - VT_APPLE_CLCD_DISPLAY_26;
-}
+`EAGLServer`：26 的虚表 `0x1ee982228`（75 槽），基类 `0x1ee98e008`（70 槽）；16.5 是 `0x1d5b45c58`（62 槽）与 `0x1d5b35a88`（57 槽）。对应依据：
 
-static int
-window_server_vtable_ok(void)
-{
-	uintptr_t vt = VT_APPLE_CLCD_DISPLAY_26;
+- 工厂函数（16.5 `0x1883d1544`，26 `0x1840a1124`）都先调用基类构造并写入基类虚表，末尾把主表 + 0x10 写进 `[this]`，把紧跟主表的第二张表 + 0x10 写进 `[this+0x310]`（26 为 `[this+0x5c0]`），随后读环境变量 `CA_ENABLE_OGL`。
+- `render_update`（26 `0x183f4a8ac`）的开头与 16.5 的 `0x18835770c` 逐条对应，两边都引用 `com.apple.GL.event.frameboundary.end`，其中调用 `renderer` 用的槽偏移 16.5 是 0x1a0、26 是 0x1b0。26 另有一张 70 槽表 `0x1ee981ec0` 的同槽函数也引用这条字符串，两张表靠构造函数区分。
+- `renderer`（26 `0x183f37dc0`）与 16.5 的 `0x1882e2548` 流程相同：对象里缓存的两个字段为空时创建渲染器对象、写回字段，并在 `[this+0x60]` 上登记；字段偏移从 0x318／0x320 变为 0x5c8／0x5d0。
 
-	/* 头两个字：offset-to-top 与 typeinfo，26 上都是 0。 */
-	if (((volatile uintptr_t *)vt)[0] != 0 || ((volatile uintptr_t *)vt)[1] != 0)
-		return 0;
-	return slot_matches(vt, 0x150, 0x183efe30cUL)	/* ignore_update_p */
-	    && slot_matches(vt, 0x198, 0x183efb4d4UL)	/* begin_update */
-	    && slot_matches(vt, 0x1a0, 0x183f5631cUL);	/* finish_update */
-}
+`GLESContext`：26 的虚表 `0x1ee982ab0`（164 槽），基类 `0x1ee989180`（69 槽）；16.5 是 `0x1d5b3b540`（138 槽）与 `0x1d5b3d128`（54 槽）。对应依据：
+
+- 构造函数 16.5 `0x188400a18` 与 26 `0x1840d1c28` 逐项对应：调用基类构造并写基类虚表，构造参数存进 `[this+0xa8]`／`[this+0x258]`，常数 0x3c000000 写进 `[this+0x800]`／`[this+0xaa0]`，自身虚表 + 0x10 写进 `[this]`，`[this+0x868]`／`[this+0xb08]` 做 `orr #2`，最后用构造参数调用初始化函数。
+- 引用 `GL_INVALID_ENUM` 等 9 条错误字符串的函数在 16.5 的 0xa8（`0x1884a82c4`），在 26 的 0xf0（`0x18416374c`）。
+
+## 7. `CA_HEARTBEAT_RATE` 与刷新周期
+
+`0x183f380d8` 返回显示刷新周期，单位秒，默认 1/60（常量 `0x184242688`）。16.5 的 `0x1882d3930` 结构相同，只是字段偏移不同。26 用到的字段：`[this+0x7528]` 结果缓存，`[this+0x7510]` 刷新步长（秒），`[this+0x7508]` 最小刷新间隔，`[this+0x280]` 标志字，`[this+0x290]` 模式字。
+
+26 的计算顺序：
+
+1. `[this+0x7528]` 非零直接返回，为零时按下面的顺序算一次并写回。
+2. `getenv("CA_HEARTBEAT_RATE")` 非空时返回 `1.0 / atof(值)`。同镜像有格式串 `heartbeatRate: %g Hz`，输入按 Hz 解释属于推断。值解析不成数字时结果是 +inf，不回退到默认值。
+3. 否则返回非零的 `[this+0x7510]`。初始化函数 `0x184070768` 从 IOMFB 属性 `IOMFBDisplayRefresh` 的 `displayRefreshStepMachTime` 读整数，经 `0x183f46e9c` 从 mach tick 换成秒后写进这个字段。
+4. 否则 `[this+0x7508]` 非零时返回 `(double)值 × 2^-32`，`[this+0x280] & 0x10` 非零时乘 2^-33。这个字段来自同一属性的 `displayMinRefreshInterval`；上游实测这个键以 2^-32 秒为单位（[上游做法](2026-11-01-hakios-upstream-lessons.md) §2），与这里的换算一致。
+5. 都没有时返回 1/60。
+6. 最后，`[this+0x290]`（记为 x）不为 -1 时返回值改为 `65536.0 / ((x >> 29) & 0x1ffffff)`，`[this+0x280] & 0x10` 非零且 x 为负时再乘 0.5。这一步不写回缓存，每次调用都重算。字段编码没有确认，写 0x290 的位置没有找到。
+
+调用点：没有直接调用，`vcalls --offset 0x318` 在 26 找到 28 处，分布在 19 个函数（16.5 的 0x2d8 为 32 处）。返回值的用法：
+
+- 经 `0x183f4688c` 换成 tick 后参与截止时间计算（`0x183f33a44`、`0x183f4ad50`）。
+- 在 `0x183f4ad50` 里换成频率，存进 `[this+0x628]`；在 `0x183f33a44` 里用于帧间隔直方图。
+- 在 `0x18409aa38` 里与槽 0x320 的计数相乘、加基准 tick 后存进 `[obj+0x3e8]`，推断为下一次更新时间。
+- 28 处都没有把返回值直接传给 `CFRunLoopTimerCreate`、`CFRunLoopTimerSetNextFireDate`、`dispatch_source_set_timer`、`mach_wait_until` 或 `nanosleep`，定时器周期是否由它决定没有确认。
+
+## 8. 未完成
+
+- `is_ready`：0xe0 指向 `0x183f4fdfc` 只是推断，要在真机上读 `AppleCLCDDisplay` 对象的虚表确认。
+- `GLESContext` 上 `inject.c` 用的三个槽（`function_supported` 0x378、`function_uniform` 0x388、`compile_shader` 0x060）没有重定位。16.5 的 `function_supported`（`0x1884a9308`）靠 `cmp w9,#0x59` 加字节跳转表分派，26 里没有同形状的函数；`compile_shader` 的 16.5 槽函数 `0x1883fc808` 只有 `mov w0,#0; ret`，与 `inject.c` 注释说的编译着色器不符，原因未查。
+- `EAGLServer` 除 `renderer`、`render_update` 外的槽，以及两个基类虚表 `0x1ee98e008`、`0x1ee989180`，只做到基址与槽数，没有逐槽核对。
+
+## 9. 复现命令
+
+在工作区根目录执行，`--cache` 不给时读 26 的缓存。
+
+```text
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py info
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py map 0x1ee97f868 0x183efe30c
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py vtscan QuartzCore
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py slots 0x1ee97f868 --count 320 --strings
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py --cache hackios-xnu-kernel/ios165/20F66__iPhone10,3_6 \
+    slots 0x1d5b44520 --count 246 --strings
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py extract QuartzCore -o /tmp/dsc26x/QuartzCore
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py vcalls QuartzCore --offset 0xe0 --offset 0x1b0 --offset 0x318
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py refs QuartzCore 0x183f4fdfc 0x183f380d8 --mode call
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py findstr QuartzCore "complete_powering_on"
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py disasm 0x184072d88 --count 3
+python3 -I hackios-xnu-kernel/tools/dsc/dsc.py read 0x184242688 8
 ```
-
-断言失败时按现有 `replace_virtual` 的约定整组跳过并打印原因，不要逐个槽试探。`is_ready` 的候选值不稳定，等真机确认后再加。
-
-另外两条改写注意。第一，这四个槽在 26 的四个虚表里指向同一批函数，改一张虚表只影响从这张虚表发出的调用；运行期对象如果属于另外三个类，钩子不会被调用，所以需要先确认 `CAWindowServer` 实际创建的类。第二，磁盘上这些槽存的是 chained 编码（例如 `0x8014b59003efe30c`），运行期读到的是解码后的地址，断言比对的必须是解码后的值。
-
-## 9. 未完成与替代路径
-
-`is_ready` 的 26 位置没有确认。16.5 的识别特征（末尾 `tst #4; cset w0,eq`）在 26 的 320 个槽里一个都没有，候选 `0xe0` 的依据只有一处唯一的 `0x80000003` 常量，而该函数还带 `complete_powering_on` 的日志字符串。要确认它有两条路：等设备回来在真机上读对象虚表并单步；或者把 QuartzCore 抽成独立 Mach-O 后用 IDA 看交叉引用。
-
-`EAGLServer`（16.5 `0x1d5b45c58`，62 槽）与 `GLESContext`（16.5 `0x1d5b3b540`）的 26 地址没有做。方法可以照搬：先按 16.5 的构造函数形状与槽位特征在 26 的候选虚表里找对应的一组，再用唯一字符串或常量特征确认。
-
-IDA 交叉验证没有做成。idalib 打开主缓存文件直接失败，本机也没有 `ipsw`、`jtool2`、`dsc_extractor` 这类能把镜像抽成独立 Mach-O 的工具，`/usr/bin/dyld_info` 对主缓存文件报 `file not found`。可行的替代是写一个最小的提取器：按 images 表的地址与 `LC_SEGMENT_64` 把 QuartzCore 的段拷出来，再把 `__LINKEDIT` 按 `fileoff` 对齐写回去，产出一个能直接喂给 `llvm-objdump` 或 IDA 的文件。
-
-2026-10-29 的后续工作见 [QuartzCore 静态补全](2026-10-29-quartzcore-static-followup.md)：提取器已落地并能被 otool、llvm-objdump 与 IDA 打开，三个已知槽已复核，`is_ready`、`EAGLServer`、`GLESContext` 的 26 位置有新结论和对应的否定证据。
-
-## 10. 复现要点
-
-全部结论可以从缓存文件重算，关键是三步：读主头 0x88／0x90 拿 images 表；合并每个子缓存头 0x10／0x14 指向的 32 字节 mapping 表做地址换算；按第 3 节的规则解码指针。
-
-虚表扫描的判据是「16 字节零 + 连续指向本镜像 `__TEXT` 的已解码指针」，`min_slots` 取 3 以上。26 上 `__AUTH_CONST.__const` 的四个 320 槽虚表、16.5 上 `__DATA_CONST.__const` 的四个 246 槽虚表都能一次扫出来。
-
-确认某个虚表属于哪个类，用构造函数；类名在这份缓存里用不上：没有本地符号（`localSymbolsOffset` 与 `localSymbolsSize` 都是 0，实测），导出表只有 C 符号（QuartzCore 26 导出 1351 个，16.5 导出 1206 个，实测），C++ 类名与 RTTI 字符串在整份缓存里搜不到（`AppleCLCDDisplay` 在缓存文件里 0 次命中，实测）。
-
-以上脚本都放在 `/tmp/dsc26/`（`dsclib.py`、`vtscan2.py`、`insnindex.py`、`strmatch.py`、`imgmap.py`），本机临时文件，不入库；需要长期保留时应整理进 `hackios-xnu-kernel/tools/`。
