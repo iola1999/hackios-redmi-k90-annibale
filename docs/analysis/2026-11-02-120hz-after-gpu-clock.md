@@ -83,7 +83,8 @@ hs1 整轮（1125×2436 画布）backboardd 的 GPU 时间：
 | 颜色 0 | BGRA8Unorm（80） | 1206×2622 | `Load` | `Store` |
 | 颜色 1 | RGBA16Float（115） | 1206×2622 | `DontCare` | `Store` |
 
-- 颜色 1 每像素 8 字节，整屏约 25 MB。CoreAnimation 声明不需要它原来的内容，驱动此前不区分读入方式，freedreno 在每个 bin 都把它读回 GMEM。改动见[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §1，还没有上机。颜色 1 的写回是 CoreAnimation 要求的，保留。
+- 颜色 1 每像素 8 字节，整屏约 25 MB。CoreAnimation 声明不需要它原来的内容，驱动此前不区分读入方式，freedreno 在每个 bin 都把它读回 GMEM。改动见[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §1。颜色 1 的写回是 CoreAnimation 要求的，保留。
+- 颜色 1 不再读回之后（dc2，11-05）：整屏 pass 每次 907 → 795 µs，tile load 合计 3.46 → 1.30 s，控制中心下拉 87.9 → 95.5 帧／秒，左右翻页与 dc1 相当，截图无差异。
 - 手势时整屏 pass 每帧 1～2.5 次，每次 0.65～1.47 ms；主屏静止时仍以每秒约 20 次的频率画整屏 pass，每次约 1.16 ms。
 
 ## 7. 试过的方向

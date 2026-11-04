@@ -3,19 +3,20 @@
 
 usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kernel NAME] [--seed FILE] [--hold] [--tour STEP ...]
 
---seed FILE (default: the K90_SEED environment variable, if set) boots with a /private/var archive
+--seed FILE (default: the K90_SEED environment variable, else SEED when it is there) boots with a /private/var archive
 unpacked over the skeleton: package.py packs it as etc/var.seed and the round gets var_store=1. The
 archive comes from `var_store save FILE` and tools/k90auto/varseed.py; it stays in a local, ignored
 directory (docs/analysis/2026-10-31-every-boot-is-first-boot.md).
 
   1. package.py with the interactive jobs and rwsh (the caller's environment goes through, so
      ICON_METAL=1 and the other package switches work as they do there), then make-payload.py
-     for kernel NAME (default 12377-cmd1) with four cores.
+     for kernel NAME (default KERNEL) with four cores.
   2. The loader has to be enumerated and idle with an empty RAM disk; otherwise this stops. Every
      CHECKPOINT_EVERY rounds the A slot's retry count is reset at LK (reboot-lk.py, set_active a;
-     LK is addressed by ANDROID_SERIAL). With LOADER_IMAGE=FILE the checkpoint then starts that
-     loader image with `fastboot boot` instead of rebooting into boot_a, which keeps a loader newer
-     than the flashed one resident without flashing it.
+     LK is addressed by ANDROID_SERIAL). The checkpoint then starts LOADER (or LOADER_IMAGE=FILE)
+     with `fastboot boot` instead of rebooting into boot_a, which keeps a loader newer than the flashed
+     one resident without flashing it; a round that finds another loader resident takes the
+     checkpoint first, because the reset at the end of every round boots boot_a again.
   3. round-run.py in the background; once SpringBoard reports the boot unlock, tour.py runs TOUR or --tour
      (only its first step when the GPU has already stopped), and the round is asked to stop
      (run/stop-request) instead of running out its N seconds. With --hold it is not asked: it runs
@@ -42,7 +43,35 @@ CHECKPOINT_EVERY = 2
 UNLOCK_LINE = "sb26: boot unlock done"
 GPU_STOP = "submissions closed"   # after this the compositor draws in software, so the tour is cut short
 UNLOCK_WAIT = 420           # upload (about 120 s) plus boot to the home screen
-SETTINGS_ICON = (0.616, 0.70)
+# The loader every round runs: v16 keeps 128 MB below 4 GB for the Wi-Fi card (lowdma=), without which
+# the driver says "no thread, or no memory the radio can be given" (kernel-12377-rate7-def1). The one
+# flashed in boot_a is older.
+LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v16.img"
+LOADER_BUILD = "a48c7fb"
+SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
+# The kernel every round boots unless --kernel names another: the newest one checked on the phone.
+# 12377-rate7 has the Wi-Fi driver of cmd83 and the 120 Hz work of 2026-11-02.
+KERNEL = "12377-rate7"
+# The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
+# SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
+SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"
+# The boot-args every round has (CYCLE_FIXED_ARGS replaces all of them, for a round whose variable is
+# one of them: the kernel takes the first of two). Diagnostics stay out of here and go in --boot-args.
+FIXED_ARGS = " ".join([
+    "gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1",
+    # The 120 Hz path measured on 2026-11-02 (docs/analysis/2026-11-01-120hz-gesture-bottleneck.md): page
+    # flips at the panel's refresh with no beat of the driver's own on top (fb_flip=2 fb_beat=0), 120 Hz
+    # reported to CoreAnimation (fb_hz, fb_ca_hz) and UIKit's in-process animations left at the display's
+    # rate (dl_max=1).
+    "fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1",
+    # The touch screen read every 4 ms instead of 8 (redwood_goodix.c), as in every round since bo63.
+    "touch_poll_us=4000",
+    # Wi-Fi as in kernel-12377-cmd83-wd32 (docs/progress/2026-11-01-wifi-ath12k-driver.md §1): ath12k on
+    # the WCN7850, wifid joins the networks picked in Settings (wifi_station=1). The address is a locally
+    # administered one of ours; the card's firmware carries none. package.py puts the firmware in.
+    "pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1",
+    "pcie_rddm=1 wifi_mlo=1 wifi_mac=02:4b:39:30:00:01 wifi_station=1",
+])
 TOUR = [
     "home@3*2",
     "icons-layers=notify com.redwood.layers.Icon@4*0",
@@ -102,7 +131,7 @@ def checkpoint():
     fastboot("set_active", "a", serial=serial)
     if "slot-retry-count:a: 7" not in fastboot("getvar", "slot-retry-count:a", serial=serial):
         return "slot A retry count did not reset to 7"
-    image = os.environ.get("LOADER_IMAGE")
+    image = os.environ.get("LOADER_IMAGE") or (str(LOADER) if LOADER.exists() else None)
     if image:
         fastboot("boot", image, serial=serial, timeout=60)
     else:
@@ -124,11 +153,12 @@ def main():
     ap.add_argument("label")
     ap.add_argument("--baseline")
     ap.add_argument("--seconds", type=int, default=900)
-    ap.add_argument("--kernel", default="12377-cmd1")
+    ap.add_argument("--kernel", default=KERNEL)
     ap.add_argument("--boot-args", default="", help="observation boot-args added after the fixed ones")
     ap.add_argument("--hold", action="store_true", help="keep the round up after the tour, for respin.py")
     ap.add_argument("--tour", nargs="+", help="tour.py steps instead of TOUR")
-    ap.add_argument("--seed", default=os.environ.get("K90_SEED"), help="a /private/var archive to boot with")
+    ap.add_argument("--seed", default=os.environ.get("K90_SEED") or (str(SEED) if SEED.exists() else None),
+                    help="a /private/var archive to boot with")
     args = ap.parse_args()
     if args.seed:
         os.environ["SEED"] = args.seed
@@ -148,6 +178,10 @@ def main():
         print(f"STOP: {problem}")
         return 1
     state = json.loads(STATE.read_text()) if STATE.exists() else {"rounds_since_checkpoint": 0}
+    if (not os.environ.get("LOADER_IMAGE") and LOADER.exists()
+            and LOADER_BUILD not in fastboot("getvar", "build-id")):
+        print(f"the resident loader is not {LOADER.name}; starting it through LK", flush=True)
+        state["rounds_since_checkpoint"] = CHECKPOINT_EVERY
     if state["rounds_since_checkpoint"] >= CHECKPOINT_EVERY:
         problem = checkpoint()
         if problem:
@@ -158,18 +192,15 @@ def main():
     # GPU up to 1100 MHz (speed 14; kernels from 12377-rate6 lower it to what the bin has, older ones
     # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).
     gpu_speed = os.environ.get("GPU_SPEED", "14")
+    # CYCLE_PROGRAMS=path[:path] puts more files into /redwood/bin of the image beside rwsh and var_store.
     env = dict(os.environ, GPU_SPEED=gpu_speed, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
-               PAYLOAD_PROGRAMS="hackios-xnu-kernel/out/ios26-resume/rwsh:hackios-xnu-kernel/out/ios26-resume/var_store")
+               PAYLOAD_PROGRAMS=":".join(["hackios-xnu-kernel/out/ios26-resume/rwsh", "hackios-xnu-kernel/out/ios26-resume/var_store",
+                                          *[p for p in os.environ.get("CYCLE_PROGRAMS", "").split(":") if p]]))
     with open(EVIDENCE / f"pack-{args.label}.log", "w") as log:
         if run([sys.executable, HERE / "package.py"], env=env, stdout=log, stderr=subprocess.STDOUT).returncode:
             print(f"STOP: package.py failed, see {log.name}")
             return 1
-    # CYCLE_CPU_ARGS and CYCLE_FIXED_ARGS replace the processor and the always-on boot-args, for a
-    # round whose variable is one of them (cpus=, fb_threads=): the kernel takes the first of two.
-    # The always-on ones include the 120 Hz path measured on 2026-11-02 (docs/analysis/
-    # 2026-11-01-120hz-gesture-bottleneck.md): page flips at the panel's refresh with no beat of the
-    # driver's own on top (fb_flip=2 fb_beat=0), 120 Hz reported to CoreAnimation (fb_hz, fb_ca_hz)
-    # and UIKit's in-process animations left at the display's rate (dl_max=1).
+    # CYCLE_CPU_ARGS replaces the processor boot-args, as CYCLE_FIXED_ARGS does FIXED_ARGS.
     # The screen is the v57 identity's own, 1206 x 2622 at 460 ppi (from 2026-11-02): MobileGestalt then
     # picks screen class 36 and the status bar its Dynamic Island layout. The kernel's default 1125 x 2436
     # is screen class 15, the iPhone X notch layout, which puts the clock and the battery near the corners
@@ -181,9 +212,8 @@ def main():
                        MEMSIZE="300000000", IDENTITY="v57")
     made = run([sys.executable, HERE / "make-payload.py", args.kernel, args.label,
                 "out/ios26-resume/bbmetal-device/root.apfs",
-                " ".join(part for part in [os.environ.get("CYCLE_FIXED_ARGS", "gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1 "
-                                                                          "fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1"),
-                                           args.boot_args, "fbwidth=1206 fbheight=2622 fbpitch=460"] if part)],
+                " ".join(part for part in [os.environ.get("CYCLE_FIXED_ARGS", FIXED_ARGS), args.boot_args,
+                                           "fbwidth=1206 fbheight=2622 fbpitch=460"] if part)],
                env=payload_env, capture_output=True, text=True)
     if made.returncode:
         print(f"STOP: make-payload.py failed: {made.stdout[-400:]}{made.stderr[-400:]}")

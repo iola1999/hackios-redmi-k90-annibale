@@ -88,8 +88,13 @@ PROBE_LINE = "/redwood/bin/lsprobe 60 &\n/redwood/bin/lsprobe 300 &\n"
 # over the skeleton, and that one changes every later boot and cannot share a round.
 VARSTORE_SHOW = os.environ.get("VARSTORE_SHOW") == "1"
 VARSTORE_LINE = "/redwood/bin/var_store show\n"
-# WIFI_FW=1 puts the Wi-Fi card's firmware into fw/ of the image, from the directory
+# The Wi-Fi card's firmware goes into fw/ of the image, from the directory
 # hackios-xnu-kernel/tools/mk-fw-wifi.py extracted out of the phone's own modem partition (not in git).
+# By default, when that directory has them, only the four files the driver reads on the K90 go in
+# (cycle.py's pcie=10 pcie_bdf=bd_p11.elf; kernel-12377-cmd83-wd32): amss20.bin (the card is hardware 2.0),
+# regdb.bin, bd_p11.elf and phy_ucode20.elf, about 6.9 MB. All of them, about 27 MB, do not fit beside a
+# /private/var seed in the 40.9 MB between the kernel and the resident system image (make-payload.py).
+# WIFI_FW=1 puts in every file, for the driver's diagnostic rounds; WIFI_FW=0 none.
 # The kernel's PCIe step 7 (pcie=7, mhi_pcie_fw.c) boots the card with amss20.bin or amss.bin from there;
 # step 9 (mhi_pcie_wlfw.c) sends it the regulatory database, the board data file named by its board id
 # and the M3 image. bd_p11*.elf, regdb_xiaomi.bin and qdss_trace_config_v2.cfg are what Android's cnss2
@@ -97,9 +102,12 @@ VARSTORE_LINE = "/redwood/bin/var_store show\n"
 # lfw-*.bin, when there, are linux-firmware's ath12k/WCN7850/hw2.0 amss.bin and m3.bin, copied by hand
 # (pcie_fw=3). network, when there, is the network wifi_join=1 joins: its name on the first line, its
 # passphrase on the second (git-ignored; the manifest records that it was there, not its hash).
-WIFI_FW = os.environ.get("WIFI_FW") == "1"
 WIFI_FW_DIR = WORKSPACE / "out/fw-wifi"
-WIFI_FW_FILES = (["amss.bin", "amss20.bin", "regdb.bin", "regdb_xiaomi.bin", "phy_ucode20.elf"] +
+WIFI_FW_USED = ["amss20.bin", "regdb.bin", "bd_p11.elf", "phy_ucode20.elf"]
+WIFI_FW_MODE = os.environ.get("WIFI_FW", "used" if all((WIFI_FW_DIR / n).exists() for n in WIFI_FW_USED) else "0")
+WIFI_FW = WIFI_FW_MODE != "0"
+WIFI_FW_FILES = (WIFI_FW_USED if WIFI_FW_MODE == "used" else
+                 ["amss.bin", "amss20.bin", "regdb.bin", "regdb_xiaomi.bin", "phy_ucode20.elf"] +
                  sorted(p.name for p in WIFI_FW_DIR.glob("bdwlan.e*")) +
                  sorted(p.name for p in WIFI_FW_DIR.glob("bd_p11*.elf")) +
                  sorted(p.name for p in WIFI_FW_DIR.glob("qdss_trace_config*.cfg")) +

@@ -109,12 +109,13 @@ python3 tools/k90auto/package.py          # 从工作区根目录运行
 ```sh
 ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --baseline docs/progress/evidence/k90auto/kernel-NAME-上一轮
 python3 tools/k90auto/render-health.py docs/progress/evidence/k90auto/kernel-NAME-LABEL [--baseline 另一轮]
-python3 tools/k90auto/tour.py docs/progress/evidence/k90auto/kernel-NAME-LABEL "home@3*2" "settings=/redwood/bin/rwtouch tap 0.616 0.70@4*2"
+python3 tools/k90auto/tour.py docs/progress/evidence/k90auto/kernel-NAME-LABEL "home@3*2" "settings=/redwood/bin/rwtouch tap 0.385 0.70@4*2"
 ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-cmd15 --hold --seconds 2400
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
-- `cycle.py` 的固定参数默认 `gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1 fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`，CPU 参数默认 `cpus=4 bootcpu=7 small_cores_after=0`，打包默认 `GPU_SPEED=14`。这三项分别用环境变量 `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 替换；同一个键在内核命令行出现两次时内核取第一个，所以本轮变量是其中某个键时要整串替换，`--boot-args` 追加的同名键不生效。
+- `cycle.py` 的固定参数是脚本里的 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、触摸每 4 ms 读一次（`touch_poll_us=4000`）和 Wi-Fi（`kernel-12377-cmd83-wd32` 的 `pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。CPU 参数默认 `cpus=4 bootcpu=7 small_cores_after=0`，打包默认 `GPU_SPEED=14`。这三项分别用环境变量 `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 替换；同一个键在内核命令行出现两次时内核取第一个，所以本轮变量是其中某个键时要整串替换，`--boot-args` 追加的同名键不生效。
+- `cycle.py` 默认内核 `12377-rate7`（含 `cmd83` 的 Wi-Fi 驱动与 11-02 的 120 Hz 改动），`--kernel` 可换。打包时本地固件目录 `hackios-xnu-kernel/out/fw-wifi/` 里有 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 就自动放进根盘，共约 6.9 MB，是驱动在 K90 上读的全部固件；整个目录约 27 MB，和开机种子一起超过内核与常驻系统盘之间的 40.9 MB。`WIFI_FW=1` 放入目录里全部文件，供驱动诊断轮使用；`WIFI_FW=0` 不放。
 - 2026-11-02 起 `cycle.py` 在固定参数和 `--boot-args` 之后追加 `fbwidth=1206 fbheight=2622 fbpitch=460`，用 iPhone 17 画布（402×874 点），状态栏按灵动岛布局排时间和电池，原因见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)。这三个键排在最后，某一轮要换画布时在 `--boot-args` 里给出即可。
 - `cycle.py` 起轮前要求 loader 已枚举、`result` 为 idle、RAM 盘为空，任一项不满足就停止；每两轮先经 LK 把 A 槽重试次数重置为 7（`reboot-lk.py`、`set_active a`），LK 由 `ANDROID_SERIAL` 指定。打包开关（如 `ICON_METAL=1`）按 `package.py` 的环境变量透传。
 - `cycle.py --hold` 在操作截图后不结束这一轮，轮次跑满 `--seconds` 或收到 `respin.py --stop` 才结束。这段时间里用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传 `system26.apfs`。需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 rwsh。`render87` 实测：设置写入和进程重启都生效，但 SpringBoard 被结束后停在 backboardd 的转圈界面，没有回到主屏，所以改 SpringBoard 的设置暂时仍要重新起一轮；其他进程的重启还没有实测。
@@ -124,5 +125,5 @@ python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL
 - `render-health.py` 先按重叠部分合并 `s*.log`，再把驱动、AIR 库、QuartzCore 的 Metal 日志、MiniIOSurface 与 GPU 驱动里的失败行按类别分组计数，每类写明它在屏幕上的后果；没有归类但带失败字样的图形日志列在 unclassified 下。`--baseline` 在每行后给出另一轮的计数，并标出只在一侧出现的行。驱动的部分拒绝只在首次或 2 的幂次打印，计数 1 或 2 的幂可能代表更多次。
 - `tour.py` 的每一步是 `标签=命令@等待秒数*截图张数`，命令经 `rsh.py` 发给设备上的 rwsh；同一步拍两张以上时比较前后两张，状态栏以下有变化的比例和范围写进 `run/tour.json`，用于发现闪烁。全部截图缩成一张 `run/tour-sheet.png`，编号与 `tour.json` 的顺序一致。
 - GPU 挂起后，12377-cmd4 起的内核打印 RBBM 与 CP 状态，以及每个流水线各级 IB 的基址、剩余与初始长度和 CP 位置前后的命令字。`python3 tools/k90auto/cp-words.py ROUND_DIR` 把这些命令字按 type 7／type 4 包头解成包名并标出 CP 位置；CP 会预取，停住的包可能在标记之前一两个。
-- `cycle.py --seed FILE`（或环境变量 `K90_SEED`）带一份 `/private/var` 种子开机，并自动加 `var_store=1`；不带种子时每次开机都要重建 LaunchServices 数据库，首个 SpringBoard 没有图标。取种子要不带 GPU（`GPU_STAGE=0`）并加 `outbox_mb=400`，步骤与限制见[每次开机都是首次开机](../../docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。设备上的文件可以用 rwsh 的 `outbox PATH` 交给 loader，停轮后在 `run/outbox.bin` 取到，只在不带 GPU 的轮次可用。
+- `cycle.py --seed FILE`（或环境变量 `K90_SEED`）带一份 `/private/var` 种子开机，并自动加 `var_store=1`；两者都没给、本地有 `kernel-12377-cmd30-seed3/seed-icons.bin` 时默认用它；不带种子时每次开机都要重建 LaunchServices 数据库，首个 SpringBoard 没有图标。取种子要不带 GPU（`GPU_STAGE=0`）并加 `outbox_mb=400`，步骤与限制见[每次开机都是首次开机](../../docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。设备上的文件可以用 rwsh 的 `outbox PATH` 交给 loader，停轮后在 `run/outbox.bin` 取到，只在不带 GPU 的轮次可用。
 - SpringBoard 的图层树可以用 rwsh 的 `notify com.redwood.layers.<过滤词>` 打到日志里（`all`、`Icon`、`Wallpaper`、`Poster`、`StatusBar`、`Battery`、`Widget`）。过滤词在任意层级匹配图层类或所属视图类，匹配处向下再列 3 层；每行是层级、图层类、所属视图类、尺寸、在父图层里的位置、隐藏与透明度、内容类型和尺寸，用来区分「图层没有内容」和「有内容但没有画出来」。

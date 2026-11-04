@@ -20,7 +20,7 @@
 AIR 库与 Metal 驱动：
 
 - `tools/mesa/rebase-26/0008-u-trace-redwood-pass-times.patch`：任务环境变量 `REDWOOD_PASS_TIMES=1` 打开 Mesa 的 GPU 时间戳，按 pass 种类每 5 秒汇总一次，种类名带画布尺寸、GMEM bin 数、颜色附件数和深度／模板格式。pt1、pt2 没有打印汇总，原因是 freedreno 的 tracepoint 类型全是 marker，改为按 `start_`／`end_` 名称前缀配对后从 pt3 起有输出；pt3 的汇总在槽位复用时沿用旧值，hs1 起改正。
-- `tools/mesa/rebase-26/0009-fd-resource-contents-undefined.patch` 与 AIR、Metal 驱动的配套改动：一个 pass 里 `MTLLoadActionDontCare` 的颜色附件，在这个 pass 的第一次绘制前标为内容无效，freedreno 不再把它读回 GMEM。库的 sha256 为 `7b9020b3…`，还没有上机（见 §5）。
+- `tools/mesa/rebase-26/0009-fd-resource-contents-undefined.patch` 与 AIR、Metal 驱动的配套改动：一个 pass 里 `MTLLoadActionDontCare` 的颜色附件，在这个 pass 的第一次绘制前标为内容无效，freedreno 不再把它读回 GMEM。库的 sha256 为 `7b9020b3…`，2026-11-05 在 dc2 上机，读数见 §3。
 - 这两份补丁、`0007` 与 AIR 源码在 `.userland.git` `c6f82c5f5` 提交，移植到用户态仓库 `76502ff`；Metal 驱动与内核改动在内核仓库 `ce6e0c2`。`.userland.git` 更早的 `0006` 与 `air_metal.c` 的一处注释仍未移植到用户态仓库。
 
 ## 2. 轮次
@@ -45,6 +45,7 @@ AIR 库与 Metal 驱动：
 | `kernel-12377-rate7-dc1` | rate7 | `REDWOOD_DONTCARE_CLEAR=1`；画布 1206×2622 | 87.9 | 98.8 | 92.1 |
 | `kernel-12377-rate7-ft3` | rate7 | dc1 加 `fb_threads=3` | 88.3 | 98.1 | 92.6 |
 | `kernel-12377-rate7-c7` | rate7 | dc1 加 `cpus=7`，backboardd `REDWOOD_PASS_LOG=1` | 85.6 | 99.3 | 91.2 |
+| `kernel-12377-rate7-dc2` | rate7 | dc1 的开关，AIR 库换成 `7b9020b3…`（DontCare 附件不读回），11-05 | 95.5 | 100.2 | 89.8 |
 
 tour 2 修正了设置图标的位置（0.385, 0.70），在手势段前后开关处理器采样，最后 `dump backboardd` 取共享缓存偏移。pt1 是 pt2 之前的第一次 pass 时间尝试，没有汇总输出，读数不采用。
 
@@ -63,6 +64,7 @@ sk1 起各轮都用 tour 2。dc1 起画布是 1206×2622（另一个会话改了
 - dc1：tile load 次数与 hs1 相当，`DontCare` 没有出现在整屏 pass 上，改动已撤回。
 - ft3：C 的中位数 2.79 ms（dc1 为 3.34 ms），帧率不变；整屏 pass 有两个颜色附件，没有深度／模板附件。
 - c7：帧率与 dc1 相当，GPU 最高 57.5 °C，最热的传感器 70.2 °C。驱动记下的整屏 pass 附件见[GPU 升频之后的长帧](../analysis/2026-11-02-120hz-after-gpu-clock.md) §6。
+- dc2：整屏 pass 每次 907 → 795 µs；tile load 次数相当（72692 对 67911），每次 51 → 18 µs，合计 3.46 → 1.30 s。控制中心下拉 5 次的帧率是 90.1、112.5、81.5、80.1、114.1，dc1 是 85.8、110.4、64.0、71.5、110.5。截图与 dc1 逐张一致，崩溃条目不多于 dc1，最热的传感器 72.1 °C（dc1 为 75.2 °C）。改动保留，它在库里一直生效，没有开关。
 - best1 的崩溃条目比 pt2 多，按时长折算后持平：usertrap「called from」每分钟 bt0 38 条、pt2 46 条、best1 43 条。新出现的 MessagesBlastDoor 断言与基线已有的 icloudmailagent 断言 pc 低位相同（`…878`）。
 
 ## 4. 默认值的变化
@@ -71,5 +73,4 @@ sk1 起各轮都用 tour 2。dc1 起画布是 1206×2622（另一个会话改了
 
 ## 5. 队列停止
 
-c7 结束后到 dc2 起轮之间主机超过 180 秒没有和 loader 通信，loader 的看门狗复位了手机（`cycle.py` 中 `loader_ready` 处的注释）。dc2 起轮前的检查正好落在复位期间，`cycle.py` 报 `STOP: no xnuloader in fastboot devices`，dc2 没有开始。之后只做了枚举和 `getvar`：`xnuloader` 已重新出现，`result` 为 idle。按 AGENTS.md §5 停止队列，标记文件在本地证据目录 `STOP-2026-11-02-dc2.txt`，等用户指令再起下一轮。
-
+c7 之后主机超过 180 秒没有和 loader 通信，看门狗复位了手机，dc2 起轮前的检查落在复位期间而停止（AGENTS.md §5）。11-05 用户让继续后 dc2 跑完，见 §2、§3。
