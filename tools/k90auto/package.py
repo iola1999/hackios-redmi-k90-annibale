@@ -132,10 +132,20 @@ TOOLS = WORKSPACE / "tools/apfs"
 # with those file names: it puts the named services they connect to, with counts, into the kernel
 # log ("say PID NAME: xpcwatch ..."). For finding the clients that reconnect in a loop.
 XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
-# libredwood-ax.dylib (userland/src/ax.m) goes into these programs unless AX is set to the empty string:
+# libredwood-fpvolume.dylib (userland/src/inject_fpvolume.c) goes into fileproviderd unless FPVOLUME=0.
+# fileproviderd keeps its domains only on a volume whose statfs type is apfs, and /private/var is ramfs:
+# without the library no domain exists, Files has no "On My iPhone" and Safari's downloads stay in
+# its own container.
+FPVOLUME = os.environ.get("FPVOLUME", "1") == "1"
+# libredwood-ax.dylib goes into these programs unless AX is set to the empty string. userland/src/ax.m:
 # on the notification com.redwood.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
-# which tools/k90auto/ui.py reads to tap by name. It does nothing until that notification.
-AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather HelloK90").split()
+# which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
+# userland/src/statusbar26.m: the status bar's time and battery 12 points closer to the screen edges.
+# Each application lays out its own status bar, so one not named here keeps iOS's place
+# (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to the kernel's 512-byte
+# kern.exec_inject, which refuses a longer string whole (checked below).
+AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail "
+                              "MobileCal MobileSlideShow Music Maps AppStore Files HelloK90").split()
 # MercuryPosterExtension, the provider of the default wallpaper, gets the Metal device unless
 # POSTER_METAL=0: it draws the wallpaper with its own Metal shaders (default.metallib in its bundle),
 # and without a device the wallpaper window hosts its context empty. It is an ExtensionKit service
@@ -153,6 +163,7 @@ INJECT = (
     "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension\n" +
     ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
+    ("/redwood/lib/libredwood-fpvolume.dylib fileproviderd\n" if FPVOLUME else "") +
     ("/redwood/lib/libredwood-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "")
 )
 JOBS = "etc/rc.jobs"
@@ -363,7 +374,9 @@ SB26_SOURCES = ["userland/src/inject_sb26.c", "userland/src/inject_sb26_layers.c
 SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal"]
 XPCWATCH_SOURCES = ["userland/src/xpcwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
-AX_SOURCES = ["userland/src/ax.m"]
+FPVOLUME_SOURCES = ["userland/src/inject_fpvolume.c"]
+FPVOLUME_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
+AX_SOURCES = ["userland/src/ax.m", "userland/src/statusbar26.m"]
 AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
             "-framework", "CoreGraphics"]
 
@@ -672,6 +685,10 @@ def main():
     if XPCWATCH_PROCESSES:
         commands["xpcwatch"] = build(XPCWATCH_SOURCES, "/redwood/lib/libredwood-xpcwatch.dylib",
                                      XPCWATCH_FLAGS, xpcwatch)
+    fpvolume = OUT / "libredwood-fpvolume.dylib"
+    if FPVOLUME:
+        commands["fpvolume"] = build(FPVOLUME_SOURCES, "/redwood/lib/libredwood-fpvolume.dylib",
+                                     FPVOLUME_FLAGS, fpvolume)
     audio = OUT / "RedwoodAudio"
     if AUDIO:
         commands["audio"] = build(AUDIO_SOURCES, "", AUDIO_FLAGS, audio, dynamic=False)
@@ -684,6 +701,7 @@ def main():
     sources = {name: sha(SRC_ROOT / name)
                for name in [*SHIM_SOURCES, *DRIVER_SOURCES, *DRIVER_INCLUDES, *SB26_SOURCES,
                             *(XPCWATCH_SOURCES if XPCWATCH_PROCESSES else []),
+                            *(FPVOLUME_SOURCES if FPVOLUME else []),
                             *(AX_SOURCES if AX_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
                             "userland/src/sb_metal_registration_sequence.inc",
@@ -745,6 +763,8 @@ def main():
     shutil.copy2(sb26, dest / "lib/libredwood-sb26.dylib")
     if XPCWATCH_PROCESSES:
         shutil.copy2(xpcwatch, dest / "lib/libredwood-xpcwatch.dylib")
+    if FPVOLUME:
+        shutil.copy2(fpvolume, dest / "lib/libredwood-fpvolume.dylib")
     if AX_PROCESSES:
         shutil.copy2(ax, dest / "lib/libredwood-ax.dylib")
     if AUDIO:
@@ -804,6 +824,7 @@ def main():
     assert not missing, f"the AIR library does not hold {missing}; check build-air.py --check"
     for name, present in record.get("holds", {}).items():
         assert present or name not in AIR_REQUIRED, f"build-air.py recorded {name} as absent"
+    assert len(INJECT.rstrip("\n ").encode()) < 511, f"etc/inject.conf is {len(INJECT)} bytes, over 510"
     (dest / "etc/inject.conf").write_text(INJECT)
     for ext_name, settings in EXT_ENV.items():
         (dest / "etc/env").mkdir(exist_ok=True)
@@ -858,6 +879,7 @@ def main():
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
              | ({"/lib/libredwood-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
+             | ({"/lib/libredwood-fpvolume.dylib"} if FPVOLUME else set())
              | ({"/lib/libredwood-ax.dylib"} if AX_PROCESSES else set())
              | {"/LaunchDaemons/" + name for name in rest_added}
              | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set()))
@@ -871,6 +893,7 @@ def main():
     expected = {"/lib/libredwood-sbmetal-experiment.dylib", "/lib/libredwoodmetal.dylib",
                 "/lib/libredwoodair.dylib", "/lib/libredwood.dylib", "/lib/libredwood-sb26.dylib",
                 *(["/lib", "/lib/libredwood-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
+                *(["/lib", "/lib/libredwood-fpvolume.dylib"] if FPVOLUME else []),
                 *(["/lib", "/lib/libredwood-ax.dylib"] if AX_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),
                 "/etc/inject.conf",

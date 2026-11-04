@@ -9,7 +9,7 @@
 当前各部分（以 `tools/k90auto/cycle.py` 的默认值为准）：
 
 - loader：`hackios-xnu-kernel/out/handoff-loader-v16.img`（`LOADER`）。Wi-Fi 需要 v16，它在 4 GB 以下给 Wi-Fi 卡留 128 MB 内存。`cycle.py` 按 `getvar build-id` 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的是不是 v16；不是时经 LK 用 `fastboot boot` 起 v16，不刷写分区。
-- 内核：`12377-rate8`（`KERNEL`），由 `make-payload.py` 和根盘打包成载荷，构建方法见 k90auto 说明。
+- 内核：`12377-rate10`（`KERNEL`），由 `make-payload.py` 和根盘打包成载荷，构建方法见 k90auto 说明。
 - 系统盘：`hackios-xnu-kernel/userland/system26.apfs`，超过 `0xffffffff` 字节，经 Android DSU 读入（[README §5](../../README.md#5-把系统盘装进-android-dsu)）或按第 9 节的分块协议经 USB 上传。
 - 启动参数：`make-payload.py` 的固定一组加 `cycle.py` 的 `FIXED_ARGS`，见第 8 节与 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。
 

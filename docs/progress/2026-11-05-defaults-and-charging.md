@@ -1,6 +1,6 @@
 # 默认开机参数、充电状态与安装应用（2026-11-05）
 
-用户要求 Wi-Fi 等已验证的功能默认打开，不再依赖环境变量；反馈插着充电器、电量较高时状态栏不显示充电；要求能在 iOS 运行时随时安装 IPA（经 USB 或在手机上下载）。本文记录这一天的改动、轮次与读数。120 Hz 的 dc2 轮记在 [11-02 轮次记录](2026-11-02-120hz-gpu-clock-rounds.md)。
+用户要求 Wi-Fi 等已验证的功能默认打开，不再依赖环境变量；反馈插着充电器、电量较高时状态栏不显示充电；要求能在 iOS 运行时随时安装 IPA（经 USB 或在手机上下载），并处理下载目录这类首次开机缺少的东西。本文记录这一天的改动、轮次与读数。120 Hz 的 dc2 轮记在 [11-02 轮次记录](2026-11-02-120hz-gpu-clock-rounds.md)。
 
 ## 1. 改动
 
@@ -15,6 +15,9 @@
 - 新工具：`install-ipa.py`（经 USB 分块推送并安装 IPA）、`ui.py`（读界面元素、按文字点按、截图）。
 - 用户态（`.userland.git` `1c51c1d21`，移植为 userland `36136c4`）：`appinst`、`wifijoin`、`libredwood-ax`、rwsh 的 `pull 路径 偏移`、Mesa 补丁 0010。
 - 内核（`67f8d61`）：电池读数来自电量计 BQ27Z561（`annibale_battery.c`），电流不低于 −50 mA 就算外部供电；`RedwoodBattery.cpp` 在外部供电且状态不是放电时报充电，供电或状态变化时打印一行 `RedwoodBattery: N%, ...`。`12377-rate8` 只含 `RedwoodBattery.cpp` 的改动，`12377-rate9` 两处都含。
+- 内核（`9922d45`，`12377-rate10` = rate9 加这一笔）：加入后的信号跟随接入点的实际帧；数据路径前 64 行发送读数和硬件模式相关的 WMI 事件。`cycle.py` 默认内核改为 `12377-rate10`。
+- 用户态（`.userland.git` `c9f2428ac`，移植为 userland `46b970b`）：`inject_fpvolume.c`（`libredwood-fpvolume.dylib`，只插入 fileproviderd）让 fileproviderd 接受内存盘上的 `/private/var`，`package.py` 的 `FPVOLUME` 默认打开。
+- 用户态（`.userland.git` `a3f07668f`，移植为 userland `02f4f12`）：`statusbar26.m` 并入 `libredwood-ax.dylib`，状态栏的时间和电池各向屏幕边缘移 12 点；`wifijoin` 取信号最强的扫描记录。`package.py` 的 `AX` 默认加上短信、备忘录、邮件、日历、照片、音乐、地图、App Store、文件。
 
 ## 2. 轮次
 
@@ -29,6 +32,11 @@
 | `kernel-12377-rate8-app1` | rate8 | 默认参数加 `appinst`、`wifijoin`、`libredwood-ax`，保持运行 | 在手机上装上并启动 HelloK90；`wifijoin` 手动运行时加入网络；Safari 下载 IPA 失败 |
 | `kernel-12377-rate8-app2` | rate8 | 同 app1，`wifijoin` 等设备 300 秒，fileproviderd、weatherd 等带 `OS_ACTIVITY_DT_MODE` | 开机时 `wifijoin` 等不到设备；手动加入连续 4 次握手失败（reason 15） |
 | `kernel-12377-rate8-app3` | rate8 | 同 app2，`wifijoin` 每 5 秒重建客户端，rwsh 分块 pull，`appinst` 看 Safari 暂存目录 | 开机自动加入网络；USB 与 Safari 两种方式都装上 IPA |
+| `kernel-12377-rate10-w1` | rate10 | 默认参数，`libredwood-ax` 带状态栏改动，`wifijoin` 取最强记录 | 状态栏位置见 §3.6；第一次关联即加入，状态栏 Wi-Fi 满格 |
+| `kernel-12377-rate8-au1` | rate8 | 默认参数加 `AUDIO=1` | 音量键按下后出现音量条，控制中心的音量滑块随之升降 |
+| `kernel-12377-rate10-w2` | rate10 | 同 w1，fileproviderd 带 `OS_ACTIVITY_DT_MODE=YES`、`OS_ACTIVITY_MODE=debug` | 文件 App 的位置只有「最近删除」，见 §3.3 |
+| `kernel-12377-rate11-w3` | rate11（rate10 加亮度服务，未提交） | `fb_lm_dump=1 fb_dim=1` | backboardd 在 CoreBrightness 里反复崩溃，没有桌面，见 §3.7 |
+| `kernel-12377-rate10-fp1` | rate10 | 默认参数加 `libredwood-fpvolume.dylib` | 文件 App 有「我的 iPhone」，见 §3.3 |
 
 ## 3. 读数
 
@@ -53,7 +61,10 @@
 - 登记方式：`registerApplicationDictionary:`，`ApplicationType` 为 System，数据容器由 MobileContainerManager 建。app1 用 rwsh 调 `appinst install` 装上 HelloK90，`appinst open` 启动，界面正常。
 - USB（app3）：`install-ipa.py` 装 9 KB 的 HelloK90 用时 9 秒；41 MB 的测试 IPA 分 3 块，17 秒装好并启动。
 - Safari（app3）：点「下载」后文件出现在 Safari 数据容器的 `Library/Safari/Downloads/<UUID>/`，`appinst watch` 约 10 秒内装好，图标出现在主屏。Safari 自己的下载随后停在下载中（app1 里显示 Task failed）。
-- 文件 App 的「浏览」里没有任何位置，所有 App Group 下都没有 `File Provider Storage`；LocalStorageFileProvider 从未启动，原因在查。
+- 文件 App（w2 之前）：「浏览」的位置只有「最近删除」，所有 App Group 下都没有 `File Provider Storage`，LocalStorageFileProvider 从未启动；打开照片时 fileproviderd 报 `FPDDomain must have a volume attached` 后退出。
+- 原因：`-[FPDServer _setup]` 先加载主卷，`-[FPDVolume initWithStatFS:knownRole:volumeManager:]` 经 `FPVolumeFPFSSupported` 只接受 statfs 类型为 `apfs` 的卷，`/private/var` 是 init 挂的 ramfs（`userland/src/init.c`），没有卷就不建任何域。`fileproviderctl dump` 显示 5 个提供者、0 个域。设置助理与首次解锁两道检查在手机上实测都通过。
+- fp1：`libredwood-fpvolume.dylib` 把 ramfs 的类型名在这个方法里改为 `apfs` 后，`fileproviderctl dump` 列出 LocalStorage 等默认域，LocalStorage 的 App Group 下有了 `File Provider Storage`，文件 App › 浏览显示「我的 iPhone」，打开照片后 fileproviderd 不再退出。
+- fp1 的 Safari 下载：`appinst` 从 Safari 暂存目录装上 HelloK90；Safari 下载列表里这一项停在「9 KB / 9 KB」，文件没有移到「我的 iPhone」，原因未查。
 
 ### 3.4 Wi-Fi
 
@@ -61,16 +72,29 @@
 - app1 的目标记录取自扫描里一次 −94 dBm 的读数，其余扫描里同一接入点在 −17～−25 dBm；加入后内核报给 iOS 的信号一直是 −94 dBm，状态栏只有一个点。app3 的目标在 −20 dBm，状态栏满格。
 - app2：开机时 `wifijoin` 建的客户端一直列不出设备（en0 约在内核时间 200 秒出现），改为每 5 秒重建客户端后 app3 开机即加入。
 - app2：手动加入连续 4 次失败，每次接入点发 3 次第 1 条消息，我们回的第 2 条都没有发出去，解除认证时才报 `WAS DROPPED by the driver`，随后 reason 15。目标信号 −20 dBm，与 app1 成功那次的 −94 dBm 不同，信号读数不能解释发送失败。
+- w1：`wifijoin` 选中 −22 dBm 的记录，第一次关联完成握手；JOINED 一行报信道上 −23 dBm，wifid 读到的信号随之更新，状态栏满格。第 2、4 条握手消息的完成记录都是固件交回、原因 0、发送 1 次，这一轮没有复现发送失败，发送读数留到复现时对照。
 
 ### 3.5 视频与天气
 
 - Safari 打开主机上的测试页：H.264 视频报 `err=3:Media failed to decode`；VP9 只到 `loadedmetadata`，`readyState` 停在 1。H.264 依赖硬件解码。
-- 天气：「我的位置」页显示「— —」，`locationd` 在 `mkjobs.py` 的 DENY 表里没有启动；列表里的城市也是「— —」，联网正常，weatherd 的日志在 app2 里，原因在查。
+- 天气：「我的位置」页显示「— —」，`locationd` 在 `mkjobs.py` 的 DENY 表里没有启动；列表里的城市也是「— —」，联网正常。
+- fp1 打开天气时 weatherd 带调试日志运行：连不上 `com.apple.kvsd`（syncdefaultsd 在 DENY 表里）、`com.apple.locationd.synchronous`，与 apsd 的连接无效；取天气数据的请求没有出现在 weatherd 的日志里，原因未查。
+- fp1 的 H.264：页面打开时报 `readyState` 4、没有错误，画面黑屏、时间停在 0，随后报 `err=3:Media failed to decode`。
+
+### 3.6 状态栏位置
+
+- w1 的主屏与设置页截图：时间字形 128～228 像素，中心 61.9 点；Wi-Fi 与电池 903～1049 像素，中心 339.4 点。iOS 默认是 73.7 与 327.7 点，1125×2436 画布时时间中心是 46.7 点。计算见[状态栏布局分析](../analysis/2026-11-02-status-bar-layout.md) §4、§6。
+- 设置页的位置与主屏一致；设置进程的 `statusbar26` 日志没有进控制台，由哪个类画的没有核对。
+
+### 3.7 亮度
+
+- rate11 发布 `AppleARMBacklight` 服务（`IODisplayParameters` 带 `brightness` 与 `BrightnessMilliNits`），`fb_dim=1` 时按亮度设置显示控制器混合器的常量 alpha。代码在内核工作树，未提交。
+- w3 的寄存器读数：ctl0 的 `intf` 为 0x2、`layer active` 为 0x3；lm0、lm1 都只有 stage 5 接了管道（`src 00004140`、`op 00000400`、`alpha ffff0000`），调暗代码按这个布局启用，flush 为 0x200c0。
+- w3 的 backboardd 在 `[Backlight] instantiating BrightnessSystem` 之后以 SIGSEGV 退出，约 30 次。CoreBrightness 的 `-[CBBacklightNode getBacklightCalibration:]` 读背光节点的 `backlight-calibration-parameters` 字典（`lMinPanel`、`lMidPanel`、`lMaxPanel` 等 10 个键，16.16 定点数），读不到时走默认分支，按一张没有加载的亮度表插值，读空指针。下一步是补齐这些属性。
 
 ## 4. 待办
 
 - `12377-rate9` 上机：墙插充电器、高电量时状态栏应显示闪电。
-- Wi-Fi 第 2 条握手消息没有发出：在 ath12k 的发送路径上找原因。
-- 加入后的信号读数：关联后不再更新，要改为跟随实际接收信号。
-- 文件 App 没有「我的 iPhone」：查 LocalStorageFileProvider 为什么不启动。
-- `AUDIO=1` 上机：音量键、音量提示框和音量值。
+- Wi-Fi 第 2 条握手消息没有发出：rate10 带发送读数，复现时看描述符的 vdev、pmac、AST 索引与完成记录。
+- Safari 下载项停在「9 KB / 9 KB」、文件没有进「我的 iPhone」。
+- 亮度：背光服务补齐 CoreBrightness 读的属性后再上机。

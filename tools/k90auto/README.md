@@ -128,7 +128,8 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `DIRTY_REGIONS` | 关 | `1` 时 backboardd 只重绘变化区域；默认整帧重绘 |
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
 | `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘，有 `network` 文件时一起放入，开机后由 `wifijoin` 加入；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与常驻系统盘之间的 40.9 MB）；`0` 不放 |
-| `AX` | `SpringBoard Preferences MobileSafari Weather HelloK90` | 插入 `libredwood-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按 |
+| `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal MobileSlideShow Music Maps AppStore Files HelloK90` | 插入 `libredwood-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。进程名写进 `kern.exec_inject`，总长不能超过 510 字节 |
+| `FPVOLUME` | `1` | 把 `libredwood-fpvolume.dylib` 插入 fileproviderd，让它接受内存盘上的 `/private/var`，文件 App 才有「我的 iPhone」；`0` 不插入 |
 | `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `RedwoodAudio.driver` 按 arm64e 重编，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
 | `SEED` | 无 | 把 `/private/var` 种子打包为 `etc/var.seed`（`cycle.py --seed` 设置） |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
@@ -136,7 +137,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 开机自动运行的程序（`jobs/rc.jobs.interactive`，`cycle.py` 在产物存在时打包，构建命令见各源文件头）：
 
-- `wifijoin`（`hackios-xnu-kernel/userland/src/wifijoin.c`）：经 wifid 加入 `network` 文件里的网络，最多试 3 次，以 wifid 的当前网络为准判断成功。
+- `wifijoin`（`hackios-xnu-kernel/userland/src/wifijoin.c`）：经 wifid 加入 `network` 文件里的网络，取信号最强的扫描记录，记录低于 −85 dBm 时重新扫描；最多关联 3 次，以 wifid 的当前网络为准判断成功。
 - `appinst watch`（`hackios-xnu-kernel/userland/src/appinst.m`）：每秒查看 Safari 的下载暂存目录、FileProvider 的 Downloads 和 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就复制出来安装。`appinst install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
 
 运行中的操作工具：
@@ -167,7 +168,7 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
-- 默认值：内核 `12377-rate8`（`--kernel`），`--seconds 900`，`jobs/rc.jobs.interactive`，`GPU_SPEED=14`，CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
+- 默认值：内核 `12377-rate10`（`--kernel`），`--seconds 900`，`jobs/rc.jobs.interactive`，`GPU_SPEED=14`，CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
 - 固定启动参数 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、`touch_poll_us=4000` 和 Wi-Fi（`pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。之后是 `--boot-args`，最后是 `fbwidth=1206 fbheight=2622 fbpitch=460`（iPhone 17 画布，见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)）。
 - `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 分别替换固定参数、CPU 参数和 GPU 档位。同一个键出现两次时内核取第一个，所以本轮变量是 `FIXED_ARGS` 里的键时要用 `CYCLE_FIXED_ARGS` 整串替换；画布三个键排在最后，可以在 `--boot-args` 里改。`CYCLE_PROGRAMS=路径[:路径]` 往根盘的 `/redwood/bin` 多放程序。
 - 起轮前要求 loader 已枚举、`result` 为 idle、RAM 盘为空，否则停止；设备在 Android 时先调 `recover-loader.py`。每 2 轮做一次检查点：经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再 `fastboot boot` 起 `LOADER`（或 `LOADER_IMAGE=FILE`）；驻留 loader 的 build-id 不含 `a48c7fb` 时也先做检查点。LK 由 `ANDROID_SERIAL` 指定，计数存在 `docs/progress/evidence/k90auto/cycle-state.json`。

@@ -6,7 +6,7 @@
 
 | 方面 | 状态 |
 |---|---|
-| 桌面与系统应用 | 开机自动解锁进入主屏；壁纸、图标、小组件、控制中心、通知中心可用；设置、Safari、短信等系统应用能打开 |
+| 桌面与系统应用 | 开机自动解锁进入主屏；壁纸、图标、小组件、控制中心、通知中心可用；设置、Safari、短信等系统应用能打开，文件 App 里有「我的 iPhone」 |
 | 图形与显示 | 本项目的 Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 绘制后缩放到面板，刷新率 120 Hz |
 | 触摸与按键 | 触摸、电源键、音量键可用；音量键和控制中心的滑块能调音量，还没有声音 |
 | Wi-Fi | 开机后自动加入 `hackios-xnu-kernel/out/fw-wifi/network` 里写的网络，也可以在设置里加入；Safari 能打开网页，中文显示正常 |
@@ -111,12 +111,12 @@ ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --hold --se
 - 电脑上：手机连着 USB 时执行下面的命令，装好后自动打开，40 MB 的 IPA 约 20 秒。
 
   ```sh
-  python3 tools/k90auto/install-ipa.py docs/progress/evidence/k90auto/kernel-12377-rate8-use1 App.ipa --open
+  python3 tools/k90auto/install-ipa.py docs/progress/evidence/k90auto/kernel-12377-rate10-use1 App.ipa --open
   ```
 
 IPA 要是解密过的，App Store 的加密 IPA 不能运行，`install-ipa.py` 发送前会检查并提示。装上的应用重启后就没有了。卸载用 `python3 tools/k90auto/rsh.py <轮次目录> /redwood/bin/appinst remove 应用ID`。
 
-提前结束：`python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-12377-rate8-use1 --stop`。
+提前结束：`python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-12377-rate10-use1 --stop`。
 
 ## 7. 回到 Android
 

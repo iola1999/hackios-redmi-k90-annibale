@@ -50,9 +50,10 @@ LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v16.img"
 LOADER_BUILD = "a48c7fb"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # The kernel every round boots unless --kernel names another: the newest one checked on the phone.
-# 12377-rate8 is rate7 (the Wi-Fi driver of cmd83, the 120 Hz work of 2026-11-02) with the charging
-# state of RedwoodBattery.cpp reporting a plugged-in phone as charging unless the DSP says discharging.
-KERNEL = "12377-rate8"
+# 12377-rate10 is rate7 (the Wi-Fi driver of cmd83, the 120 Hz work of 2026-11-02) with the charging
+# state of 67f8d61 (a phone on external power whose battery is not discharging reports charging) and
+# the Wi-Fi signal and transmit readings of 9922d45 (kernel-12377-rate10-w1).
+KERNEL = "12377-rate10"
 # The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
 # SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
 SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"
