@@ -8,6 +8,7 @@
 - ir3 在 spill 时关掉 preamble 重编（§5）需要先量，我们没有记录过 CoreAnimation 着色器的 spill 情况。
 - 按 pass 记 GPU 时间、用无障碍开关做对照、在独立探针内逐项切换等做法列在 §6、§7。
 - `hakios-metal` 本身是面向 A6XX 与 iOS 16.5 的新驱动，按用户决定不跟进。它处理的 GMEM 选择、寄存器去重、丢弃不支持的工作等问题，我们的 gallium 路径已有对应，见 §8。
+- 11-01 已实现 §3、§4、§5 与 §7 的无障碍开关，全部默认关闭，内核为 `12377-rate1`。真机轮次与判据见[验证方案](../plan/2026-11-01-rate-scaling-ir3-rounds.md)。
 
 ## 2. 核对范围
 
@@ -40,7 +41,14 @@ iOS 26 侧的静态核对（`hackios-xnu-kernel/tools/dsc/dsc.py`，23G90）：Q
 
 上游的诊断写法可以照用：`touch_lat=1` 时对每个新建的 display link 和每次速率请求打印一行，调用方用 `dladdr(__builtin_return_address(0))` 换成「镜像名+偏移」。
 
-下一步按 120 Hz 方案 §3 的顺序做：先驱动打印并用户态读回（判据：`maximumFramesPerSecond` 为 120），再加 Info.plist 键，再处理 display link，每步看末帧间隔。方案 §2 里按纳秒写的间隔已按上游实测的单位更正。
+23G90 的 QuartzCore 读这个键有前提（静态反汇编）：
+
+- `0x183fcf848` 读主 bundle 的 `CADisableMinimumFrameDurationOnPhone`，结果写进字节 `0x1e9cca538`。
+- 读这个字节的四处代码都先检查字节 `0x1ecd951f8`（高帧率限制是否生效），为 1 时才看键。
+- `0x1ecd951f8` 由设置值 `0x1ecd993bc` 决定：1 为生效，2 为不生效，其余取默认值 `0x1ecd95268`。
+- 默认值同样先看设置值 `0x1ecd993c0`；没有设置时，只有字节 `0x1ecd98ccc` 为 1（推断：CoreAnimation 认为显示支持可变刷新）才可能生效。
+
+所以 iOS 26 上改 Info.plist 是否必要，要等内核发布刷新属性之后读这几个值才能判断。实现上系统盘改写做成 `HIGHRATE=1`，`inject_sb26_rate.c` 在 SpringBoard 里打印这几个值；120 Hz 方案 §2 里按纳秒写的间隔已按上游实测的单位更正。
 
 ## 4. 面板缩放：动画中用最近邻，静止后双线性重画
 
@@ -49,13 +57,14 @@ iOS 26 侧的静态核对（`hackios-xnu-kernel/tools/dsc/dsc.py`，23G90）：Q
 - 同一提交加了 `fb_pri`，presenter 与 helper 线程默认优先级 92（`BASEPRI_PREEMPT`）。内核默认优先级下这些线程在负载时让给渲染服务器的实时线程，十帧里最慢一帧 10.9 ms。
 - 两项都改在与我们同源的 `MiniIOMobileFramebuffer.cpp`。重画需要持有上一帧的 surface 到 40 ms 之后，这与 `bo55` 修过的 swap 槽位放行时机相关；持有期间 CoreAnimation 是否会复用并写入这块 surface，需要先核对。
 - 判据：翻页时每帧拷贝中位数低于 5.4 ms；静止 40 ms 后的截图与双线性截图逐像素一致。
+- 已实现为 `fb_filter=2` 与 `fb_pri=N`，默认都不开（`MiniFramebufferPacing.inc`）。
 
 ## 5. ir3：spill 的着色器关掉 preamble 再编一次
 
 - 上游 `hakios-metal` `9a61305`：CoreAnimation 的 uber shader `fixed_frag_lph_cpf`（102 次采样外加 uniform 分支）开着 preamble 时用满 ISA 能寻址的 48 个 full 寄存器，仍然每个 fiber spill 512 字节、144 次 reload；关掉 preamble 只用 21 个寄存器，不 spill。每个 draw 的 GPU 时间 6.6 ms→2.6 ms。规则是 spill 的 stage 关掉 preamble 再编一次，spill 更少、或 spill 相同而寄存器更少时用新结果。
 - 我们的现状：Mesa 26.2.5（下同）的 ir3 对 A8XX 开着 preamble（`ir3_compiler.c` 的 `has_preamble`），文档里没有记录过 CoreAnimation 着色器的 spill 情况。
 - 可用的开关：`IR3_SHADER_DEBUG=nopreamble`（`ir3_compiler.c:33`）全局关掉 preamble，但它同时关掉 descriptor prefetch（`ir3_nir.c:1665`），只能用来粗测。变体的 `pvtmem_size`（`ir3_shader.h:733`）非 0 表示用了私有内存。
-- 下一步：AIR 库编出 CoreAnimation 管线时打印每个 stage 的 `max_reg` 与 `pvtmem_size`，列出 spill 的 stage；有 spill 再按上游规则实现逐 stage 重编。判据是 spill 的 stage 数，以及对应 draw 的 GPU 时间前后对比（§6）。
+- 已实现（`tools/mesa/rebase-26/0007`）：用了私有内存的 stage 常开打印一行（私有内存字节数、`max_reg`、preamble 指令数）；`REDWOOD_IR3_SPILL_RETRY=1` 时对有 preamble 的这类 stage 关掉 preamble 再编一次，按上游规则择优。判据是这类 stage 的数量，以及开关前后的 GPU 忙碌比例。
 
 ## 6. 按 pass 记 GPU 时间
 
@@ -65,7 +74,7 @@ iOS 26 侧的静态核对（`hackios-xnu-kernel/tools/dsc/dsc.py`，23G90）：Q
 
 ## 7. 工作流做法
 
-- **无障碍开关做对照**（`a48d2b2`）：boot-arg `ax_rt`、`ax_rm` 在 SpringBoard 启动时调用 libAccessibility 的 `_AXSSetEnhanceBackgroundContrastEnabled`、`_AXSSetReduceMotionEnabled`，打开「降低透明度」与「减弱动态效果」，不改渲染代码就能量出模糊和缩放动画占多少 GPU。iOS 26 的 `libAccessibility.dylib` 导出这两个函数（静态核对），可用于 Liquid Glass 的成本归因。
+- **无障碍开关做对照**（`a48d2b2`）：boot-arg `ax_rt`、`ax_rm` 在 SpringBoard 启动时调用 libAccessibility 的 `_AXSSetEnhanceBackgroundContrastEnabled`、`_AXSSetReduceMotionEnabled`，打开「降低透明度」与「减弱动态效果」，不改渲染代码就能量出模糊和缩放动画占多少 GPU。iOS 26 的 `libAccessibility.dylib` 导出这两个函数（静态核对），可用于 Liquid Glass 的成本归因。已在 SpringBoard 注入库里实现为同名 boot-arg。
 - **独立探针内逐项切换**（`hakios-metal` 的 `--bisect`）：一次开机里把命令流的每组寄存器逐一关掉或换成另一种取值，每项按像素判对错，与本仓库「探针合并」的规则一致。候选问题是 A830 上 4 倍多重采样得到全 0、片元着色器纹理预取读到全 0，两者目前都靠关功能绕开，根因未查。
 - **稳态测量**（`3aef7e3`）：同一组手势在开机工作结束之后跑四轮，每 5 秒列出占处理器最多的进程，帧行带出绘制所在的核。我们的轮次已有手势与帧统计，可以补的是「开机工作结束之后再开始计」与按进程的处理器占用。
 - **测试程序依赖前端库**（`5889ebc`）：测试程序链接旧版前端库时会按旧代码通过或失败，上游把前端库加进测试程序的依赖。我们的构建用 `built-from-air` 戳判断前端是否变化，主机测试的依赖关系可以按同一条核对。

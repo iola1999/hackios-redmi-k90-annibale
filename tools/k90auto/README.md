@@ -22,17 +22,20 @@ bash tools/k90auto/run-queue.sh docs/progress/evidence/k90auto/kernel-NAME-LABEL
 bash tools/k90auto/sheets.sh docs/progress/evidence/k90auto/kernel-NAME-LABEL/run    # 可选：PNG 与缩略图拼图
 python3 tools/k90auto/summary.py --markdown docs/progress/evidence/k90auto/kernel-NAME-LABEL ...   # 两个工具都接受轮次目录或其 run/ 子目录，解析到同一处
 python3 tools/k90auto/gestures.py docs/progress/evidence/k90auto/kernel-NAME-LABEL ...             # 需要 touch_lat=1；找不到 s[0-9]*.log 时报原因并以退出码 1 结束
+python3 tools/k90auto/frame-split.py docs/progress/evidence/k90auto/kernel-NAME-LABEL 120        # 需要 touch_lat=1；第二个参数是 fb_hz
 ```
 
 - `build-kernel.py` 只构建已提交的内容，未提交的修改不会进入内核。
 - `build-kernel.py` 在容器里构建 xnu-8796（iOS 16.5 内核线），拒绝 `12377` 开头的名字。iOS 26 用的 12377 内核在 Mac 上增量构建：把改动的文件从 `xnu/files` 复制进 `hackios-xnu-kernel/out/xnu12377-cmd`，按上一版 `kernel-12377-cmdN/kernel.json` 里 `build.command` 的命令执行 `xnu26/build-macos.sh`（`KERNEL_UUID` 末位递增），产物复制为 `out/xnu12377-cmdN.bin`，并照样写一份 `kernel.json`。
 - `make-payload.py` 的固定参数包括触摸屏（`touchscreen=2`）、音量键与电源键（`buttons=1`）和电量计（`battery=1`）。
   - CPU 部分可用环境变量 `CPU_ARGS` 替换（默认 `cpus=2 bootcpu=7 small_cores_after=0`）。
-  - GPU 档位上限用 `GPU_SPEED` 设置（即 `adreno8_speed`，默认 3）：1 固定 160 MHz；2、3 时内核按 GPU 负载和触摸在 160 MHz 与 222 MHz 或 342 MHz 之间切换（内核 `ffca661` 起，`34209c1`～`2957405` 固定请求该档）。
+  - GPU 档位上限用 `GPU_SPEED` 设置（即 `adreno8_speed`，默认 3）：1 固定 160 MHz；2～7 时内核按 GPU 负载和触摸在下限（`adreno8_floor`，默认第 3 档，不高于上限）与第 N 档之间切换，第 3～7 档为 342、389、443、525、607 MHz，8～10 档为 660、734、832 MHz，speed bin 232（K90 这颗芯片）另有 11～14 档 900、967、1050、1100 MHz（`adreno8_cx.c` 的 `adreno8_boot_speeds`，`12377-rate5` 起）。超过本芯片档位数的取值截到最高档并打印一行（`12377-rate6` 起）。性能轮次要显式写档位：`bo40`～`bo57` 用 7，`bo58`～rt2 没有设，按默认 3 跑；`cycle.py` 从 11-02 起默认 14。
   - `34209c1` 之前的内核只支持 1。
   - 系统盘由环境变量 `SYSTEM` 指定（工作区相对路径，默认 `hackios-xnu-kernel/userland/system.apfs`）；超过 0xffffffff 字节的镜像还要给 `SYSTEM_WINDOW`（十六进制字节数，32 MiB 对齐），两者写进 `manifest.json`，`run-auto.py` 据此改用 `hackios-xnu-kernel/tools/stage-system.sh` 按 256 MiB 分块上传。手机的 Android DSU 里存着同一份系统盘时（`dsu.py install` 写下的记录与本轮 SHA-256 一致），`run-auto.py` 先用 `oem dsu load` 从手机存储读入，逐 GiB 比对 CRC 后使用，比对不一致或读入失败再走 USB 上传；`K90_DSU=0` 跳过 DSU。安装与读法见顶层 README「从 Android DSU 读入系统盘」。
 - `run-queue.sh` 依次运行各目录，每轮默认 420 s，100 s 起每 3 s 截图一次，每 20 s 拉一次日志（`RUN_SECONDS`、`RUN_TIMING` 可改）。USB 重启后若退回 Android B 槽，自动调用 `recover-loader.py` 切回 loader A 槽；loader 不处于 idle 时停止整个队列。每轮结束都把设备带回 idle 的 loader：`oem stop` 只是请求，loader 要等内核静默满自己的 50 秒才把结果报成 `hung-held`，所以收尾在 stop 之后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后按状态名保存 loader 持有的日志再复位；内核始终不应答时不复位（loader 会拒绝），保存 `running.log` 并以非零退出交给主机复位。复位前的状态记在 `reboot.json` 的 `left` 字段，复位可能快过一次轮询，因此判定条件是 loader 重新应答 idle 且 RAM 系统盘为空，不要求观察到断开。
 - `gestures.py` 按手势统计主动画的帧间隔：控制中心下拉取首帧起 1.8 s，翻页取首帧起 600 ms，输出 p50／p95／最长间隔、超过 18 ms 的比例、帧率、触摸到首帧的时间和窗口服务器每帧绘制时间。需要在 EXTRA BOOT-ARGS 中加 `touch_lat=1 glslow=3000`。
+- backboardd 的 GPU 时间按 pass 拆分：`JOB_ENV` 加 `com.apple.backboardd.plist:REDWOOD_PASS_TIMES=1` 和 `com.apple.backboardd.plist:FD_GPU_TRACEPOINT=-all,+render_pass,+compute,+blit,+nondraw,+tile_loads,+tile_stores`，日志里每 5 秒打印一组 `pass times` 行，每行一种 pass（画布尺寸、GMEM bin 数、颜色附件数、深度／模板格式）的次数、合计与最长时间。AIR 库要带 `tools/mesa/rebase-26/0008`；读法见 `docs/analysis/2026-11-02-120hz-after-gpu-clock.md` §6。
+- `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，按占用的节拍数分组，给出长帧归因、每帧提交次数与 GPU 时间的关系和每段动画的帧率；口径写在脚本开头。
 - `summary.py` 每轮输出一行：内核提交、关键启动参数、实际运行秒数、panic 次数、动画窗口帧率、显示驱动每帧耗时、GL 帧耗时 p50／p90、帧间隔分布（低于 18 ms、18～35 ms、更长）、大核最高温度、最低档时间占比、截图数与异常截图数、崩溃记录数（数内核报的进程退出行；2026-10-28 修正前该列数的是日志里 `ReportCrash` 这个名字的出现次数，修正前各轮的值不是崩溃计数）。
 
 ## 4. 判读
@@ -111,6 +114,7 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
+- `cycle.py` 的固定参数默认 `gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1 fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`，CPU 参数默认 `cpus=4 bootcpu=7 small_cores_after=0`，打包默认 `GPU_SPEED=14`。这三项分别用环境变量 `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 替换；同一个键在内核命令行出现两次时内核取第一个，所以本轮变量是其中某个键时要整串替换，`--boot-args` 追加的同名键不生效。
 - 2026-11-02 起 `cycle.py` 在固定参数和 `--boot-args` 之后追加 `fbwidth=1206 fbheight=2622 fbpitch=460`，用 iPhone 17 画布（402×874 点），状态栏按灵动岛布局排时间和电池，原因见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)。这三个键排在最后，某一轮要换画布时在 `--boot-args` 里给出即可。
 - `cycle.py` 起轮前要求 loader 已枚举、`result` 为 idle、RAM 盘为空，任一项不满足就停止；每两轮先经 LK 把 A 槽重试次数重置为 7（`reboot-lk.py`、`set_active a`），LK 由 `ANDROID_SERIAL` 指定。打包开关（如 `ICON_METAL=1`）按 `package.py` 的环境变量透传。
 - `cycle.py --hold` 在操作截图后不结束这一轮，轮次跑满 `--seconds` 或收到 `respin.py --stop` 才结束。这段时间里用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传 `system26.apfs`。需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 rwsh。`render87` 实测：设置写入和进程重启都生效，但 SpringBoard 被结束后停在 backboardd 的转圈界面，没有回到主屏，所以改 SpringBoard 的设置暂时仍要重新起一轮；其他进程的重启还没有实测。

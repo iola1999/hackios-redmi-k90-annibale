@@ -325,14 +325,15 @@ DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
                    "tools/userland-driver/redwoodmetal_work.inc",
                    "tools/userland-driver/redwoodmetal_work_private.h"]
 
-# SpringBoard's 23G90 adaptations: the local activation state, the software icon selection and the
-# lock screen dismissal after boot (com.redwood.unlock dismisses it again). The base image carries an
+# SpringBoard's 23G90 adaptations: the local activation state, the software icon selection, the
+# lock screen dismissal after boot (com.redwood.unlock dismisses it again) and the frame rate readback
+# with its boot-arg switches (inject_sb26_rate.c: dl_max, dl_log, ax_rt, ax_rm). The base image carries an
 # older build of it that no inject.conf line loaded, so the iOS 26 lock screen stayed up until it was
 # swiped away by hand; the pack builds this one from the current source and injects it. The same
 # library is injected into PosterBoard, where only inject_posterboard.c's constructor acts: it logs
 # the errors behind the data store PosterBoard cannot create, which is why the wallpaper is empty.
 SB26_SOURCES = ["userland/src/inject_sb26.c", "userland/src/inject_sb26_layers.c",
-                "userland/src/inject_posterboard.c"]
+                "userland/src/inject_sb26_rate.c", "userland/src/inject_posterboard.c"]
 SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal"]
 XPCWATCH_SOURCES = ["userland/src/xpcwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]

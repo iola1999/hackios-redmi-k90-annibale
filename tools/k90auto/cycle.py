@@ -155,23 +155,34 @@ def main():
             return 1
         state["rounds_since_checkpoint"] = 0
 
-    env = dict(os.environ, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
+    # GPU up to 1100 MHz (speed 14; kernels from 12377-rate6 lower it to what the bin has, older ones
+    # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).
+    gpu_speed = os.environ.get("GPU_SPEED", "14")
+    env = dict(os.environ, GPU_SPEED=gpu_speed, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
                PAYLOAD_PROGRAMS="hackios-xnu-kernel/out/ios26-resume/rwsh:hackios-xnu-kernel/out/ios26-resume/var_store")
     with open(EVIDENCE / f"pack-{args.label}.log", "w") as log:
         if run([sys.executable, HERE / "package.py"], env=env, stdout=log, stderr=subprocess.STDOUT).returncode:
             print(f"STOP: package.py failed, see {log.name}")
             return 1
+    # CYCLE_CPU_ARGS and CYCLE_FIXED_ARGS replace the processor and the always-on boot-args, for a
+    # round whose variable is one of them (cpus=, fb_threads=): the kernel takes the first of two.
+    # The always-on ones include the 120 Hz path measured on 2026-11-02 (docs/analysis/
+    # 2026-11-01-120hz-gesture-bottleneck.md): page flips at the panel's refresh with no beat of the
+    # driver's own on top (fb_flip=2 fb_beat=0), 120 Hz reported to CoreAnimation (fb_hz, fb_ca_hz)
+    # and UIKit's in-process animations left at the display's rate (dl_max=1).
     # The screen is the v57 identity's own, 1206 x 2622 at 460 ppi (from 2026-11-02): MobileGestalt then
     # picks screen class 36 and the status bar its Dynamic Island layout. The kernel's default 1125 x 2436
     # is screen class 15, the iPhone X notch layout, which puts the clock and the battery near the corners
     # (docs/analysis/2026-11-02-status-bar-layout.md). These come after --boot-args, so a round can still
     # set its own fbwidth=, fbheight= and fbpitch=.
-    payload_env = dict(os.environ, CPU_ARGS="cpus=4 bootcpu=7 small_cores_after=0",
+    payload_env = dict(os.environ, GPU_SPEED=gpu_speed,
+                       CPU_ARGS=os.environ.get("CYCLE_CPU_ARGS", "cpus=4 bootcpu=7 small_cores_after=0"),
                        SYSTEM="hackios-xnu-kernel/userland/system26.apfs", SYSTEM_WINDOW="0x300000000",
                        MEMSIZE="300000000", IDENTITY="v57")
     made = run([sys.executable, HERE / "make-payload.py", args.kernel, args.label,
                 "out/ios26-resume/bbmetal-device/root.apfs",
-                " ".join(part for part in ["gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1",
+                " ".join(part for part in [os.environ.get("CYCLE_FIXED_ARGS", "gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1 "
+                                                                          "fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1"),
                                            args.boot_args, "fbwidth=1206 fbheight=2622 fbpitch=460"] if part)],
                env=payload_env, capture_output=True, text=True)
     if made.returncode:

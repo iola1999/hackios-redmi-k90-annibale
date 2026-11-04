@@ -6,29 +6,29 @@
 
 ## 2. 改法
 
-驱动文件是 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp`，目前没有 slot 301 与 `IOMFBDisplayRefresh` 的任何处理。
+驱动文件是 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp`，实现放在同目录的 `MiniFramebufferPacing.inc`（11-01，内核 `12377-rate1`）。
 
-1. **覆盖通用 slot 301**：把它指到自写的处理函数，不再落到通用实现。该函数负责设置刷新区间属性，返回值与参数校验按原 slot 的签名走。
-2. **区间按面板当前档位写**：`displayMinRefreshInterval`、`displayMaxRefreshInterval`、`displayRefreshStep` 取当前模式对应的周期，单位是 2^-32 秒（120 Hz 档为 `2^32/120`）；只有 `displayRefreshStepMachTime` 用 mach 时钟 tick。按 tick 填时 CoreAnimation 会把面板算成 26844 Hz（上游 hakios `0dedaec` 实测）。各值都从模式表算，不写字面量，避免换面板后几份数不一致。
-3. **在 `registerService()` 之前调用原始 `setDisplayRefreshProperties`**：属性必须在 launchd、backboardd、SpringBoard 起来之前进注册表，否则先起的进程拿不到。这与该文件 1487 行记的「属性发布时机」是同一个约束。
+1. **boot-arg `fb_ca_hz=N` 发布属性**：`publishModes()` 末尾调用 `publish_refresh()`，属性在 `registerService()` 之前进注册表，launchd、backboardd、SpringBoard 起来时都已拿到。不设 `fb_ca_hz` 时不发布，与之前相同。
+2. **单位**：`displayMinRefreshInterval`、`displayMaxRefreshInterval`、`displayRefreshStep` 以 2^-32 秒为单位（120 Hz 为 `2^32/120`），只有 `displayRefreshStepMachTime` 用 mach 时钟 tick。按 tick 填时 CoreAnimation 会把面板算成 26844 Hz（上游 hakios `0dedaec` 实测）。最小与最大间隔取同一个值，面板不变速。
+3. **不覆盖 slot 301**：上游 hakios 在 iOS 16.5 上只在 `publishModes()` 里设置属性就生效。
 
-上游 hakios 在 iOS 16.5 上只在 `publishModes()` 里设置 `IOMFBDisplayRefresh` 就生效，没有覆盖 slot 301；帧率另外受应用 Info.plist 的 `CADisableMinimumFrameDurationOnPhone` 与 UIKit display link 的请求速率限制，见[上游做法](../analysis/2026-11-01-hakios-upstream-lessons.md) §3。
+帧率另外受应用 Info.plist 的 `CADisableMinimumFrameDurationOnPhone` 与 UIKit display link 的请求速率限制，见[上游做法](../analysis/2026-11-01-hakios-upstream-lessons.md) §3。23G90 的 QuartzCore 只在高帧率限制生效时读这个键。三项的真机轮次与分支见[验证方案](2026-11-01-rate-scaling-ir3-rounds.md) §3。
 
 ## 3. 落地顺序与前置条件
 
-先把「属性发出去了」做成可判，再谈间隔：驱动侧在设置时打印一次目标区间（最小与最大，纳秒与对应的档位），用户态用 `IORegistryEntryCreateCFProperty` 读 `IOMFBDisplayRefresh` 的两个值并打印。这两行打印属于改动本身，不做成可选项；否则间隔不变时分不清「没发出去」与「发出去了但没被采用」，两年后重读日志也分不清。
+先把「属性发出去了」做成可判，再谈间隔：驱动发布时打印一行 `IOMFBDisplayRefresh: N Hz`（带 2^-32 秒与 tick 两种间隔），SpringBoard 的 `sb26: rate` 行读回 CoreAnimation 实际采用的速率与 QuartzCore 的高帧率限制状态（`inject_sb26_rate.c`）。两处打印属于改动本身，不做成可选项；否则间隔不变时分不清「没发出去」与「发出去了但没被采用」。
 
-顺序：驱动打印目标区间 → 用户态读回比对 → 再测末帧间隔。前两步不过，第三步的读数不成立。
+顺序：驱动打印 → 用户态读回比对 → 再测末帧间隔。前两步不过，第三步的读数不成立。
 
 ## 4. 验收
 
 - 主判据：末帧间隔中位数从 16,65x 微秒降到接近 8,333 微秒，且帧号在同样时长内翻倍。
-- 间隔不变时先查属性有没有发布成功：驱动侧打印一次目标区间，用户态读 `IORegistryEntryCreateCFProperty` 取 `IOMFBDisplayRefresh` 的两个值并与打印比对。发布成功而间隔不变，说明渲染服务器没有按这个属性定速，下一步查渲染服务器侧读属性的时机。
+- 间隔不变时先看两处打印：驱动行缺失说明属性没有发布；驱动行在而 `UIScreen.maximumFramesPerSecond` 仍为 60，说明 CoreAnimation 没有采用；采用了而间隔不变，看 `restriction` 与 `plist_key`，再看 display link 请求的速率。
 - 不把 120 Hz 当性能基线：帧间隔达标的同一轮要同时记录 `rwa draw:` 每帧绘制数与 hot ticks 分布，否则无法与 60 Hz 轮比较。
 
 ## 5. 与 `fb_hz` 的关系
 
-`fb_hz` 只改 vsync 定时器的周期，改不到这条路径：它决定中断多久来一次，渲染服务器的显示定时器按 `displayMinRefreshInterval` 定速，两者不同层。所以 `fb_hz=120` 的轮次不会出现 8.33 毫秒的帧间隔，`fb_hz` 也不能用来验收本方案。
+`fb_hz` 只改 vsync 定时器的周期与本驱动的出帧节拍，改不到这条路径：渲染服务器的显示定时器按 `displayMinRefreshInterval` 定速，两者不同层。所以只设 `fb_hz=120` 的轮次不会出现 8.33 毫秒的帧间隔。验证轮同时设 `fb_hz=120` 与 `fb_ca_hz=120`。
 
 ## 6. 与 memmove 故障的关系
 
@@ -36,4 +36,4 @@
 
 ## 7. 未做与风险
 
-槽位 301 的原始签名与调用方要先从 26 内核的 `IOMobileFramebuffer` 用户客户端里核一遍，本方案按 upstream 的名称写，落地前要确认 12377 里的实际符号。120 Hz 对显示驱动拷贝（`tl: v`）与 SMMU 带宽的影响没有实测，第一次跑 120 Hz 的轮次要单独看 `tl: v` 的三段时间。
+120 Hz 对显示驱动拷贝（`tl: v`）与 SMMU 带宽的影响没有实测，第一次跑 120 Hz 的轮次要单独看 `tl: v` 的三段时间。
