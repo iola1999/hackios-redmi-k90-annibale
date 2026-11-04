@@ -19,7 +19,7 @@ AIR 库与 Metal 驱动：
 
 - `tools/mesa/rebase-26/0008-u-trace-redwood-pass-times.patch`：任务环境变量 `REDWOOD_PASS_TIMES=1` 打开 Mesa 的 GPU 时间戳，按 pass 种类每 5 秒汇总一次。freedreno 的 tracepoint 类型全是 marker，补丁按 `start_`／`end_` 名称前缀配对。
 - `tools/mesa/rebase-26/0009-fd-resource-contents-undefined.patch` 与 AIR、Metal 驱动的配套改动：一个 pass 里 `MTLLoadActionDontCare` 的颜色附件，在这个 pass 的第一次绘制前标为内容无效，freedreno 不再把它读回 GMEM。没有开关，库里一直生效，dc2 起上机。
-- 这两份补丁、`0007` 与 AIR 源码在 `.userland.git` `c6f82c5f5` 提交，移植到用户态仓库 `76502ff`；Metal 驱动与内核改动在内核仓库 `ce6e0c2`。`.userland.git` 更早的 `0006` 与 `air_metal.c` 的一处注释仍未移植到用户态仓库。
+- 这两份补丁、`0007` 与 AIR 源码在 `.userland.git` `c6f82c5f5` 提交，移植到用户态仓库 `76502ff`；Metal 驱动与内核改动在内核仓库 `ce6e0c2`。
 
 ## 2. 轮次
 

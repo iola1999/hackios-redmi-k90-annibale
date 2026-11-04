@@ -46,6 +46,7 @@ git clone --recurse-submodules https://github.com/iola1999/hackios-redmi-k90-ann
 - 系统盘：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 需另行下载），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`，得到约 5.3 GB 的 `system26.apfs`。
 - 内核、根盘与 Metal 驱动：见 [k90auto 说明](tools/k90auto/README.md)。
 - loader 镜像：见下文「构建 loader 镜像」。
+- GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md) 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去；`gen80000_zap.mbn` 要用本机 Android 里的文件。
 - Wi-Fi 固件：按备份方法读出 modem 分区（本测试机用 `modem_a`），再执行 `python3 hackios-xnu-kernel/tools/mk-fw-wifi.py extract modem_a.img.gz hackios-xnu-kernel/out/fw-wifi`。脚本从分区镜像的 `image/kiwi/` 取出 WCN7850 固件，启动时自动放入驱动读取的 4 个文件。
 - 开机种子（建议）：一份开机稳定后的 `/private/var`。没有它时，每次开机主屏图标要等系统重建应用列表后才出现。取法见[每次开机都是首次开机](docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。
 

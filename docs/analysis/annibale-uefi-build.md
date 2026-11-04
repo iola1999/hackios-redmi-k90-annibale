@@ -6,7 +6,7 @@
 
 - [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium)：[Project-Silicium/Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) 的副本，许可证 BSD-2-Clause。`main` 是上游 `42fe563` 的导入；`k90-port` 增加 `Platforms/Xiaomi/annibalePkg`（从同为 SM8750 的 OnePlus 13R `dodgePkg` 复制后修改）、`Resources/Configs/annibale.toml`，以及 BootManager 里启动 XNU loader 的改动。
 - 标签 `loader-v16`：loader v6～v16 镜像里 FD 的源码状态。这些镜像里的 FD 与该状态在 2026-10-23 的构建产物逐字节相同。
-- `k90-port` 的最新提交另含 BootShim 严格载荷检查、`XNU_Payload` 保留区和 XnuLoader 更新，内容与内核仓库的 `uefi/mu-silicium.patch`、`uefi/annibale/`、`uefi/files/` 一致，还没有装进真机用的 loader 镜像。各项的取舍见第 4 节。
+- `loader-v16` 之后的提交加入 BootShim 严格载荷检查、`XNU_Payload` 保留区和 XnuLoader 失败路径的修改，内容与内核仓库的 `uefi/mu-silicium.patch`、`uefi/annibale/`、`uefi/files/` 一致，还没有装进真机用的 loader 镜像，见第 4 节。
 - 高通 DXE 驱动来自子模块 `Binaries`（Project-Silicium/Device-Binaries）。annibalePkg 引用 `Binaries/annibale/...`，上游没有这个目录，需要建一个指向 `dodge` 的符号链接。
 - 设备树 `annibalePkg/FdtBlob/sm8750-xiaomi-annibale.dtb`（956,243 字节）由手机 `vendor_boot` 里的 base DT 与本机 `dtbo` overlay 经 `fdtoverlay` 合并而成。只放 dtbo overlay 时 IortDtDxe 挂起。`Resources/DTBs/annibale.dtb` 是同一文件。
 - 面板描述 `annibalePkg/RawFiles/Panel_xiaomi_p11_42_0d_0a_dsc_cmd.xml` 由顶层 `tools/dts2panelxml.py` 从设备树的面板节点生成：1156×2510，DSC 1.2 slice 578×10，cmd 模式，4 lane，339 条 DCS 初始化命令。
@@ -52,15 +52,17 @@ PATH="$(brew --prefix llvm)/bin:$PATH" UEFI_TARGET=annibale FD_BASE=0xA7100000 F
 
 ## 4. `k90-port` 上未进真机的改动
 
-`loader-v16` 之后的那笔提交有三处改动，都还没有上过真机：
+`loader-v16` 之后的提交（`cb43663`、`67a0a75`）有三处改动，都还没有上过真机：
 
-| 改动 | 作用 | 取舍 |
+| 改动 | 作用 | 价值 |
 |---|---|---|
-| XnuLoader 失败路径 | `loader-v16` 在载荷里没有 `loader.efi`、loader 启动失败或返回时，把日志写进 `boot_a` 的第 0 块再冷重启。`boot_a` 正是 loader 镜像所在的分区，这次写入会覆盖镜像头。新版去掉这次写入，并检查每个载荷条目的长度不越过容器末尾 | 新版在失败后关中断原地停机，需要长按电源键恢复，与 AGENTS.md §5 减少人工按键的要求冲突。上机前要定：失败后停机，还是不写存储直接冷重启 |
+| XnuLoader 失败路径 | 载荷里没有 `loader.efi`、载荷格式不对、loader 启动失败或返回时，`loader-v16` 把日志写进 `boot_a` 的第 0 块再冷重启。`boot_a` 正是 loader 镜像所在的分区，这次写入会覆盖镜像头。新版不写存储，直接冷重启，并检查每个载荷条目的长度不越过容器末尾 | 失败后 loader 镜像保持完好，不需要重刷。冷重启后 ABL 再次启动 A 槽，重试次数用完后回到 B 槽的 Android（AGENTS.md §5），不需要按键 |
 | `XNU_Payload` 保留区 | 内存映射里保留 `[0xF0000000, 0xF3800000)`，PEI 阶段就把 BootShim 复制载荷的窗口排除出 DXE 可分配范围 | 防止 DXE 把载荷所在的内存分配出去。现有 loader 的载荷只有约 100 KB，没有观察到这类问题 |
 | BootShim 严格检查 | 定义 `PAYLOAD_CAP` 时检查 XNUP 容器长度与复制窗口 | 只在 `common/build.sh annibale` 的构建里生效；第 3 节的命令不设 `PAYLOAD_CAP`，生成的 shim 与旧版相同 |
 
-xnuloader 正常运行时不会回到 UEFI：`efi_main` 以 `reboot()` 结束，复位失败时原地循环。所以第一项的失败路径只在载荷损坏或 loader 无法启动时才会走到。验证新 FD 时先从 LK 用 `fastboot boot` 临时启动，不写 `boot_a`。
+三项里失败路径的修改最有价值，后两项是预防性检查，等下次换 FD 时一起上机。
+
+xnuloader 正常运行时不会回到 UEFI：`efi_main` 以 `reboot()` 结束，复位失败时原地循环。失败路径只在载荷损坏或 loader 无法启动时才会走到；`ResetSystem` 没有执行复位而返回时，新版关中断原地循环，这种情况需要长按电源键。验证新 FD 时先从 LK 用 `fastboot boot` 临时启动，不写 `boot_a`。
 
 ## 5. 已知事实
 
