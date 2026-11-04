@@ -221,7 +221,7 @@ def summarize(base, detail=False):
     sampled = re.search(r'SAMPLED_SECONDS ([\d.]+)', Path(os.path.dirname(base), 'run-' + os.path.basename(base) + '.log').read_text()) \
         if os.path.exists(os.path.join(os.path.dirname(base), 'run-' + os.path.basename(base) + '.log')) else None
     cmd = manifest.get('cmdline', '')
-    keep = [a for a in cmd.split() if a.split('=')[0] in ('cpus', 'cpufreq', 'cpufreq_mhz', 'fb_threads', 'gpu_log', 'fb_hz', 'glenv')]
+    keep = [a for a in cmd.split() if a.split('=')[0] in ('cpus', 'cpufreq', 'cpufreq_mhz', 'fb_threads', 'gpu_log', 'fb_hz', 'fbwidth', 'glenv')]
     full = full_frequency(text)
     return {
         'run': os.path.basename(base.rstrip('/')),

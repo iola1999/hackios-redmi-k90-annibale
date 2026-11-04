@@ -111,6 +111,7 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
+- 2026-11-02 起 `cycle.py` 在固定参数和 `--boot-args` 之后追加 `fbwidth=1206 fbheight=2622 fbpitch=460`，用 iPhone 17 画布（402×874 点），状态栏按灵动岛布局排时间和电池，原因见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)。这三个键排在最后，某一轮要换画布时在 `--boot-args` 里给出即可。
 - `cycle.py` 起轮前要求 loader 已枚举、`result` 为 idle、RAM 盘为空，任一项不满足就停止；每两轮先经 LK 把 A 槽重试次数重置为 7（`reboot-lk.py`、`set_active a`），LK 由 `ANDROID_SERIAL` 指定。打包开关（如 `ICON_METAL=1`）按 `package.py` 的环境变量透传。
 - `cycle.py --hold` 在操作截图后不结束这一轮，轮次跑满 `--seconds` 或收到 `respin.py --stop` 才结束。这段时间里用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传 `system26.apfs`。需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 rwsh。`render87` 实测：设置写入和进程重启都生效，但 SpringBoard 被结束后停在 backboardd 的转圈界面，没有回到主屏，所以改 SpringBoard 的设置暂时仍要重新起一轮；其他进程的重启还没有实测。
   - `--env` 把 `kern.redwood.env` 设为给出的词，每个词是 `进程名:变量=值` 或 `进程名:-变量`；超过一条命令 119 字符时拆成一条 `setenv` 和若干条 `addenv`。不带词的 `--env` 清空设置。

@@ -146,7 +146,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-stop2.log
 - `battery=1`：当前 annibale 实现读取 I²C 地址 `0x55` 的 BQ27Z561，通过 GPIO52/53 传输并在采样后恢复引脚。检查有效电量、电压、温度及 `RedwoodBattery` 发布结果；电流符号推导的状态仍需与独立的充电器状态核对。实现及样本边界见[桌面交互案例](../analysis/2026-10-24-interactive-runtime.md)。
 - 手电需要内核 `4d6eee3` 及以后，震动需要 `5847dd3` 及以后：更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。
 - `torch=3`：提供 `/dev/redwood-torch`，iOS 经 AVFlashlight 和 mediaserverd 控制；单次点亮时长默认 30 s，`torch_max_s` 最多 120 s，保留故障和电池温度检查。控制中心按钮已通过自动操作，实际灯光待人工确认。
-- iOS 26／V57 原生显示对照使用 `fbwidth=1206 fbheight=2622 fbpitch=460`，需要包含 `fbpitch` 支持的内核；2026-10-27 的 fd917 内核已在 K90 验证 screen class 36 和 62／0／34／0 点安全区。参数缺省继续原 1125×2436 配置，`fbpitch=0` 保留按宽度缩放的密度。完整配置与性能边界见[实测记录](../progress/2026-10-27-ios26-k90.md#22-k90-原生显示配置与软件动画实测)。
+- iOS 26／V57 原生显示对照使用 `fbwidth=1206 fbheight=2622 fbpitch=460`，需要包含 `fbpitch` 支持的内核；2026-10-27 的 fd917 内核已在 K90 验证 screen class 36 和 62／0／34／0 点安全区。内核缺省仍是 1125×2436，`fbpitch=0` 保留按宽度缩放的密度；`tools/k90auto/cycle.py` 从 2026-11-02 起默认带这三个参数，原因见[状态栏布局分析](../analysis/2026-11-02-status-bar-layout.md)。完整配置与性能边界见[实测记录](../progress/2026-10-27-ios26-k90.md#22-k90-原生显示配置与软件动画实测)。
 - `cpufreq=1`：annibale 按负载调频、空闲降档、触摸短时提频；CPU 达到 70 °C 后降到最低档，低于 60 °C 后恢复。`cpufreq=2` 只报告，`cpufreq=3` 为固定频率对照；日常交互使用模式 1。
 - GPU 无人值守载荷曾缺少 `buttons=1 battery=1`。生成工具已补回两项；出现按键或电量缺失，先查本轮载荷的实际参数，再查初始化日志，新载荷的人工操作仍需验收。
 - 按键验收依次查看 arbiter、通道表、TYPE/SUBTYPE、引脚状态和 `buttons:` 事件，再核对 iOS 行为。手电无光先查 TYPE/SUBTYPE、fault 与写入回读；现有实现遇到 fault 拒绝点亮，清除 fault 的语义仍待核实，`torch_secs` 在驱动内最多为 5 秒。

@@ -161,12 +161,18 @@ def main():
         if run([sys.executable, HERE / "package.py"], env=env, stdout=log, stderr=subprocess.STDOUT).returncode:
             print(f"STOP: package.py failed, see {log.name}")
             return 1
+    # The screen is the v57 identity's own, 1206 x 2622 at 460 ppi (from 2026-11-02): MobileGestalt then
+    # picks screen class 36 and the status bar its Dynamic Island layout. The kernel's default 1125 x 2436
+    # is screen class 15, the iPhone X notch layout, which puts the clock and the battery near the corners
+    # (docs/analysis/2026-11-02-status-bar-layout.md). These come after --boot-args, so a round can still
+    # set its own fbwidth=, fbheight= and fbpitch=.
     payload_env = dict(os.environ, CPU_ARGS="cpus=4 bootcpu=7 small_cores_after=0",
                        SYSTEM="hackios-xnu-kernel/userland/system26.apfs", SYSTEM_WINDOW="0x300000000",
                        MEMSIZE="300000000", IDENTITY="v57")
     made = run([sys.executable, HERE / "make-payload.py", args.kernel, args.label,
                 "out/ios26-resume/bbmetal-device/root.apfs",
-                " ".join(["gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1", args.boot_args]).strip()],
+                " ".join(part for part in ["gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1",
+                                           args.boot_args, "fbwidth=1206 fbheight=2622 fbpitch=460"] if part)],
                env=payload_env, capture_output=True, text=True)
     if made.returncode:
         print(f"STOP: make-payload.py failed: {made.stdout[-400:]}{made.stderr[-400:]}")
