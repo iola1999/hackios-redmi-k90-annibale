@@ -299,12 +299,14 @@ REST_DIR = OUT / "rest-jobs"
 # wallpaper: it serves com.apple.proactive.FaceSuggestions.xpc, and on kernel-12377-cmd40-bo16
 # PosterBoard's gallery update got 4099 (connection invalid) from it and every extension's
 # descriptor push to it failed with -2222.
-# AUDIO=1 starts the audio server for the volume keys, the volume display and the volume slider before
-# there is any sound hardware (docs/analysis/2026-11-02-audio-and-volume.md §6, step 1): audiomxd and
-# the other audio jobs come in with the rest (DENY's word "audio" is let through), and RedwoodAudio.driver,
-# the HAL plug-in iOS routes the speaker port to, is rebuilt for arm64e; the base root's copy is arm64,
-# which the arm64e audiomxd does not load (inferred there).
-AUDIO = os.environ.get("AUDIO") == "1"
+# The audio server runs for the volume keys, the volume display and the volume slider before there is
+# any sound hardware (docs/analysis/2026-11-02-audio-and-volume.md §6, step 1): audiomxd and the other
+# audio jobs come in with the rest (DENY's word "audio" is let through), and RedwoodAudio.driver, the HAL
+# plug-in iOS routes the speaker port to, is rebuilt for arm64e; the base root's copy is arm64, which the
+# arm64e audiomxd does not load. kernel-12377-rate8-au1: the plug-in opened /dev/redwood-audio, the
+# volume keys moved the volume bar and Control Center's slider, audiomxd stayed near idle. AUDIO=0 leaves
+# it out.
+AUDIO = os.environ.get("AUDIO", "1") == "1"
 AUDIO_SOURCES = ["userland/src/audio_plugin.c"]
 AUDIO_FLAGS = ["-Os", "-Wall", "-Wextra", "-bundle", "-framework", "CoreFoundation"]
 AUDIO_PLUGIN = "/lib/RedwoodAudio.driver/RedwoodAudio"

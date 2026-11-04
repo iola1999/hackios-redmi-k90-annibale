@@ -129,7 +129,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
 | `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘，有 `network` 文件时一起放入，开机后由 `wifijoin` 加入；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与常驻系统盘之间的 40.9 MB）；`0` 不放 |
 | `AX` | `SpringBoard Preferences MobileSafari Weather HelloK90` | 插入 `libredwood-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按 |
-| `AUDIO` | 关 | `1` 时放行音频任务（audiomxd 等）并把 `RedwoodAudio.driver` 按 arm64e 重编，用于音量键与音量提示框的第一步 |
+| `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `RedwoodAudio.driver` 按 arm64e 重编，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
 | `SEED` | 无 | 把 `/private/var` 种子打包为 `etc/var.seed`（`cycle.py --seed` 设置） |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
 | `GPU_SPEED` | `3` | 记进 manifest，与载荷的 `adreno8_speed` 不一致时 `make-payload.py` 拒绝 |
