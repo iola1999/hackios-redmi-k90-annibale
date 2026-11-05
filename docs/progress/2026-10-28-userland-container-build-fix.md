@@ -45,7 +45,7 @@ build.sh: why this image needs arm64e, and what would falsify it: docs/progress/
 「被拒的文件在 26 镜像里加载不了」由「镜像只有 arm64e 共享缓存」推出，闸门本身没有测。能推翻它的观察是：任何一份 26 线日志里出现被拒程序的输出。
 
 - 库：推论有实测支持，见 §1 的两例。
-- 可执行文件：已有反例。`package.py` 的基础根盘里 `hackios-xnu-kernel/out/ios26-resume/air-arm64e-device/on/root/bin/rwtouch` 是 arm64（cpusubtype `0x0`，`build.sh` 用 `$DYN`，即 `-arch arm64` 加 iOS 16.5 SDK 编出），`cycle.py` 的巡检在 iOS 26 上用它点按和滑动，[总账](../plan/2026-10-23-tracking.md)也记有 26 线日志里 rwtouch 正常。arm64 动态可执行文件能在 26 镜像里运行，闸门拒绝它们比实测需要的更严；是否把闸门收窄到只查库，还没有决定。
+- 可执行文件：已有反例。`package.py` 的基础根盘里 `hackios-xnu-kernel/out/ios26-resume/air-arm64e-device/on/root/bin/rwtouch` 是 arm64（cpusubtype `0x0`，`build.sh` 用 `$DYN`，即 `-arch arm64` 加 iOS 16.5 SDK 编出），`cycle.py` 的巡检在 iOS 26 上用它点按和滑动，[总账](../plan/2026-10-23-tracking.md)也记有 26 线日志里 rwtouch 正常。arm64 动态可执行文件能在 26 镜像里运行，闸门拒绝它们比实测需要的更严。2026-11-05 起 macOS 上的 `build.sh` 用 Xcode 的 clang 把动态程序也编成 arm64e，闸门全部通过，闸门保持原样；`base26a` 一轮里 arm64e 的 `rwtouch` 点按、滑动正常。
 
 ## 4. 在容器里跑 26 线构建会遇到的问题
 

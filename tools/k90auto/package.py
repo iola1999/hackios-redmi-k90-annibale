@@ -1,36 +1,24 @@
 #!/usr/bin/env python3
-"""One variable: backboardd gets the Metal device registration SpringBoard already has.
+"""Assemble the iOS 26 root image (/redwood) that make-payload.py packs beside the kernel.
 
-The 2026-10-27 runs showed metal=1 opening the kernel's gate and SpringBoard registering the
-Redwood device, while backboardd still printed "Failed to initialize Metal or OpenGLES contexts!"
-and composited on the CPU. The run that armed backboardd then showed why: it died fifteen times on
--[RedwoodMetalBlitEncoder generateMipmapsForTexture:], a selector the driver does not implement,
-before anything was drawn. So this image carries both libraries rebuilt from the current source:
+The base is hackios-xnu-kernel/userland/root, which `IOS=../ios26 bash build.sh` stages
+(COMPILE_ONLY=1 is enough: this script does not use the images build.sh writes). The base is copied,
+then this script puts in:
 
-  - libredwood-sbmetal-experiment.dylib, whose target table serves SpringBoard and backboardd;
-  - libredwoodmetal.dylib, which logs and skips mipmap generation and forwards the other blit
-    selectors MTLBlitCommandEncoder declares instead of aborting the process on them.
+  - the libraries it builds from the current source: the Metal driver (tools/userland-driver/),
+    the SpringBoard shim, libredwood-sb26 and the optional injection libraries;
+  - the AIR library tools/k90auto/build-air.py built and signed;
+  - etc/inject.conf, the gesture script as etc/rc.jobs, and the launchd jobs from jobs/ (in the job
+    plists and in the launchd cache, which must agree);
+  - the Wi-Fi firmware, when hackios-xnu-kernel/out/fw-wifi has it.
 
-and four changes to the root tree: the injection names backboardd as well, backboardd's launchd
-job carries REDWOOD_SB_METAL=1 (in the job plist and in the launchd cache, which must agree), the
-libraries above replace the frozen ones, and etc/rc.jobs is the eight-round gesture script from
-tools/k90auto/rc.jobs.desktop in place of the base image's one-shot sequence.
-
-The AIR library beside this script is the same build the base image carries, plus one patch:
-tools/mesa/air/air_metal.c drops a fragment shader's [[depth]] stores when the pipeline has no
-depth attachment, instead of refusing the pipeline. CoreAnimation builds such a pipeline and exits
-with OS_REASON_COREANIMATION when the answer is no. Rebuilt with
-`ninja -C out/ios26-resume/mesa-arm64e/build src/gallium/drivers/freedreno/libredwoodair.dylib`
-after copying the patched source over that tree's src/compiler/air/air_metal.c, then signed adhoc.
-
-The driver source is the userland repository's HEAD, which also carries the
-minimumLinearTextureAlignmentForPixelFormat: override that the frozen 1ea7c58d library in the base
-image was built without. That override is the one thing here this image does not isolate.
+root.apfs is then built with tools/apfs/mkapfs.py and compared with an image of the untouched base:
+every path that differs has to be one this script meant to change.
 
 usage: python3 tools/k90auto/package.py      (from the workspace root)
 
 The products stay in the ignored build directory
-`hackios-xnu-kernel/out/ios26-resume/bbmetal-device/` (root image, the two libraries,
+`hackios-xnu-kernel/out/ios26-resume/bbmetal-device/` (root image, the libraries,
 manifest.json, the logs); `jobs/` beside this script is the tracked copy of the launchd jobs it
 puts into the root image.
 """
@@ -52,9 +40,7 @@ OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and t
 # PAYLOAD_SRC_ROOT packs from a clean copy of the sources instead of the working tree, so a package
 # can be built while somebody else has an edit in flight (and the manifest records which sources).
 SRC_ROOT = Path(os.environ.get("PAYLOAD_SRC_ROOT", str(WORKSPACE)))
-# PAYLOAD_PROGRAMS=path[:path] installs programs rebuilt from the current source into /bin of the
-# root image. The base image's copies are frozen by BASE_ROOT_SHA256, so a program that changed
-# (metal_drv_test, for one) has to be named here or the image keeps the old binary.
+# PAYLOAD_PROGRAMS=path[:path] installs programs built outside build.sh into /bin of the root image.
 EXTRA_PROGRAMS = [Path(p) for p in os.environ.get("PAYLOAD_PROGRAMS", "").split(":") if p]
 # SEED=path packs a /private/var archive as etc/var.seed: `var_store save FILE` wrote it at the end of
 # an earlier boot and rwsh "outbox" carried it to the host (run/outbox.bin). With var_store=1 among
@@ -126,7 +112,8 @@ WIFI_CONTROL = "com.apple.InterfaceNamer.control.plist"
 WIFI_CONTROL_PLIST = plistlib.dumps({"ConfigureNewInterfaces": True})
 WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguration",
                       f"f\t644\t0\t0\t/private/var/preferences/SystemConfiguration/{WIFI_CONTROL}\t/fw/{WIFI_CONTROL}"]
-BASE = WORKSPACE / "out/ios26-resume/air-arm64e-device/on"
+# userland/build.sh's staging directory; xpc/launchd.plist is there only when it ran with IOS=../ios26
+BASE = SRC_ROOT / "userland/root"
 TOOLS = WORKSPACE / "tools/apfs"
 # XPCWATCH="NAME ..." inserts libredwood-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
 # with those file names: it puts the named services they connect to, with counts, into the kernel
@@ -313,8 +300,8 @@ REST_DIR = OUT / "rest-jobs"
 # The audio server runs for the volume keys, the volume display and the volume slider before there is
 # any sound hardware (docs/analysis/2026-11-02-audio-and-volume.md §6, step 1): audiomxd and the other
 # audio jobs come in with the rest (DENY's word "audio" is let through), and RedwoodAudio.driver, the HAL
-# plug-in iOS routes the speaker port to, is rebuilt for arm64e; the base root's copy is arm64, which the
-# arm64e audiomxd does not load. kernel-12377-rate8-au1: the plug-in opened /dev/redwood-audio, the
+# plug-in iOS routes the speaker port to, is rebuilt for arm64e from the current source; the arm64e
+# audiomxd does not load an arm64 one. kernel-12377-rate8-au1: the plug-in opened /dev/redwood-audio, the
 # volume keys moved the volume bar and Control Center's slider, audiomxd stayed near idle. AUDIO=0 leaves
 # it out.
 AUDIO = os.environ.get("AUDIO", "1") == "1"
@@ -326,8 +313,7 @@ REST_ALLOW = ["com.apple.dmd"] + REST_TRIAL
 REST_DENY = ["com.apple.PerfPowerServices"]
 SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0"]
 
-# Both commands are the ones the frozen libraries were built with (build.sh for the shim,
-# mps-commandbuffer-production/build-commands.json for the driver).
+# SHIM_FLAGS are build.sh's flags for the same library.
 SHIM_SOURCES = ["userland/src/sb_metal_experiment.m"]
 SHIM_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation", "-framework", "Metal",
               "-framework", "UIKit", "-framework", "IOKit"]
@@ -364,9 +350,8 @@ DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
 
 # SpringBoard's 23G90 adaptations: the local activation state, the software icon selection, the
 # lock screen dismissal after boot (com.redwood.unlock dismisses it again) and the frame rate readback
-# with its boot-arg switches (inject_sb26_rate.c: dl_max, dl_log, ax_rt, ax_rm). The base image carries an
-# older build of it that no inject.conf line loaded, so the iOS 26 lock screen stayed up until it was
-# swiped away by hand; the pack builds this one from the current source and injects it. The same
+# with its boot-arg switches (inject_sb26_rate.c: dl_max, dl_log, ax_rt, ax_rm). The pack builds it
+# from the current source and injects it; without it the iOS 26 lock screen stays up. The same
 # library is injected into PosterBoard, where only inject_posterboard.c's constructor acts: it logs
 # the errors behind the data store PosterBoard cannot create, which is why the wallpaper is empty.
 SB26_SOURCES = ["userland/src/inject_sb26.c", "userland/src/inject_sb26_layers.c",
@@ -379,12 +364,6 @@ FPVOLUME_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
 AX_SOURCES = ["userland/src/ax.m", "userland/src/statusbar26.m"]
 AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
             "-framework", "CoreGraphics"]
-
-# The run this image is compared against used exactly these.
-BASE_ROOT_SHA256 = "33ed5fc9cb18367c124e6fd26a2fc982f7d80b3a44e04754f87cf74b5aa381f0"
-OLD_SHIM_SHA256 = "be308aea0cb5c86dd8faa22df59aeefabe8fc688678ba80e2af2adf59f4da142"
-OLD_DRIVER_SHA256 = "1ea7c58ddb8ad6506749527fac41d1ca7ea10f977c3a9f0deefdd39b5880a907"
-OLD_AIR_SHA256 = "adf0328a025f959bd6bb7da7e7b81ec600075b5ad39aa7c3b31e8df506a8d604"
 
 # make-payload.py defaults this to 3 while nearly every comparable round used 1, so a forgotten
 # GPU_SPEED changes the GPU clock without changing the request. It is recorded here as well as in the
@@ -651,18 +630,15 @@ def main():
             f"(GPU_SPEED defaults to 3). Set GPU_SPEED to the value the round is meant to run, or fix "
             f"the note; a record that says one thing while the round runs another is what this check is for.")
 
-    assert sha(BASE / "root.apfs") == BASE_ROOT_SHA256, "base root image changed"
-    assert sha(BASE / "root/lib/libredwood-sbmetal-experiment.dylib") == OLD_SHIM_SHA256, "base shim changed"
-    assert sha(BASE / "root/lib/libredwoodmetal.dylib") == OLD_DRIVER_SHA256, "base driver changed"
-    assert sha(BASE / "root/lib/libredwoodair.dylib") == OLD_AIR_SHA256, "base AIR library changed"
+    assert (BASE / "xpc/launchd.plist").is_file(), (
+        f"{BASE} is not staged for iOS 26: run `IOS=../ios26 COMPILE_ONLY=1 bash build.sh` in "
+        f"hackios-xnu-kernel/userland first")
 
     shim = OUT / "libredwood-sbmetal-experiment.dylib"
     driver = OUT / "libredwoodmetal.dylib"
     air = OUT / "libredwoodair.dylib"
     sb26 = OUT / "libredwood-sb26.dylib"
-    # build.sh's own product, which this pack used to take from the base root: a change to
-    # userland/src/inject.c then never reached an image, and on 2026-10-29 tl: b was in obj/ and in
-    # userland/root/ while the packed /lib/libredwood.dylib was e527b342… from an earlier round.
+    # build.sh's own product, checked by name below: the arm64e check and the hash in root.apfs.
     userland = SRC_ROOT / "userland/root/lib/libredwood.dylib"
     assert userland.is_file(), f"{userland} is userland/build.sh's product; run it before packing"
     assert air.is_file(), (f"{air} is missing; tools/k90auto/build-air.py writes it and signs it, "
@@ -716,13 +692,20 @@ def main():
     jobs = ((PROBE_LINE.encode() if PROBE else b"") + (VARSTORE_LINE.encode() if VARSTORE_SHOW else b"")
             + jobs_source_bytes)
 
-    before, _ = records(BASE / "root.apfs")
-    protected = {str(p): sha(p) for p in [BASE / "root.apfs"]}
+    # The untouched base as an image, built the way root.apfs is below: what the comparison at the
+    # end measures against.
+    base_image = OUT / "base.apfs"
+    with (OUT / "base-build.log").open("w") as log:
+        subprocess.run([sys.executable, str(TOOLS / "mkapfs.py"), "-z", "--plain", "fw",
+                        "-o", str(base_image), "redwood=" + str(BASE)],
+                       stdout=log, stderr=log, check=True, cwd=WORKSPACE)
+    before, _ = records(base_image)
+    protected = {str(base_image): sha(base_image)}
 
     dest = OUT / "root"
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(BASE / "root", dest, symlinks=True)
+    shutil.copytree(BASE, dest, symlinks=True)
     # The base root is a build product, and a line added to userland/build.sh does not reach a pack
     # until build.sh is run again: on 2026-10-28 the two directories added to the data volume template
     # were still missing from the packed etc/var.skel, and the round that was meant to test them ran
@@ -835,9 +818,8 @@ def main():
         shutil.copy2(WIFI_FW_DIR / name, dest / "fw" / name)
     if WIFI_FW:
         (dest / "fw" / WIFI_CONTROL).write_bytes(WIFI_CONTROL_PLIST)
-    # the desktop's own gesture script: the base image carries a one-shot sequence (unlock, two
-    # page swipes and a Control Center pull, then nothing), and an acceptance run needs the eight
-    # rounds the harness measures. The probe's line ends with "&": init runs the lines of rc.jobs
+    # the desktop's own gesture script in place of build.sh's etc/rc.jobs: an acceptance run needs
+    # the eight rounds the harness measures. The probe's line ends with "&": init runs the lines of rc.jobs
     # one after another and would otherwise hold the gestures for the probe's last offset.
     (dest / JOBS).write_bytes(jobs)
     job = add_switch(dest)
@@ -874,7 +856,7 @@ def main():
         assert after[name]["sha256"] == sha(product), \
             f"{name} in root.apfs is not what this pack built"
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
-             | ({"/bin/lsprobe"} if PROBE else set())
+             | ({"/bin/lsprobe"} if PROBE and "/bin/lsprobe" not in before else set())
              | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} if WIFI_FW else set())
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
@@ -882,7 +864,9 @@ def main():
              | ({"/lib/libredwood-fpvolume.dylib"} if FPVOLUME else set())
              | ({"/lib/libredwood-ax.dylib"} if AX_PROCESSES else set())
              | {"/LaunchDaemons/" + name for name in rest_added}
-             | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set()))
+             | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set())
+             # build.sh stages the AIR library only when build-air.py had already written it
+             | ({"/lib/libredwoodair.dylib"} - set(before)))
     assert set(after) - set(before) == added, \
         f"unexpected files: {sorted(set(after) - set(before) - added)}"
     assert set(before) - set(after) == set(), sorted(set(before) - set(after))
@@ -904,7 +888,8 @@ def main():
                 # in this set. /bin is the only one today: the extra jobs' directory is listed on the
                 # next line with the same reason. A new file somewhere else needs its parent added
                 # here or the comparison above fails on a directory nobody meant to change.
-                *(["/bin"] if PROBE or EXTRA_PROGRAMS else []),
+                *(["/bin"] if any(name.startswith("/bin/") for name in added) else []),
+                *(["/lib"] if any(name.startswith("/lib/") for name in added) else []),
                 *(["/etc", "/etc/var.seed"] if SEED else []),
                 *(["/etc", "/etc/env", *("/etc/env/" + name for name in EXT_ENV)] if EXT_ENV else []),
                 *(["/bin/lsprobe"] if PROBE else []),
@@ -919,7 +904,9 @@ def main():
                 # userland/var.skel.extra names, or with WIFI_FW (WIFI_CONTROL_LINES); an empty
                 # skeleton_appended means it was left alone
                 *(["/etc/var.skel"] if appended else [])}
-    assert set(changes) == expected, f"unexpected changes: {sorted(set(changes) ^ expected)}"
+    # A file this pack installs can equal the base's copy (build.sh builds the shim and sb26 with the
+    # same command), so the set is an upper bound; the checks below read back what has to be there.
+    assert set(changes) <= expected, f"unexpected changes: {sorted(set(changes) - expected)}"
     for name, diff in changes.items():
         assert set(diff) <= {"sha256", "xattrs", "internal_flags", "nlink"}, (name, sorted(diff))
 
@@ -957,13 +944,9 @@ def main():
     driver_sha, air_sha = sha(driver), sha(air)
 
     report = {
-        "base": str(BASE), "base_root_sha256": BASE_ROOT_SHA256,
-        "driver_sha256": driver_sha, "air_sha256": air_sha,
-        "variable": "backboardd armed for Metal registration; the driver survives the blit selectors "
-                    "it does not implement; the eight-round gesture script drives the run",
-        "old_shim_sha256": OLD_SHIM_SHA256, "new_shim_sha256": sha(shim),
-        "old_driver_sha256": OLD_DRIVER_SHA256, "new_driver_sha256": sha(driver),
-        "old_air_sha256": OLD_AIR_SHA256, "new_air_sha256": sha(air), "air_source_sha256": air_source,
+        "base": str(BASE.relative_to(SRC_ROOT)), "base_root_sha256": protected[str(base_image)],
+        "driver_sha256": driver_sha, "air_sha256": air_sha, "shim_sha256": sha(shim),
+        "air_source_sha256": air_source,
         "userland_sha256": sha(userland), "userland_bytes": userland.stat().st_size,
         "inject_source_sha256": sha(SRC_ROOT / "userland/src/inject.c"),
         "air_sources": air_sources,
@@ -978,12 +961,6 @@ def main():
                         "sha256": sha(JOBS_SOURCE),
                         "given": JOBS_SOURCE_GIVEN},
         "probe_sources": {name: sources[name] for name in PROBE_SOURCES if name in sources},
-        "air_delta": "tools/mesa/air/air_metal.c drops the [[depth]] stores of a pipeline with no "
-                     "depth attachment instead of refusing it; the rest of that build is the base "
-                     "image's own",
-        "also_changed": "the driver source is the userland HEAD, which carries the "
-                        "minimumLinearTextureAlignmentForPixelFormat: override the frozen library "
-                        "was built without",
         "build_commands": commands, "source_sha256": sources,
         "inject_conf": INJECT.strip(),
         "jobs_sha256": hashlib.sha256(jobs).hexdigest(), "probe": PROBE, "varstore_show": VARSTORE_SHOW,
@@ -1022,8 +999,8 @@ def main():
                          + f"\n(the kernel commit is {report.get('kernel', {}).get('commit', '?')})")
     (OUT / "manifest.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps({k: report[k] for k in
-                      ["variable", "new_shim_sha256", "new_driver_sha256", "new_air_sha256",
-                       "driver_sha256", "air_sha256", "root_sha256", "root_bytes"]}, indent=2))
+                      ["base_root_sha256", "shim_sha256", "driver_sha256", "air_sha256",
+                       "root_sha256", "root_bytes"]}, indent=2))
 
 
 if __name__ == "__main__":

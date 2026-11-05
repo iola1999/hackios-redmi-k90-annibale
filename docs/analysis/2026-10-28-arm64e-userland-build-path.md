@@ -9,7 +9,8 @@ iOS 26 系统盘只带 arm64e 的 dyld 共享缓存，镜像里经 dyld 加载�
 - 工具链：`SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0"]`。`-sdk iphoneos` 解析到宿主默认的 iPhoneOS SDK，2026-10-28 时是 27.1，与 `hackios-xnu-kernel/xnu-deps/26/sdk/iPhoneOS.sdk/System` 那个符号链接指向同一个。
 - `build(sources, install_name, flags, out, dynamic=True)`：命令行是 `SDK + flags + ["-fno-objc-arc", *kind, *sources, "-lobjc", "-o", out]`，`dynamic` 为真时 `kind` 是 `["-dynamiclib", "-install_name", install_name]`。它先把命令行写进 `<out>.build.log`，以 `cwd=SRC_ROOT`（`PAYLOAD_SRC_ROOT`，默认 `hackios-xnu-kernel`）编译，再用 `codesign --force --sign -` 做 adhoc 签名。
 - 编出的产物：shim（`userland/src/sb_metal_experiment.m`）、驱动（`tools/userland-driver/redwoodmetal.m` 与 `redwooddrawable.m`）、`libredwood-sb26.dylib`（`SB26_SOURCES`），以及按开关编的 `lsprobe`（`PROBE=1`）、`libredwood-xpcwatch.dylib`（`XPCWATCH`）、`libredwood-ax.dylib`（`AX`）。
-- 打包：先断言 `BASE`（`out/ios26-resume/air-arm64e-device/on`）的 `root.apfs` 与三个库的哈希，再拷贝它的 `root/`、覆盖新产物，用 `tools/apfs/mkapfs.py -z --plain fw` 打 `root.apfs`。产物、根盘与 `manifest.json` 都在 `out/ios26-resume/bbmetal-device/`，manifest 的 `build_commands` 与 `source_sha256` 记下每条命令行和源摘要。
+- 打包：基线是 `userland/build.sh` 的暂存目录 `userland/root/`（`BASE`），先在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 COMPILE_ONLY=1 bash build.sh`。`package.py` 把基线打成 `base.apfs` 作比较对象，再拷贝基线、覆盖新产物，用 `tools/apfs/mkapfs.py -z --plain fw` 打 `root.apfs`，两份镜像之间变化的路径必须都在它要改的范围内。产物、根盘与 `manifest.json` 都在 `out/ios26-resume/bbmetal-device/`，manifest 的 `build_commands` 与 `source_sha256` 记下每条命令行和源摘要。
+- `build.sh` 在 macOS 上、`IOS=../ios26` 时用 Xcode 的 clang 编动态程序和库（`DYN`，arm64e，`-miphoneos-version-min=26.0`），静态程序（`init`、`child`、`stage0`、`var_store`）仍用 `xnu-clang`，它在 macOS 上用 Xcode 的 `ld` 链接。
 - `libredwood.dylib`（`userland/src/inject.c`）由 `userland/build.sh` 编，`package.py` 从 `userland/root/lib/` 取，打包前要先跑 `build.sh`。拷进镜像后检查它与 `build.sh` 的产物逐字节相同、cpusubtype 为 `0x80000002`（§4）。
 
 ### 1.1 重建这份驱动库的步骤与可复现条件

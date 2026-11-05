@@ -114,9 +114,9 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 `package.py` 组装 iOS 26 根盘：用 xcrun clang 编译 shim、Metal 驱动（`hackios-xnu-kernel/tools/userland-driver/`）和 SpringBoard 适配库等 arm64e 库，把 `build-air.py` 签好名的 AIR 库与这些库装进根盘副本，写入 `etc/inject.conf`、backboardd 的 `REDWOOD_SB_METAL=1` 与 `etc/rc.jobs`，补上 `jobs/` 里的 launchd 任务，用 `mkapfs.py` 打包，最后逐文件回读校验并把哈希写进 `manifest.json`。从工作区根目录运行 `python3 tools/k90auto/package.py`。
 
-基线根盘是 `hackios-xnu-kernel/out/ios26-resume/air-arm64e-device/on/`（`package.py` 的 `BASE`，`root.apfs` 的 SHA-256 固定为 `BASE_ROOT_SHA256`）。它是本机早期轮次留下的产物，仓库里没有从源码重建它的步骤，所以干净克隆目前运行不了 `package.py`。
+基线根盘是 `userland/build.sh` 的暂存目录 `hackios-xnu-kernel/userland/root/`（`package.py` 的 `BASE`）。打包前在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`（只要根盘时加 `COMPILE_ONLY=1`，不写镜像），需要 macOS 与 Xcode。`package.py` 把基线打成 `base.apfs`，打包后核对两份镜像之间变化的路径都在它要改的范围内。
 
-产物在 Git 忽略的 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/`（`root.apfs`、各个库、`manifest.json`、构建日志）。基线根盘、AIR 库的构建记录与 adhoc 签名、变更文件集合任一项不符就退出；AIR 库漏签名会让 dyld 拒绝加载，整轮退回 CPU 合成。
+产物在 Git 忽略的 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/`（`root.apfs`、各个库、`manifest.json`、构建日志）。基线没有按 iOS 26 暂存、AIR 库的构建记录或 adhoc 签名不符、变更超出范围，任一项成立就退出；AIR 库漏签名会让 dyld 拒绝加载，整轮退回 CPU 合成。
 
 打包开关（环境变量，`cycle.py` 原样传给 `package.py`）：
 

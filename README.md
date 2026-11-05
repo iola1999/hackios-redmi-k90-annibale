@@ -34,7 +34,7 @@
 ## 3. 准备
 
 - 设备：已解锁 bootloader 的 REDMI K90、可传数据的 USB 线。
-- 电脑：`adb`、`fastboot`、Git、Python 3；构建 iOS 26 内核需要 Mac，构建 loader 里的 UEFI 需要 Docker。
+- 电脑：`adb`、`fastboot`、Git、Python 3；构建 iOS 26 的内核和用户态程序需要 Mac 与 Xcode，构建 loader 里的 UEFI 和给 Mesa 打补丁需要 Docker。
 - 备份（建议）：写入前备份两个槽位的 `boot` 等重要分区，方法见[分区备份与恢复](docs/backup/README.md)。Wi-Fi 固件也要从备份的 modem 分区里取。
 
 ```sh
@@ -47,7 +47,7 @@ USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k
 
 构建产物放在 Git 忽略的目录里，主要是 `hackios-xnu-kernel/out/`：
 
-- 系统盘：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 需另行下载），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`，得到约 5.3 GB 的 `system26.apfs`。
+- 系统盘：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 需另行下载），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`，得到约 5.3 GB 的 `system26.apfs`；同时生成的 `userland/root/` 是下一项打根盘用的基线。
 - 内核、根盘与 Metal 驱动：见 [k90auto 说明](tools/k90auto/README.md)。
 - loader 镜像：见下文「构建 loader 镜像」。
 - GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md) 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去。其中 `gen80000_zap.mbn` 用 `adb pull /odm/firmware/gen80000_zap.mbn` 从手机取。
