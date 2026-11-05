@@ -8,12 +8,12 @@
 
 当前各部分（以 `tools/k90auto/cycle.py` 的默认值为准）：
 
-- loader：`hackios-xnu-kernel/out/handoff-loader-v16.img`（`LOADER`）。Wi-Fi 需要 v16，它在 4 GB 以下给 Wi-Fi 卡留 128 MB 内存。`cycle.py` 按 `getvar build-id` 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的是不是 v16；不是时经 LK 用 `fastboot boot` 起 v16，不刷写分区。
+- loader：`hackios-xnu-kernel/out/handoff-loader-v17.img`（`LOADER`），2026-11-05 起刷在 `boot_a`。Wi-Fi 需要 v16 起的 loader，它在 4 GB 以下给 Wi-Fi 卡留 128 MB 内存；v17 沿用 v16 的 loader，换了 UEFI。`cycle.py` 按 `getvar build-id` 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的 loader；不含时经 LK 用 `fastboot boot` 起 v17，不刷写分区。
 - 内核：`12377-rate10`（`KERNEL`），由 `make-payload.py` 和根盘打包成载荷，构建方法见 k90auto 说明。
 - 系统盘：`hackios-xnu-kernel/userland/system26.apfs`，超过 `0xffffffff` 字节，经 Android DSU 读入（[README §5](../../README.md#5-把系统盘装进-android-dsu)）或按第 9 节的分块协议经 USB 上传。
 - 启动参数：`make-payload.py` 的固定一组加 `cycle.py` 的 `FIXED_ARGS`，见第 8 节与 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。
 
-每轮收尾的 PSCI 复位会重新启动 `boot_a` 里刷着的 loader。`boot_a` 刷的不是 v16 时，每一轮都要多走一次 LK 检查点，所以建议按第 3 节把 v16 刷进 `boot_a`。
+每轮收尾的 PSCI 复位会重新启动 `boot_a` 里刷着的 loader。`boot_a` 里 loader 的 build-id 不含 `a48c7fb` 时，每一轮都要多走一次 LK 检查点，所以建议按第 3 节把 v17 刷进 `boot_a`。
 
 ## 2. 操作前检查
 
@@ -24,7 +24,7 @@
 
 ## 3. 安装驻留 loader
 
-loader 镜像 `hackios-xnu-kernel/out/handoff-loader-v16.img` 是 Git 忽略的本地构建产物，构建步骤见 [annibale UEFI 与 loader 镜像构建](../analysis/annibale-uefi-build.md#3-装配-loader-镜像)。其中的 UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支，标签 `loader-v16` 对应真机在用的 FD。
+loader 镜像 `hackios-xnu-kernel/out/handoff-loader-v17.img` 是 Git 忽略的本地构建产物，构建步骤见 [annibale UEFI 与 loader 镜像构建](../analysis/annibale-uefi-build.md#3-装配-loader-镜像)。其中的 UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支，标签 `loader-v17` 对应 v17 里的 FD。
 
 镜像可以先不刷写：在 LK 执行 `fastboot -s "${ANDROID_SERIAL}" boot <loader 镜像>`，loader 约 18 秒后枚举，不改 `boot_a`，也不扣 A 槽重试次数（[SOP §4](device-boot-target-sop.md#4-陷阱均为实测) 第 1 条）。`cycle.py` 用环境变量 `LOADER_IMAGE=FILE` 指定检查点要起的镜像。
 
@@ -33,7 +33,7 @@ loader 镜像 `hackios-xnu-kernel/out/handoff-loader-v16.img` 是 Git 忽略的�
 ```sh
 fastboot -s "${ANDROID_SERIAL}" getvar product
 fastboot -s "${ANDROID_SERIAL}" getvar current-slot
-fastboot -s "${ANDROID_SERIAL}" flash boot_a hackios-xnu-kernel/out/handoff-loader-v16.img
+fastboot -s "${ANDROID_SERIAL}" flash boot_a hackios-xnu-kernel/out/handoff-loader-v17.img
 fastboot -s "${ANDROID_SERIAL}" set_active a
 fastboot -s "${ANDROID_SERIAL}" reboot
 fastboot -s xnuloader getvar product
@@ -41,7 +41,7 @@ fastboot -s xnuloader getvar build-id
 fastboot -s xnuloader getvar screen
 ```
 
-成功条件为 `product: xnuloader`，`build-id` 与构建时的 `BUILD_ID` 一致（v16 为 `a48c7fbac8fb64e1e8cafe2cf4efc4c79dbae767`）。屏幕几何应为 `1156 2510 4624`，该值来自固件配置，物理面板的显示仍要目视验证。`reboot` 的主机返回结果只能确认命令已发送，后续状态需要另行读取。
+成功条件为 `product: xnuloader`，`build-id` 与构建时的 `BUILD_ID` 一致（v16 与 v17 都是 `a48c7fbac8fb64e1e8cafe2cf4efc4c79dbae767`）。屏幕几何应为 `1156 2510 4624`，该值来自固件配置，物理面板的显示仍要目视验证。`reboot` 的主机返回结果只能确认命令已发送，后续状态需要另行读取。
 
 ## 4. 手工运行内核
 

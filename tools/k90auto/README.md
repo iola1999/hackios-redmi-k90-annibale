@@ -7,7 +7,7 @@
 ## 1. 前提与产物位置
 
 - 设备处于驻留 loader 的 idle 状态（`fastboot -s xnuloader getvar result` 输出 `result: idle`），USB 连接主机；`cycle.py` 也可以从 Android 出发。同一设备一次只跑一个队列。
-- loader 用 `hackios-xnu-kernel/out/handoff-loader-v16.img`（`cycle.py` 的 `LOADER`），构建见 [annibale UEFI 与 loader 镜像构建](../../docs/analysis/annibale-uefi-build.md)，刷写见[真机调试手册 §3](../../docs/plan/device-test-playbook.md#3-安装驻留-loader)。
+- loader 用 `hackios-xnu-kernel/out/handoff-loader-v17.img`（`cycle.py` 的 `LOADER`），构建见 [annibale UEFI 与 loader 镜像构建](../../docs/analysis/annibale-uefi-build.md)，刷写见[真机调试手册 §3](../../docs/plan/device-test-playbook.md#3-安装驻留-loader)。
 - 主机需要 Python 3.12 或更新版本、`adb`、`fastboot`；截图转换需要 `ffmpeg`，截图统计需要 NumPy。
 - 输出目录默认是 `docs/progress/evidence/k90auto`（Git 忽略），可用 `K90_EVIDENCE` 改。一轮的目录是 `kernel-<内核名>-<标签>/`，含 `manifest.json` 和 `run/`（`s###.log` 日志快照、截图、`commands.jsonl`、`reboot.json`、`tour.json`）。
 - `run-auto.py` 按 `manifest.json` 校验载荷、根盘与系统盘的字节数和 SHA-256，要求 loader 报告 `ramdisk-protocol: 1`；build-id 只记进 `reboot.json`。`EXPECT_PAYLOAD_SHA256`、`EXPECT_ROOT_SHA256` 可再指定期望值。
@@ -17,7 +17,7 @@
 - 系统盘 `hackios-xnu-kernel/userland/system26.apfs`：构建与装进 Android DSU 见顶层 [README](../../README.md) §3、§5。
 - iOS 26 内核（12377 线）在 Mac 上增量构建：把改动的文件从 `hackios-xnu-kernel/xnu/files` 复制进 `hackios-xnu-kernel/out/xnu12377-cmd`，在 `hackios-xnu-kernel/` 下按上一版 `kernel-12377-<名字>/kernel.json` 里 `build.command` 记录的命令执行 `xnu26/build-macos.sh`（`KERNEL_UUID` 换新值），产物复制为 `out/xnu12377-<名字>.bin`，再写一份新的 `kernel-12377-<名字>/kernel.json`（`kernel.path`、`kernel.bytes`、`kernel.sha256`）。`make-payload.py` 从这份记录取内核并核对哈希。
 - `build-kernel.py NAME` 只用于 xnu-8796（iOS 16.5 线）：在 `kbuild` 容器里构建内核子模块的 HEAD 提交（未提交的修改不进内核），拒绝 `12377` 开头的名字；容器见[内核构建说明](../../docs/analysis/kernel-build-linux.md)。
-- AIR 库：`build-air.py` 是唯一的构建入口，先把 `hackios-xnu-kernel/tools/mesa/air/` 的源码复制进 arm64e 构建树再编译、签名，记录写在 `out/ios26-resume/mesa-arm64e/air-build-record.json`；`--check` 只核对。
+- AIR 库：`build-air.py` 是唯一的构建入口，先把 `hackios-xnu-kernel/tools/mesa/air/` 的源码复制进 arm64e 构建树再编译、签名，记录写在 `out/ios26-resume/mesa-arm64e/air-build-record.json`；`--check` 只核对。构建树由 `setup-mesa-arm64e.py` 建立，步骤见 [arm64e 用户态构建 §6](../../docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)。
 - 根盘、Metal 驱动与注入库：`package.py`（第 7 节）。
 - Wi-Fi 固件：`hackios-xnu-kernel/tools/mk-fw-wifi.py` 从手机的 modem 分区取出，放在 `hackios-xnu-kernel/out/fw-wifi/`。
 
@@ -113,6 +113,8 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 ## 7. payload 打包
 
 `package.py` 组装 iOS 26 根盘：用 xcrun clang 编译 shim、Metal 驱动（`hackios-xnu-kernel/tools/userland-driver/`）和 SpringBoard 适配库等 arm64e 库，把 `build-air.py` 签好名的 AIR 库与这些库装进根盘副本，写入 `etc/inject.conf`、backboardd 的 `REDWOOD_SB_METAL=1` 与 `etc/rc.jobs`，补上 `jobs/` 里的 launchd 任务，用 `mkapfs.py` 打包，最后逐文件回读校验并把哈希写进 `manifest.json`。从工作区根目录运行 `python3 tools/k90auto/package.py`。
+
+基线根盘是 `hackios-xnu-kernel/out/ios26-resume/air-arm64e-device/on/`（`package.py` 的 `BASE`，`root.apfs` 的 SHA-256 固定为 `BASE_ROOT_SHA256`）。它是本机早期轮次留下的产物，仓库里没有从源码重建它的步骤，所以干净克隆目前运行不了 `package.py`。
 
 产物在 Git 忽略的 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/`（`root.apfs`、各个库、`manifest.json`、构建日志）。基线根盘、AIR 库的构建记录与 adhoc 签名、变更文件集合任一项不符就退出；AIR 库漏签名会让 dyld 拒绝加载，整轮退回 CPU 合成。
 

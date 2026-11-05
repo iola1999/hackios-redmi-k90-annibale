@@ -61,42 +61,27 @@ codesign --force --sign - <目录>/libredwoodmetal.dylib
 
 ## 5. 可复现性与新鲜度
 
-- 容器那条 Mesa 构建不是逐字节可复现的，`tools/mk-mesa.sh` 的注释记了实测：同一份源树两次构建，`libOSMesa.8.dylib` 与 `air_run` 字节数相同、内容有大段不同。宿主这条 arm64e meson 构建是否逐字节可复现，没有实测。
+- 容器那条 Mesa 构建不是逐字节可复现的，`tools/mk-mesa.sh` 的注释记了实测：同一份源树两次构建，`libOSMesa.8.dylib` 与 `air_run` 字节数相同、内容有大段不同。宿主这条 arm64e meson 构建在固定 `PYTHONHASHSEED=0` 时逐字节可复现，见第 6 节。
 - 所以产物哈希相同可以推出源相同，产物哈希不同推不出源不同。重编 AIR 后哈希与记录值不同时，先核 `air-build-record.json` 的 `source_sha256` 与 `tree_sha256`：两侧一致就说明库是按当前源编的。
 - 判断产物是不是按当前源编出，用内容哈希，不用 mtime。`package.py` 的 manifest 与 `build-air.py` 的 record 都记了源摘要和产物哈希。
 - `build-air.py` 不带 `--check` 时就地覆盖 `OUT`，路径是硬编码的，没有环境变量能改。需要保留上一份库作对照时，先把 `out/ios26-resume/bbmetal-device/` 备份到 Git 忽略的目录。
 - 打包或跑轮期间不要运行会写 `out/ios26-resume/` 或 `userland/obj/` 的命令，`build.sh` 也在其中（它写 `userland/obj/`，并 `rm -rf root`）。只读复核不受此限：`build-air.py --check`、`ninja -n` 干跑、`shasum`、`codesign -dv`、`otool`。
 
-## 6. `tools/mesa-patches/*.patch`：补丁可复现，构建树不可重建
+## 6. 构建树从仓库重建
 
-- `hackios-xnu-kernel/tools/mesa-patches/` 下有三个补丁（`fixguard6-shadow-counters.patch`、`freedreno-shared-no-shadow.patch`、`transfer-stride-layout.patch`），仓库里没有脚本应用它们。`tools/mk-mesa.sh` 只打 `tools/mesa/*.patch`（`REBASE=26` 时加上 `tools/mesa/rebase-26/*.patch`），并把这些补丁内容的 sha256 写进 `.redwood-patches`。`.redwood-patches` 的值与 `tools/mesa-patches/` 无关。
-- arm64e 构建树 `out/ios26-resume/mesa-arm64e/mesa-26.2.5` 不属于任何 git 仓，由 `xnu-deps/build/mesa/mesa-26.2.5` 复制而来（`out/ios26-resume/mesa-arm64e/setup-inputs.json` 的 `source` 字段）。`tools/mesa-patches/` 的改动只存在于这棵构建树里，源树里没有，重新复制一次源树会丢掉它们。
-- `air-build-record.json` 只覆盖 `build-air.py` 的 `FILES`（`tools/mesa/air/` 里的文件），补丁改的文件（`freedreno_resource.c`、`u_format.c`、`u_transfer.c` 等）都不在其中，补丁文件本身也不在 `package.py` 记录的源摘要里。查一轮的 AIR 库由什么编出来，`FILES` 读构建记录，补丁改的那些文件读补丁文件的提交；判断库里有没有某段插桩，用 `strings <库> | grep -c '<格式串>'`。
+arm64e 构建树 `out/ios26-resume/mesa-arm64e/mesa-26.2.5` 的源码等于 Mesa 26.2.5 的源码包，打上用户态仓库的 `tools/mesa/*.patch` 与 `tools/mesa/rebase-26/*.patch`，再放入 `tools/mesa/redwood-drm` 和 `tools/mesa/air`。真机库里的 shadow 修复、诊断探针与 perf 探针是 `rebase-26/0011`～`0014`，说明见用户态仓库的 `tools/mesa/rebase-26/README.md`。
 
-改这类文件分四步（以 `u_format.c` 为例）：
-
-1. 拿改动前树里的那份反向应用旧补丁，得到原文：
+从零建树：
 
 ```sh
-cp out/ios26-resume/mesa-arm64e/mesa-26.2.5/src/util/format/u_format.c post.c
-python3 - <<'PY'
-t = open('tools/mesa-patches/fixguard6-shadow-counters.patch').read()
-i = t.index('--- a/src/util/format/u_format.c\n')
-open('/tmp/uf.patch', 'w').write(t[i:])          # 该文件那一段
-PY
-mkdir -p tree/src/util/format && cp post.c tree/src/util/format/u_format.c
-cd tree && patch -p1 -R < /tmp/uf.patch && cp src/util/format/u_format.c ../pristine.c
+# hackios-dev 容器里，hackios-xnu-kernel/ 目录（补丁步骤要 GNU patch）
+PREPARE=1 VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5 REBASE=26 tools/mk-mesa.sh
+# 宿主上，工作区根目录（Xcode 的 arm64e clang 与 iPhoneOS SDK）
+python3 tools/k90auto/setup-mesa-arm64e.py      # 目标目录已存在时拒绝执行
+python3 tools/k90auto/build-air.py
 ```
 
-2. 在 `pristine.c` 上改出目标内容，另存为 `new.c`。
-3. 生成新段，替换补丁文件里从 `--- a/src/util/format/u_format.c` 那一行到文件末尾的部分：
-
-```sh
-diff -u pristine.c new.c \
-  | sed -e '1s|^--- .*|--- a/src/util/format/u_format.c|' \
-        -e '2s|^+++ .*|+++ b/src/util/format/u_format.c|' > uf-new.patch
-```
-
-4. 把新补丁打回 `pristine.c` 的副本，`cmp` 与 `new.c` 比较，一致再拷进构建树。
-
-跑 `build-air.py` 之前先 `cmp <构建树里那份> <按补丁打出来的那份>`，不一致就停下再改。补丁是记录，构建树是编译输入，两者不一致时构建照样成功，唯一的迹象是一轮跑完日志里少几行。
+- 2026-11-05 实测：按上面步骤在另一个目录建的树，源码与真机构建树 `diff -r` 无差异（只差 Python 缓存），编出的 `libredwoodair.dylib` 与真机构建树编出的逐字节相同（未签名 `6c65dc5a…`，签名后 `70f072b2…`）。
+- Mesa 的 isaspec 生成器按 Python 集合的顺序写 `build/src/freedreno/isa/encode.h`，这个顺序随每个进程的哈希种子变化，同一份源码两次构建会得到语句顺序不同的 `encode.h` 和不同字节的库。`build-air.py` 与 `setup-mesa-arm64e.py` 因此固定 `PYTHONHASHSEED=0`。
+- 改构建树里的 Mesa 源码时同时改 `rebase-26` 的补丁，改完在容器里用 `PREPARE=1` 重打一遍，与构建树 `diff -r` 应无差异，再跑 `build-air.py`。补丁与构建树不一致时构建照样成功，唯一的迹象是一轮跑完日志里少几行。
+- `air-build-record.json` 只覆盖 `build-air.py` 的 `FILES`（`tools/mesa/air/` 里的文件）。判断库里有没有某段插桩，用 `strings <库> | grep -c '<格式串>'`。

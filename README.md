@@ -39,20 +39,24 @@
 
 ```sh
 git clone --recurse-submodules https://github.com/iola1999/hackios-redmi-k90-annibale.git
+cd hackios-redmi-k90-annibale/hackios-xnu-kernel
+USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k90-port common/setup.sh
 ```
+
+`common/setup.sh` 把用户态仓库检出到 `hackios-xnu-kernel/` 目录里，下文的 `userland/`、`tools/mesa/` 等目录来自它，见[内核仓库说明](hackios-xnu-kernel/README.md) §1。
 
 构建产物放在 Git 忽略的目录里，主要是 `hackios-xnu-kernel/out/`：
 
 - 系统盘：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 需另行下载），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`，得到约 5.3 GB 的 `system26.apfs`。
 - 内核、根盘与 Metal 驱动：见 [k90auto 说明](tools/k90auto/README.md)。
 - loader 镜像：见下文「构建 loader 镜像」。
-- GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md) 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去；`gen80000_zap.mbn` 要用本机 Android 里的文件。
+- GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md) 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去。其中 `gen80000_zap.mbn` 用 `adb pull /odm/firmware/gen80000_zap.mbn` 从手机取。
 - Wi-Fi 固件：按备份方法读出 modem 分区（本测试机用 `modem_a`），再执行 `python3 hackios-xnu-kernel/tools/mk-fw-wifi.py extract modem_a.img.gz hackios-xnu-kernel/out/fw-wifi`。脚本从分区镜像的 `image/kiwi/` 取出 WCN7850 固件，启动时自动放入驱动读取的 4 个文件。
 - 开机种子（建议）：一份开机稳定后的 `/private/var`。没有它时，每次开机主屏图标要等系统重建应用列表后才出现。取法见[每次开机都是首次开机](docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。
 
-构建 loader 镜像（`hackios-xnu-kernel/out/handoff-loader-v16.img`）分三步，完整命令见 [loader 镜像构建](docs/analysis/annibale-uefi-build.md)：
+构建 loader 镜像（`hackios-xnu-kernel/out/handoff-loader-v17.img`）分三步，完整命令见 [loader 镜像构建](docs/analysis/annibale-uefi-build.md)：
 
-1. 取 UEFI 源码：loader 镜像里的 UEFI 用 Project Silicium 的 [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) 构建，K90 的修改在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium)。把它的 `loader-v16` 标签连同子模块克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
+1. 取 UEFI 源码：loader 镜像里的 UEFI 用 Project Silicium 的 [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) 构建，K90 的修改在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium)。把它的 `loader-v17` 标签连同子模块克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
 2. 构建 UEFI：用 `docker/build.sh` 生成开发容器镜像，`docker/dev.sh` 进入容器；建符号链接 `Binaries/annibale` → `dodge`，运行 `tools/fixup-mu-nasm.sh` 和 `python3 build_uefi.py -d annibale`，得到 `SILICIUM_UEFI.fd`。
 3. 装配镜像：用 `xnuloader/build.sh` 编出 loader，`xnuloader/mkpayload.py` 封成载荷，再用 `mkxnuimg.py` 把 BootShim、UEFI、载荷和设备树装成镜像。
 
@@ -62,7 +66,7 @@ loader 写进 Android 不用的那个槽位的 `boot` 分区，由它从电脑�
 
 下文和 `tools/k90auto/` 的脚本都假设 Android 在 B 槽、loader 写在 A 槽：`cycle.py`、`reboot-lk.py`、`recover-loader.py` 固定执行 `set_active a`。先用下面的 `getvar current-slot` 确认 Android 在 `b`。如果在 `a`，要把下文命令里的 `a`、`b` 对调，并修改这几个脚本。
 
-`LOADER_IMG` 用上一节构建的 `hackios-xnu-kernel/out/handoff-loader-v16.img`，Wi-Fi 需要 v16 起的 loader。
+`LOADER_IMG` 用上一节构建的 `hackios-xnu-kernel/out/handoff-loader-v17.img`，Wi-Fi 需要 v16 起的 loader。
 
 ```sh
 adb -s "$ANDROID_SERIAL" reboot bootloader

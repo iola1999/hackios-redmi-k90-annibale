@@ -98,7 +98,11 @@ def main():
 
     env = dict(os.environ)
     env["PATH"] = f"{BISON}:{VENV}:" + env.get("PATH", "")
-    built = subprocess.run([NINJA, "-C", str(BUILD), "-j8", TARGET], capture_output=True, text=True)
+    # Mesa's isaspec generator writes encode.h in set iteration order, which follows Python's
+    # per-process hash seed: without a fixed seed two builds of the same tree order its
+    # statements differently and the library bytes differ.
+    env["PYTHONHASHSEED"] = "0"
+    built = subprocess.run([NINJA, "-C", str(BUILD), "-j8", TARGET], capture_output=True, text=True, env=env)
     if built.returncode != 0:
         sys.stderr.write(built.stdout[-4000:] + built.stderr[-2000:])
         raise SystemExit(f"ninja failed with {built.returncode}")

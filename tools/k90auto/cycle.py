@@ -43,10 +43,10 @@ CHECKPOINT_EVERY = 2
 UNLOCK_LINE = "sb26: boot unlock done"
 GPU_STOP = "submissions closed"   # after this the compositor draws in software, so the tour is cut short
 UNLOCK_WAIT = 420           # upload (about 120 s) plus boot to the home screen
-# The loader every round runs: v16 keeps 128 MB below 4 GB for the Wi-Fi card (lowdma=), without which
-# the driver says "no thread, or no memory the radio can be given" (kernel-12377-rate7-def1). The one
-# flashed in boot_a is older.
-LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v16.img"
+# The loader every round runs, also flashed in boot_a: v17 is the v16 loader, which keeps 128 MB below
+# 4 GB for the Wi-Fi card (lowdma=), without which the driver says "no thread, or no memory the radio can
+# be given" (kernel-12377-rate7-def1), in the loader-v17 firmware.
+LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v17.img"
 LOADER_BUILD = "a48c7fb"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # The kernel every round boots unless --kernel names another: the newest one checked on the phone.

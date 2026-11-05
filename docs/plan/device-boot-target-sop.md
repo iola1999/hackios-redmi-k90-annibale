@@ -48,7 +48,7 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 ## 4. 陷阱（均为实测）
 
 1. LK `fastboot boot <handoff payload>` 不会把 loader 带起来。2026-10-28 两次实测命令都答 `Booting OKAY`，之后 80 与 90 秒内 `xnuloader` 从未枚举，`result`／`build-id`／`ramdisk-state` 都答 `GetVar Variable not found`。命令答 OKAY 不能说明 loader 已驻留，判别只看 `fastboot devices` 与这三个变量。
-   - 完整的 loader 镜像（BootShim、FD、XNUP、DTB，例如 `hackios-xnu-kernel/out/handoff-loader-v16.img`）可以 `fastboot boot`：2026-10-31 实测 18 秒后 `xnuloader` 枚举，不刷 `boot_a`，也不扣 `slot-retry-count:a`，见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md) §5。本地有 v16 镜像时，`cycle.py` 的检查点就用这条路起 v16。
+   - 完整的 loader 镜像（BootShim、FD、XNUP、DTB，例如 `hackios-xnu-kernel/out/handoff-loader-v17.img`）可以 `fastboot boot`：2026-10-31 实测 18 秒后 `xnuloader` 枚举，不刷 `boot_a`，也不扣 `slot-retry-count:a`，见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md) §5。本地有 v16 镜像时，`cycle.py` 的检查点就用这条路起 v16。
 2. 对未枚举的序列号发 `fastboot -s xnuloader getvar …` 会挂住。该客户端进入 `< waiting for xnuloader>` 并可能成为后台作业，与其它 fastboot 客户端并发时会把 USB 命令通道卡住。枚举一律用 `fastboot devices`。
 3. LK 的 `reboot` 在目标槽被标为不可引导时无效。实测 `slot-unbootable:b=yes` 时 `reboot` 答 `OKAY` 而设备仍停在 LK；`set_active b` 会清掉这个标志（读回 `slot-unbootable:b=no`），`set_active a` 同样清 A 槽。判断是否真的复位看 USB 是否断开：`ioreg` 250 毫秒采样能看到设备消失再重现，只看命令返回值判断不出来。
 4. `slot-retry-count:a` 每跑一轮扣 2 次，约三轮后归 0，LK 随即把 A 槽标成不可引导并回退 B 槽 Android。经 loader 起 iOS 不写成功引导记录，`slot-successful:a` 始终是 `no`，计数器一路递减，与 panic 无关。`set_active a` 把计数重置为 7 并把 `slot-unbootable:a` 清回 `no`。起轮前先读 `slot-retry-count:a`，低于 3 时执行 `set_active a`。`cycle.py` 每 2 轮经 `reboot-lk.py` 进 LK 做一次 `set_active a` 并读回 7；`round-run.py` 只在设备处于 LK 时读这个计数，低于 3 时重置。
@@ -86,7 +86,7 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 
 - 起轮前要求 `fastboot devices` 里有 `xnuloader`、`result` 为 idle、`ramdisk-state` 为 `idle 0 0 0`，任一项不满足就停止。
 - 设备在 Android 时先调 `recover-loader.py` 经 LK 回到 loader。
-- 每 2 轮做一次检查点（§5.3），驻留 loader 的 build-id 不含 v16 的 `a48c7fb` 时也先做检查点。
+- 每 2 轮做一次检查点（§5.3），驻留 loader 的 build-id 不含 `a48c7fb`（v16、v17 的 loader）时也先做检查点。
 - 载荷、根盘、系统盘的身份由 `make-payload.py`、`run-auto.py` 按 `manifest.json` 的 SHA-256 核对，不符就拒跑。
 - 轮次结束后再核一次 loader 状态，不满足就以非零退出。
 
