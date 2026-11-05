@@ -6,20 +6,22 @@
 
 | 方面 | 状态 |
 |---|---|
-| 桌面与系统应用 | 开机自动解锁进入主屏；壁纸、图标、小组件、控制中心、通知中心可用；设置、Safari、短信等系统应用能打开，文件 App 里有「我的 iPhone」 |
-| 图形与显示 | 本项目的 Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 绘制后缩放到面板，刷新率 120 Hz |
+| 桌面与系统应用 | 开机自动解锁进入主屏；壁纸、图标、小组件、控制中心、通知中心可用；设置、Safari、短信、计算器、备忘录、提醒事项等系统应用能打开，文件 App 里有「我的 iPhone」 |
+| 跨开机保留 | `/private/var` 与内核控制台日志写入 DSU 槽位末尾 4 GiB（`dsu_store`），设置、主屏图标位置、已安装的 IPA、应用数据与着色器缓存跨开机保留 |
+| 图形与显示 | 本项目的 Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 绘制后缩放到面板，刷新率 120 Hz；启用 AIR 位码、ir3 变体与顶点状态三级缓存 |
+| 屏幕亮度 | 控制中心与设置滑块经 `IOMFBBrightnessLevel` 和 DSI0 发送 DCS `0x51` 直接调节面板硬件背光 |
 | 触摸与按键 | 触摸、电源键、音量键可用；音量键和控制中心的滑块能调音量，还没有声音 |
-| Wi-Fi | 开机后自动加入 `hackios-xnu-kernel/out/fw-wifi/network` 里写的网络，也可以在设置里加入；Safari 能打开网页，中文显示正常 |
-| 安装应用 | 能安装并运行任意解密过的 IPA，见 §6 |
-| 电池与温控 | 显示电量；插着充电器时显示充电（墙插充电器下待实测）；处理器和 GPU 按负载调频，过热时逐档降频 |
-| 未完成 | 蓝牙、声音、亮度调节（可试用，见 §6）、摄像头、蜂窝网络、App Store；网页里的视频不能播放（H.264 解出的画面还合成不了，VP9 没有解码器）；天气取不到数据；手电与振动在 iOS 26 上还不能用 |
+| Wi-Fi 与蓝牙 | Wi-Fi 开机自动加入 `hackios-xnu-kernel/out/fw-wifi/network` 里的网络，也可以在设置里加入，Safari 能打开网页；蓝牙支持扫描、发现与连接外设 |
+| 安装应用 | 能安装并运行任意解密过的 IPA（支持含插件与 AppGroup 的复合应用），随 `/private/var` 跨开机保留，见 §6 |
+| 电池与温控 | 显示电量与充电状态；处理器和 GPU 按负载调频，过热时逐档降频 |
+| 未完成 | 蓝牙音频、声音输出、摄像头、蜂窝网络、App Store；网页视频播放与天气数据请求正在排查修复；手电与振动在 iOS 26 上还不能用 |
 
-性能：在 120 Hz 屏上，翻页约 90～100 帧／秒，控制中心下拉约 90 帧／秒；GPU 最高 1100 MHz，无人值守测试中 GPU 温度最高约 57 °C。
+性能：在 120 Hz 屏上，翻页约 90～100 帧／秒，控制中心下拉约 90～94 帧／秒；GPU 最高 1100 MHz，无人值守测试中 GPU 温度最高约 57 °C。
 
 限制：
 
-- 系统和运行数据都在内存里，每次开机都是一份干净的系统，设置、安装的应用和应用数据不保留。
-- 运行 iOS 时连着电脑的 USB 也不充电，电量会慢慢下降。
+- `/private/var` 保存在 DSU 槽位末尾 4 GiB 的 `dsu_store` 中（重装 DSU 时清空；不装 DSU 走纯内存启动时不跨开机保留）。
+- 运行 iOS 时连着电脑普通 USB 口的供电小于整机耗电，需要墙插或 PD 充电器补电。
 
 最新状态和实测数据以[总账](docs/plan/2026-10-23-tracking.md)为准，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
 
@@ -124,7 +126,7 @@ ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --kernel 12
 
 - 上滑回主屏、左右翻页、下拉控制中心和通知中心、打开系统应用。
 - 用 Safari 上网。Wi-Fi 网络名和密码写进 `hackios-xnu-kernel/out/fw-wifi/network`（第一行网络名，第二行密码，Git 忽略），开机后自动加入；没有这个文件时在「设置 → Wi-Fi」里加入，每次开机要重新加入。
-- 调亮度（试用）：启动命令加 `--boot-args "fb_dim=1"`，控制中心的亮度滑块会让画面变暗。面板本身的背光不变，画面按比例变暗，低亮度下渐变会有色阶。
+- 调亮度：控制中心和「设置 → 显示与亮度」的滑块经 DSI0 发送 DCS `0x51` 直接调节面板背光（默认开启）；加 `--boot-args "fb_dim=1"` 时改由混合器按比例调暗画面。
 
 安装应用：iOS 运行期间随时可以装，不用重新打包或重启。两种方式：
 
@@ -135,7 +137,7 @@ ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --kernel 12
   python3 tools/k90auto/install-ipa.py docs/progress/evidence/k90auto/kernel-12377-rate10-use1 App.ipa --open
   ```
 
-IPA 要是解密过的，App Store 的加密 IPA 不能运行，`install-ipa.py` 发送前会检查并提示。装上的应用重启后就没有了。卸载用 `python3 tools/k90auto/rsh.py <轮次目录> /redwood/bin/appinst remove 应用ID`。
+IPA 要是解密过的，App Store 的加密 IPA 不能运行，`install-ipa.py` 发送前会检查并提示。启用 DSU 跨开机保留时，装上的应用重启后继续保留。卸载用 `python3 tools/k90auto/rsh.py <轮次目录> /redwood/bin/appinst remove 应用ID`。
 
 提前结束：`python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-12377-rate10-use1 --stop`。
 

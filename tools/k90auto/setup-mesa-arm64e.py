@@ -27,7 +27,7 @@ OPTIONS = ["--wrap-mode=nofallback", "--prefix=/redwood", "--libdir=lib", "--bui
            "-Db_ndebug=true", "-Dplatforms=", "-Dgallium-drivers=softpipe,freedreno", "-Dfreedreno-kmds=msm",
            "-Dvulkan-drivers=", "-Dglx=disabled", "-Degl=disabled", "-Dgbm=disabled", "-Dosmesa=true",
            "-Dllvm=disabled", "-Dshared-glapi=enabled", "-Dgles1=disabled", "-Dgles2=enabled", "-Dopengl=true",
-           "-Dzstd=disabled", "-Dxmlconfig=disabled", "-Dexpat=disabled", "-Dshader-cache=disabled",
+           "-Dzstd=disabled", "-Dxmlconfig=disabled", "-Dexpat=disabled", "-Dshader-cache=enabled",
            "-Dvalgrind=disabled", "-Dlibunwind=disabled", "-Dglvnd=disabled", "-Dvideo-codecs=", "-Dtools=",
            "-Dgallium-va=disabled", "-Dlmsensors=disabled", "-Dbuild-tests=false"]
 

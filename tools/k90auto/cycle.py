@@ -89,6 +89,7 @@ TOUR = [
     "icons-layers=notify com.redwood.layers.Icon@4*0",
     "wallpaper-layers=notify com.redwood.layers.Wallpaper@4*0",
     "statusbar-layers=notify com.redwood.layers.StatusBar@4*0",
+    "full-layers=notify com.redwood.layers.full@4*0",
     f"settings=/redwood/bin/rwtouch tap {SETTINGS_ICON[0]} {SETTINGS_ICON[1]}@4*2",
     "settings-scrolled=/redwood/bin/rwtouch swipe 0.5 0.7 0.5 0.35 300@3*2",
     "home-again=/redwood/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@4*1",
@@ -172,9 +173,14 @@ def main():
     ap.add_argument("--seed", default=os.environ.get("K90_SEED") or (str(SEED) if SEED.exists() else None),
                     help="a /private/var archive to boot with")
     args = ap.parse_args()
+    if args.hold and "--seconds" not in sys.argv:
+        args.seconds = 0
     if args.seed:
         os.environ["SEED"] = args.seed
         args.boot_args = " ".join([args.boot_args, "var_store=1"]).strip()
+    for default_arg in ("ufs=2", "ufs_write=1", "var_store=1"):
+        if default_arg not in FIXED_ARGS and default_arg not in args.boot_args:
+            args.boot_args = " ".join([args.boot_args, default_arg]).strip()
 
     problem = loader_ready()
     if problem == "no xnuloader in fastboot devices" and android_present():

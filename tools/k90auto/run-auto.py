@@ -303,7 +303,7 @@ progress = None          # the newest snapshot's frame reading
 progress_wall = None    # host time that reading was taken at
 last_frame_id = -1
 frozen = None
-while time.monotonic() - start < duration:
+while duration <= 0 or time.monotonic() - start < duration:
     elapsed = time.monotonic() - start
     # RUN_DIR/run/stop-request ends a long interactive round early, through the normal teardown.
     if (run / "stop-request").exists():

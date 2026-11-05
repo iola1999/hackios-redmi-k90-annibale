@@ -123,6 +123,68 @@ WIFI_CONTROL = "com.apple.InterfaceNamer.control.plist"
 WIFI_CONTROL_PLIST = plistlib.dumps({"ConfigureNewInterfaces": True})
 WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguration",
                       f"f\t644\t0\t0\t/private/var/preferences/SystemConfiguration/{WIFI_CONTROL}\t/fw/{WIFI_CONTROL}"]
+
+# Application data container and AppGroup directories (Calculator, MobileNotes, Reminders)
+CALCULATOR_CONTAINER_UUID = "28C5E77E-97C5-4927-A2B0-04987EBF4665"
+NOTES_CONTAINER_UUID = "39D6F88F-A8D6-4A38-B1F1-15A98FCA5776"
+NOTES_GROUP_UUID = "4AE7F99E-B7C5-4309-8C8F-1B2C3D4E5F60"
+REMINDERS_CONTAINER_UUID = "5BF8A0AF-C8E6-4B1A-9D2E-2C3D4E5F6A71"
+REMINDERS_GROUP_UUID = "6CF9B1BA-D9F7-4C2B-AE3F-3D4E5F6A7B82"
+
+APP_CONTAINER_LINES = [
+    "d\t755\t501\t501\t/private/var/mobile/Containers",
+    "d\t755\t501\t501\t/private/var/mobile/Containers/Data",
+    "d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application",
+    "d\t755\t501\t501\t/private/var/mobile/Containers/Shared",
+    "d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Documents",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Library",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Library/Preferences",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Library/Caches",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/tmp",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Documents",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library/Preferences",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library/Caches",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library/Notes",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/tmp",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Documents",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Library",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Library/Preferences",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Library/Caches",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Documents",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Library",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Library/Preferences",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Library/Caches",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/tmp",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Documents",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library/Preferences",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library/Caches",
+]
+
+DEFAULT_APP_ENV = {
+    "Calculator": [
+        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}",
+        f"HOME=/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}",
+        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/tmp",
+    ],
+    "MobileNotes": [
+        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}",
+        f"HOME=/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}",
+        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/tmp",
+    ],
+    "Reminders": [
+        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
+        f"HOME=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
+        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/tmp",
+    ],
+}
 # userland/build.sh's staging directory; xpc/launchd.plist is there only when it ran with IOS=../ios26
 BASE = SRC_ROOT / "userland/root"
 TOOLS = WORKSPACE / "tools/apfs"
@@ -143,7 +205,7 @@ FPVOLUME = os.environ.get("FPVOLUME", "1") == "1"
 # (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to the kernel's 512-byte
 # kern.exec_inject, which refuses a longer string whole (checked below).
 AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail "
-                              "MobileCal MobileSlideShow Music Maps AppStore Files HelloK90").split()
+                              "MobileCal Files").split()
 # MercuryPosterExtension, the provider of the default wallpaper, gets the Metal device unless
 # POSTER_METAL=0: it draws the wallpaper with its own Metal shaders (default.metallib in its bundle),
 # and without a device the wallpaper window hosts its context empty. It is an ExtensionKit service
@@ -158,7 +220,8 @@ INJECT = (
     (" iconservicesagent" if os.environ.get("ICON_METAL", "1") == "1" else "") +
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n"
     "/redwood/lib/libredwood.dylib backboardd\n"
-    "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension\n" +
+    "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences\n"
+    "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders\n" +
     ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
     ("/redwood/lib/libredwood-fpvolume.dylib fileproviderd\n" if FPVOLUME else "") +
@@ -219,6 +282,10 @@ for item in os.environ.get("EXT_ENV", "").split():
     if not ext_name or "=" not in setting or setting.startswith("="):
         raise SystemExit(f"EXT_ENV item {item!r} is not NAME:KEY=VALUE")
     EXT_ENV.setdefault(ext_name, []).append(setting)
+
+for app_name, settings in DEFAULT_APP_ENV.items():
+    if app_name not in EXT_ENV:
+        EXT_ENV[app_name] = list(settings)
 
 # The wallpaper and the widgets are drawn by two services this boot does not start, and each
 # lookup for them fails: SpringBoard and iconservicesagent ask for
@@ -750,19 +817,28 @@ def main():
     # without them. var.skel.extra is the one place those lines are written down; build.sh appends it
     # when it builds the skeleton, and this step appends whatever the base root is too old to have.
     skeleton = dest / "etc/var.skel"
-    wanted = [line for line in (WORKSPACE / "userland/var.skel.extra").read_text().splitlines()
-              if line and not line.startswith("#")] + (WIFI_CONTROL_LINES if WIFI_FW else [])
+    raw_wanted = [line for line in (WORKSPACE / "userland/var.skel.extra").read_text().splitlines()
+                  if line and not line.startswith("#")] + APP_CONTAINER_LINES + (WIFI_CONTROL_LINES if WIFI_FW else [])
     present = skeleton.read_text()
+    template_dirs = {line.split("\t")[-1] for line in present.splitlines() if line.startswith("d\t")}
+    seen_dirs = set()
+    wanted = []
+    for line in raw_wanted:
+        if line.startswith("d\t"):
+            d = line.split("\t")[-1]
+            if d in template_dirs or d in seen_dirs:
+                continue
+            seen_dirs.add(d)
+        wanted.append(line)
     appended = [line for line in wanted if line + "\n" not in present]
     # init stops at the first directory it cannot create, so a path the template already has (with
     # another owner or mode) leaves every later line undone and skips the logd markers (bo60).
-    template_dirs = {line.split("\t")[-1] for line in present.splitlines() if line.startswith("d\t")}
     repeated = [line for line in appended if line.startswith("d\t") and line.split("\t")[-1] in template_dirs]
     assert not repeated, f"userland/var.skel.extra repeats directories of the template: {repeated}"
     if appended:
         with skeleton.open("a") as out:
             out.write("".join(line + "\n" for line in appended))
-    stale = [line for line in appended if line not in WIFI_CONTROL_LINES]
+    stale = [line for line in appended if line not in WIFI_CONTROL_LINES and line not in APP_CONTAINER_LINES]
     if stale:
         print(f"etc/var.skel in the base root is older than userland/var.skel.extra: added "
               f"{len(stale)} line(s); rerun userland/build.sh to rebuild the base root")
@@ -880,6 +956,16 @@ def main():
     if JOB_ENV:
         cache = add_env(dest, cache, JOB_ENV)
         job = plistlib.loads((dest / JOB).read_bytes())
+    for vs_name in ("com.redwood.varstore.plist", "com.redwood.var_store.plist"):
+        vs_file = dest / "LaunchDaemons" / vs_name
+        if not vs_file.exists() and (dest / "LaunchDaemons/com.redwood.varstore.plist").exists():
+            shutil.copy2(dest / "LaunchDaemons/com.redwood.varstore.plist", vs_file)
+        if vs_file.exists():
+            vs_plist = plistlib.loads(vs_file.read_bytes())
+            vs_plist["ProgramArguments"] = ["/redwood/bin/var_store", "watch", "20"]
+            vs_file.write_bytes(plistlib.dumps(vs_plist, fmt=plistlib.FMT_XML))
+            cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + vs_name] = vs_plist
+    (dest / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
     # What launchd will know this boot, names only: the cache is the authority (iOS 26 takes its jobs
     # from /System/Library/xpc/launchd.plist, not from the LaunchDaemons directory), so reading the
     # labels back out of it answers "which jobs did this round carry" without replaying EXTRA_JOBS,
@@ -944,6 +1030,7 @@ def main():
                 # the two jobs below change this directory's own times as well
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],
+                *["/LaunchDaemons/" + name for name in ("com.redwood.varstore.plist", "com.redwood.var_store.plist")],
                 # the diagnostic switch rewrites the two jobs whose processes load the driver
                 *(["/LaunchDaemons/" + name for name in MSAA_JOBS] if REDWOOD_DIAG else []),
                 *{"/LaunchDaemons/" + name for name, _, _ in JOB_ENV},

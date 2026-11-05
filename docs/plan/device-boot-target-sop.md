@@ -47,7 +47,7 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 
 ## 4. 陷阱（均为实测）
 
-1. LK `fastboot boot <handoff payload>` 不会把 loader 带起来。2026-10-28 两次实测命令都答 `Booting OKAY`，之后 80 与 90 秒内 `xnuloader` 从未枚举，`result`／`build-id`／`ramdisk-state` 都答 `GetVar Variable not found`。命令答 OKAY 不能说明 loader 已驻留，判别只看 `fastboot devices` 与这三个变量。
+1. LK `fastboot boot <handoff payload>` 无法拉起 loader。2026-10-28 两次实测命令都答 `Booting OKAY`，之后 80 与 90 秒内 `xnuloader` 从未枚举，`result`／`build-id`／`ramdisk-state` 都答 `GetVar Variable not found`。命令答 OKAY 不能说明 loader 已驻留，判别只看 `fastboot devices` 与这三个变量。
    - 完整的 loader 镜像（BootShim、FD、XNUP、DTB，例如 `hackios-xnu-kernel/out/handoff-loader-v17.img`）可以 `fastboot boot`：2026-10-31 实测 18 秒后 `xnuloader` 枚举，不刷 `boot_a`，也不扣 `slot-retry-count:a`，见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md) §5。本地有 v16 镜像时，`cycle.py` 的检查点就用这条路起 v16。
 2. 对未枚举的序列号发 `fastboot -s xnuloader getvar …` 会挂住。该客户端进入 `< waiting for xnuloader>` 并可能成为后台作业，与其它 fastboot 客户端并发时会把 USB 命令通道卡住。枚举一律用 `fastboot devices`。
 3. LK 的 `reboot` 在目标槽被标为不可引导时无效。实测 `slot-unbootable:b=yes` 时 `reboot` 答 `OKAY` 而设备仍停在 LK；`set_active b` 会清掉这个标志（读回 `slot-unbootable:b=no`），`set_active a` 同样清 A 槽。判断是否真的复位看 USB 是否断开：`ioreg` 250 毫秒采样能看到设备消失再重现，只看命令返回值判断不出来。

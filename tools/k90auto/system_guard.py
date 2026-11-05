@@ -9,7 +9,7 @@ that here instead of 400 seconds into a run.
 
 GIB = 1 << 30
 SYSTEM_MIN = 4 * GIB
-SYSTEM_MAX = 5 * GIB
+SYSTEM_MAX = 8 * GIB
 MAX_INLINE_BYTES = 0xffffffff
 DEFAULT_SYSTEM = "hackios-xnu-kernel/userland/system.apfs"
 IOS26_SYSTEM = "hackios-xnu-kernel/userland/system26.apfs"

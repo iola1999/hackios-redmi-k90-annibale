@@ -1,6 +1,6 @@
 # 蓝牙、跨开机保留数据与面板调光（2026-11-05）
 
-本文记录 2026-11-05 完成的蓝牙接入、跨开机保留 `/private/var`、DSI 面板背光调节、GPU 温度传感器地址修正、韩文字体与 `bluetoothd` 入盘、Mesa `fd_bo_heap_alloc` 空指针检查及内核增量编译加固的改动与实测轮次。各项的原理与证据细节分别见[蓝牙接入调研](../analysis/2026-11-02-bluetooth-bringup.md) §8、[跨开机保留数据的可行性与实测](../analysis/2026-11-05-persistence-feasibility.md) §7、[屏幕亮度调节调研](../analysis/2026-11-02-brightness-control.md) §9 与[项目排查与协作手册](../plan/debugging-and-collaboration.md) §3。
+本文记录 2026-11-05 完成的蓝牙接入、跨开机保留 `/private/var`、DSI 面板背光调节、GPU 温度传感器地址修正、韩文字体与 `bluetoothd` 入盘、Mesa `fd_bo_heap_alloc` 空指针检查及内核增量编译加固的改动与实测轮次。各项的原理与取证细节分别见[蓝牙接入调研](../analysis/2026-11-02-bluetooth-bringup.md) §8、[跨开机保留数据的可行性与实测](../analysis/2026-11-05-persistence-feasibility.md) §7、[屏幕亮度调节调研](../analysis/2026-11-02-brightness-control.md) §9 与[项目排查与协作手册](../plan/debugging-and-collaboration.md) §3。
 
 ## 1. 改动
 
