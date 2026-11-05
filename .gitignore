@@ -1,5 +1,6 @@
 # 备份/运行产物不进 git
 annibale-backup/
+out/
 .DS_Store
 .agents/
 __pycache__/
@@ -7,6 +8,11 @@ __pycache__/
 logs
 logs-fetch.log
 tools/qemu-efi/*.fd
+
+# 本地凭据与环境变量配置
+.env
+.env.*
+*.env
 
 # 本地调试截图、日志摘录和转储；文字结论保存在 Markdown 文档中
 /docs/progress/evidence/

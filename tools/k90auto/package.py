@@ -443,7 +443,8 @@ DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
 # the errors behind the data store PosterBoard cannot create, which is why the wallpaper is empty.
 SB26_SOURCES = ["userland/src/inject_sb26.c", "userland/src/inject_sb26_layers.c",
                 "userland/src/inject_sb26_rate.c", "userland/src/inject_posterboard.c"]
-SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal"]
+SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal",
+              "-lMobileGestalt"]
 XPCWATCH_SOURCES = ["userland/src/xpcwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
 FPVOLUME_SOURCES = ["userland/src/inject_fpvolume.c"]
@@ -956,15 +957,12 @@ def main():
     if JOB_ENV:
         cache = add_env(dest, cache, JOB_ENV)
         job = plistlib.loads((dest / JOB).read_bytes())
-    for vs_name in ("com.redwood.varstore.plist", "com.redwood.var_store.plist"):
-        vs_file = dest / "LaunchDaemons" / vs_name
-        if not vs_file.exists() and (dest / "LaunchDaemons/com.redwood.varstore.plist").exists():
-            shutil.copy2(dest / "LaunchDaemons/com.redwood.varstore.plist", vs_file)
-        if vs_file.exists():
-            vs_plist = plistlib.loads(vs_file.read_bytes())
-            vs_plist["ProgramArguments"] = ["/redwood/bin/var_store", "watch", "20"]
-            vs_file.write_bytes(plistlib.dumps(vs_plist, fmt=plistlib.FMT_XML))
-            cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + vs_name] = vs_plist
+    vs_file = dest / "LaunchDaemons/com.redwood.varstore.plist"
+    if vs_file.exists():
+        vs_plist = plistlib.loads(vs_file.read_bytes())
+        vs_plist["ProgramArguments"] = ["/redwood/bin/var_store", "watch", "20"]
+        vs_file.write_bytes(plistlib.dumps(vs_plist, fmt=plistlib.FMT_XML))
+        cache["LaunchDaemons"]["/System/Library/LaunchDaemons/com.redwood.varstore.plist"] = vs_plist
     (dest / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
     # What launchd will know this boot, names only: the cache is the authority (iOS 26 takes its jobs
     # from /System/Library/xpc/launchd.plist, not from the LaunchDaemons directory), so reading the
@@ -1014,6 +1012,7 @@ def main():
                 *(["/bin/bluetool", "/bin/bluetoothd"] if BLUETOOTH else []),
                 "/etc/inject.conf",
                 "/etc/rc.jobs", "/" + JOB, *(["/" + ICON_JOB] if ICON_METAL else []),
+                "/LaunchDaemons/com.redwood.varstore.plist",
                 "/xpc/launchd.plist", *["/bin/" + program.name for program in EXTRA_PROGRAMS],
                 # Anything added under a directory changes that directory's own times, and records()
                 # reports the directory alongside the file, so the parent of every added file belongs

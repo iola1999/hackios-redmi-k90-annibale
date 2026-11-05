@@ -67,3 +67,51 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 每次实验保存输入哈希、启动参数、最后成功阶段、首次失败动作，以及复位后的真实身份。主机模型需要检查错误后的下一条有效命令，真机继续验证固件响应与时序。仅有代码修改、构建成功或设备枚举，恢复验收仍未完成。
 
 上传等待预算应按镜像长度与实测耗时配置。普通采集中止传输会改变设备状态，不能依靠不断杀掉客户端来缩短每轮等待；故障注入应单独安排，并保留恢复入口。已有请求持续无应答后，应切换到身份检查和恢复判断。固件同步调用停滞、完成通知缺失或结构异常、loader CPU／共享硬件受损等情况仍可能需要外部复位。
+
+## 6. 独立双系统引导（boot_a）的故障自愈与免按键恢复
+
+2026-11-06 在真机验证 `boot_a` 独立双系统引导（21 MB LZ4 压缩载荷封装进 `hackios-xnu-kernel/out/boot-a-ios.img`，开机由 `rdfile` 从 UFS `darwin` 分区直读 5.9 GB 系统盘）时，连续排查并解决了五项影响启动耗时与无人值守恢复的问题。
+
+### 6.1 启动早期 UFS 刷屏与读取耗时
+
+- 现象：选择启动系统后屏幕连续刷屏 `ufs: firmware table ...` 与分区信息十余秒。
+- 根因：[`loader_02_platform_cpu_ufs_survey.inc`](../../hackios-xnu-kernel/xnuloader/loader_02_platform_cpu_ufs_survey.inc) 的 `inspect_storage()` 默认遍历全部 GPT 分区并对 `bluetooth`、`abl`、`aop`、`xbl`、`tz`、`hyp`、`dsp`、`modem` 共约 290 MB 分区做 FNV-1a 校验；[`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `efi_main()` 在 `block_start()` 与 `inspect_storage()` 之后才打开 `screen_quiet = 1`，导致 UEFI 文本控制台逐行滚屏。
+- 修复：`efi_main()` 在 `wdt_arm()` 后立即置 `screen_quiet = 1`；`inspect_storage()` 仅在命令行显式传入 `ufs_probe=1` 时执行全量分区 FNV-1a 校验，日常启动只定位 `darwin` 分区。修复后 5.9 GB `darwin` 分区经 `rdfile_load()` 读入 RAM 实测耗时 1412 毫秒。
+
+### 6.2 启动菜单音量键与电源键 SPMI 直读
+
+- 现象：`HACKIOS K90 BOOT MENU` 界面按音量加、音量减、电源键均无响应。
+- 根因：Mu-Silicium 的 `ButtonsDxe` 在 `annibale` 上未把 PMIC 实体按键边沿转换为 `ST->con_in->read_key_stroke` 输入事件。
+- 修复：在 [`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 中实现 SM8750 SPMI v7 仲裁器直读（通道表 `0x0c400000`、观察者读口 `0x0c440000`），由 `spmi_buttons_init()` 扫描并绑定 PMK8550 `pon_hlos`（`ppid 0x013`，实测通道 581，偏移 `0x10` bit 7 电源键、bit 6 音量减）与 PM8550 `GPIO6`（`ppid 0x18d`，实测通道 610，偏移 `0x10` bit 0 低有效音量加），含双采样消抖与初始按下态过滤。用户按键交互后菜单倒计时立即暂停，等待电源键确认。
+
+### 6.3 停在 `SYSTEM READY` 与 3 分钟看门狗自动重启
+
+- 现象一：独立引导进度条走完停在 `SYSTEM READY`，约 3 分钟后手机自动重启。
+- 根因一：通过 `fastboot -s xnuloader oem log` 拉取 3602 行完整日志定位到两处原因：
+  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `hackios-xnu-kernel/userland/root/bin/var_store` 与 `userland/root/lib/libredwood*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起 `/redwood/bin/var_store` 触发 `userspace panic: unexpected exec of non-platform binary: /redwood/bin/var_store: com.redwood.varstore [48]`，此时 `SpringBoard` 尚未绘制首帧。
+  2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`；Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`；随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
+- 现象二：修复签名后，进度条走满 `5643 / 5643 MB` 且顶部白点仍在左右移动，但屏幕长时间停在 `SYSTEM READY`（`MiniIOSurface: 0 surfaces`）。
+- 根因二：
+  1. [`hackios-xnu-kernel/userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 追加 `var.skel.extra` 时包含与基础模板重复的 `/private/var/mobile/Containers`、`/private/var/mobile/Containers/Data`、`/private/var/mobile/Containers/Shared` 目录项；[`init.c`](../../hackios-xnu-userland/userland/src/init.c) 的 `mount_writable()` 遇到已存在目录返回 `EEXIST` 并提前终止，跳过了第 157～158 行 `/private/var/keybags/persona.kb` 的创建，导致 `usermanagerd` 反复崩溃退出、`SpringBoard` 无法完成初始化。
+  2. [`loader_dsu.inc`](../../hackios-xnu-kernel/xnuloader/loader_dsu.inc) 的 `dsu_find()` 将 8 GiB 的只读 `darwin` 分区优先返回给 `dsu_store_open()`，因容量不足 12 GiB 跳过创建 `/dev/rufs_dsu_store`，导致 `var_store` 无法读取 `darwin_var` 分区起始处的持久化归档。
+  3. 批量重签 `userland/root/bin/` 时未携带 `.entitlements`，导致 `input26-service` 丢失 `com.apple.private.hid.client.event-dispatch` 权限退出。
+- 修复：
+  1. `userland/build.sh` 合并 `var.skel.extra` 时过滤已存在的 `d\t` 目录项，确保 `/private/var/keybags/persona.kb` 创建成功。
+  2. 拆分 `dsu_find_gsi()` 与 `dsu_find()`，`dsu_store_open()` 在无 Android DSU 分区时回退映射 `darwin_var` 的前 4 GiB（`dsu_store_at = 0`）为 `dsu_store`。
+  3. 为 `input26-service`、`store_test`、`battery_test`、`keychain_test`、`wifipw_test` 按各自 `.entitlements` 重签，并在 [`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py) 默认启动参数中加入 `epoch=` 时间戳。
+
+### 6.4 LUN 4 Vendor GUID 路径识别与槽位属性同步
+
+- 现象：启动日志报 `slot: maintaining current Slot c`、`slot: LUN 4 not found`，或在 `attr_a=0x37`、`attr_b=0x7a` 时误判 `loader_slot=b`。
+- 根因：`UFSDxe` 为 UFS 逻辑单元生成的设备路径是 Vendor GUID 节点 `1.4[85193fd3...]`，不含 messaging UFS 子类型 `0x19`，[`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 的 `device_path_print()` 返回 `lun = 0xff`；[`loader_01_base_log_dt.inc`](../../hackios-xnu-kernel/xnuloader/loader_01_base_log_dt.inc) 的 `print()` 仅支持 `%s`、`%x`、`%d`，不支持 `%c`；`slot_detect()` 原先按 `(attr >> 48) & 0x0f` 比较优先级时把 bit 3（`tries_remaining` 最低位）算入其中，导致 `0x37 & 0x0f = 7` 低于 `0x7a & 0x0f = 10`。
+- 修复：[`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 的 `lun4_get_bio()` 改为先查 `boot_a` 分区所属 `unit`（默认 4），再匹配 `block_shared.part[i].unit == target_unit` 的整盘 `BlockIo` 句柄；所有槽位日志格式串统一改用 `%s`；`slot_detect()` 改为检查 bit 2（`0x04`，`active` 位）与 bit 7（`0x80`，`unbootable` 位）；`slot_maintain_current()` 将活动槽属性字节写为 `0x6f`（`priority=3, active=1, tries=7, successful=1, unbootable=0`），同时将非活动槽属性字节写为 `0x6a`（`priority=2, active=0, tries=5, successful=1, unbootable=0`），不置 bit 7（`unbootable`）。
+
+### 6.5 无人值守免按键拦截、屏幕 Panic 提示与四层恢复步骤
+
+- 根因分析：旧版 `efi_main()` 在启动菜单结束后才调用 `usb_start()`，macOS 主机完成 USB 枚举需约 1.8 秒，而 `rdfile_load()`（1.41 秒）加 `EARLY_BOOT`（45 毫秒）合计仅 1.46 秒；等主机枚举出 `xnuloader` 时内核已进入 `adreno8_init()`，错过 `EARLY_BOOT` 末尾 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) `loader_stop_poll_init` 的干净退回窗口。内核进入 `adreno8_init()` 或 `hung-held` 后，`lc_cmd_denied()` 又会拒绝 `download:`、`oem flash_boot` 和 `oem android`。
+- 四层恢复与屏幕故障提示实现（[`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc)、[`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc)）：
+  1. **启动菜单前置 USB 与远程打断**：`efi_main()` 在 `ui_boot_menu()` 之前调用 `usb_start()`，菜单倒计时设为 5 秒并在循环内轮询 `usb_poll_command()`；主机在倒计时期间发送 `fastboot -s xnuloader oem recovery` 可立即打断自动引导并进入 `[3] FASTBOOT USB DIAGNOSTICS`。
+  2. **全状态单次强制恢复命令 `oem recovery`**：`fb_command()` 在 `lc_cmd_denied()` 之前响应 `oem recovery`（调用 `slot_unlock_held_recovery()`），在 `annibale`（`skip_ufs_arbitration = 1`）上置 `other_cpu_done = 1` 并调用 `clean_dcache()` 刷至 PoC，清零 `active_watch`／`kernel_resources_held`／`firmware_fault`；当 `running_live != NULL` 时置 `recovery_pending_after_return = 1`，待 `run_kernel()` 退出后再恢复 UEFI 中断掩码（`held_group1`、`held_daif`）。无论设备处于菜单、内核运行态还是 `hung-held` 态，单次执行 `fastboot -s xnuloader oem recovery` 即可回到 `result=idle` 并刷写新镜像。
+  3. **独立引导异常退回自动解锁与红屏 Panic 横幅（`boot_fallback_enter()`、`ui_draw_fault_banner()`）**：`run_kernel(0, 0)` 因 panic、同步异常或 50 秒心跳超时返回 `efi_main()` 时，自动调用 `boot_fallback_enter()` 解除 `held` 锁（保留 `out_buf` 中的完整内核日志供 `oem log` 拉取），同时由 `ui_draw_fault_banner()` 向 `0xfc800000` 与 `0xfd400000` 双显示缓冲绘制红底白字 `KERNEL FAULT / HUNG - FASTBOOT RECOVERY` 横幅、故障状态、最后一条 `panic` 行和末尾 14 行内核日志，直观区分「仍在启动」与「已崩溃／卡死」。
+  4. **120 秒无主机自动回退 Android（`boot_fallback_check()`）**：进入 `BOOT FALLBACK` 后若 120 秒内没有收到主机 USB 命令，`usb_command_loop()` 自动调用 `slot_set_active_other()` 切换活动槽到 B 槽（Android）并重启，防止脱离电脑时发生看门狗无限重启循环。
+
