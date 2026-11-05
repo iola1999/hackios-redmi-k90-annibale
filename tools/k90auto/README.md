@@ -130,7 +130,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `POSTER_METAL` | `1` | MercuryPosterExtension 插入 Metal 设备登记库；`0` 时壁纸为黑色，见[锁屏壁纸](../../docs/analysis/2026-10-31-mercury-wallpaper.md) |
 | `DIRTY_REGIONS` | 关 | `1` 时 backboardd 只重绘变化区域；默认整帧重绘 |
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
-| `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘，有 `network` 文件时一起放入，开机后由 `wifijoin` 加入；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与常驻系统盘之间的 40.9 MB）；`0` 不放 |
+| `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与常驻系统盘之间的 40.9 MB）；`0` 不放 |
 | `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal MobileSlideShow Music Maps AppStore Files HelloK90` | 插入 `libredwood-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。进程名写进 `kern.exec_inject`，总长不能超过 510 字节 |
 | `FPVOLUME` | `1` | 把 `libredwood-fpvolume.dylib` 插入 fileproviderd，让它接受内存盘上的 `/private/var`，文件 App 才有「我的 iPhone」；`0` 不插入 |
 | `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `RedwoodAudio.driver` 按 arm64e 重编，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
@@ -140,7 +140,6 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 开机自动运行的程序（`jobs/rc.jobs.interactive`，`cycle.py` 在产物存在时打包，构建命令见各源文件头）：
 
-- `wifijoin`（`hackios-xnu-kernel/userland/src/wifijoin.c`）：经 wifid 加入 `network` 文件里的网络，取信号最强的扫描记录，记录低于 −85 dBm 时重新扫描；最多关联 3 次，以 wifid 的当前网络为准判断成功。
 - `appinst watch`（`hackios-xnu-kernel/userland/src/appinst.m`）：每秒查看 Safari 的下载暂存目录、FileProvider 的 Downloads 和 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就复制出来安装。`appinst install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
 
 运行中的操作工具：

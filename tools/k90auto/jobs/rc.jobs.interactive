@@ -4,11 +4,9 @@
 # sends with tools/k90auto/rsh.py (kernel 12377-cmd1 or later, loader v10, PAYLOAD_PROGRAMS naming
 # the rwsh binary). lsprobe answers which applications LaunchServices knows, framewatch prints frame
 # counts every 20 s, and nothing else touches the screen, so every gesture in the log is the
-# person's own. wifijoin joins the network of fw/network through wifid when the image has that file;
-# appinst installs each .ipa that Safari saves to the Downloads folder. A line whose program is not in
-# the image fails on its own and the rest still run.
+# person's own. appinst installs each .ipa that Safari saves to the Downloads folder. A line whose
+# program is not in the image fails on its own and the rest still run.
 /redwood/bin/rwsh &
 /redwood/bin/lsprobe 60 &
 /redwood/bin/framewatch --every 20 --count 120 SpringBoard backboardd &
-/redwood/bin/wifijoin &
 /redwood/bin/appinst watch &

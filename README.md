@@ -7,22 +7,21 @@
 | 方面 | 状态 |
 |---|---|
 | 桌面与系统应用 | 开机自动解锁进入简体中文主屏；壁纸、图标、日历与天气小组件、控制中心、通知中心可用；设置、Safari、短信、计算器、备忘录、提醒事项等系统应用能打开，文件 App 里有「我的 iPhone」 |
-| 双系统与磁盘持久化 | 从 UFS LUN 0 尾部划分 `darwin`（8 GiB 只读系统盘）与 `darwin_var`（`/private/var` 可写数据盘，256 GB 机型示例为 112 GiB，其他容量按需调整）；闲置槽位刷入 `xnuloader` 后提供 3 秒开机菜单，支持免连电脑启动 iOS 26 或切回另一槽位的 Android；设置、主屏布局、已安装的 IPA、应用数据与着色器缓存实时落盘 |
-| 图形与显示 | 本项目的 Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 绘制后缩放到面板，刷新率 120 Hz；启用 AIR 位码、ir3 变体与顶点状态三级缓存 |
-| 屏幕亮度 | 控制中心与设置滑块经 `IOMFBBrightnessLevel` 和 DSI0 发送 DCS `0x51` 直接调节面板硬件背光 |
+| 双系统与磁盘持久化 | 从机身存储划分 iOS 系统盘与数据盘；闲置槽位刷入 `xnuloader` 后提供 3 秒开机菜单，支持免连电脑启动 iOS 26 或切回 Android；系统设置、主屏布局、已安装应用与用户数据实时落盘 |
+| 图形与显示 | Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 分辨率渲染并适配 120 Hz 面板 |
+| 屏幕亮度 | 控制中心与「设置 → 显示与亮度」滑块直接调节屏幕硬件背光 |
 | 触摸与按键 | 触摸、电源键、音量键可用；音量键和控制中心的滑块能调音量，还没有声音 |
-| Wi-Fi 与蓝牙 | Wi-Fi 开机自动加入 `hackios-xnu-kernel/out/fw-wifi/network` 里的网络，也可以在设置里加入，Safari 能打开网页；蓝牙支持扫描、发现与连接外设 |
-| 安装应用 | 能安装并运行任意解密过的 IPA（支持含插件与 AppGroup 的复合应用，如 LiveContainer），直接保存在 `darwin_var` 分区，见 §5 |
+| Wi-Fi 与蓝牙 | 在「设置 → Wi-Fi」中加入网络后可用 Safari 上网；蓝牙支持扫描、发现与连接外设 |
+| 安装应用 | 支持安装并运行已解密的 `.ipa` 应用 |
 | 电池与温控 | 显示电量与充电状态；处理器和 GPU 按负载调频，过热时逐档降频 |
 | 未完成 | 蓝牙音频、声音输出、摄像头、蜂窝网络、App Store；网页视频播放与天气数据请求正在排查修复；手电与振动在 iOS 26 上还不能用 |
 
-性能：在 120 Hz 屏上，翻页约 90～100 帧／秒，控制中心下拉约 90～94 帧／秒；GPU 最高 1100 MHz，无人值守测试中 GPU 温度最高约 57 °C。
+性能：在 120 Hz 屏上，主屏翻页约 90～100 帧／秒，控制中心下拉约 90～94 帧／秒；GPU 最高 1100 MHz，测试期间 GPU 温度最高约 57 °C。
 
-注意事项：
+部署与升级提示（完整说明见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)）：
 
-- 注意事项：首次部署需在 Android root shell 下在线缩小 `userdata` 并写入新 GPT 分区表，执行前请先备份重要分区与个人数据。
-- Android 系统更新：A/B 系统的 OTA 更新会写入另一槽位并切换活动槽位，完整包更新会覆盖 `xnuloader` 所在槽位的 `boot` 分区（`darwin` 与 `darwin_var` 分区数据不受影响），更新完成后将 `xnuloader` 重新刷入退下来的闲置槽位即可，详见[部署手册](docs/plan/dual-boot-setup.md) §5。
-- 供电：运行 iOS 时连着电脑普通 USB 口的供电小于整机耗电，长时间调试需要墙插或 PD 充电器补电。
+- 首次部署需在 Android root 环境下无损缩小 `userdata` 并划分 iOS 分区，操作前请先备份重要分区与个人数据。
+- Android 系统 OTA 更新不会影响 `darwin` 与 `darwin_var` 分区中的 iOS 数据；若完整包更新覆盖了闲置槽位的 `boot` 分区，更新后将 `xnuloader` 重新刷回闲置槽位即可恢复双系统引导菜单。
 
 最新状态和实测数据以[总账](docs/plan/2026-10-23-tracking.md)为准，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
 
@@ -82,42 +81,30 @@ hackios-xnu-kernel/ios26/fetch.sh
 
 项目在 UFS LUN 0（`/dev/block/sda`）尾部从 Android `userdata` 无损缩容出两个分区，配合刷入闲置槽位 `boot` 分区的 `xnuloader` 实现双系统与持久化：
 
-- `darwin`（默认 `8 GiB`，XNU 侧 `/dev/ufs_darwin`）：写入 `system26.apfs`，作为 iOS 26 只读系统盘。
-- `darwin_var`（XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘。容量按机型存储大小自行指定（例如 256 GB 机型可分 `112 GiB` 给 `darwin_var`、保留约 `111 GiB` 给 Android；512 GB／1 TB 等机型按实际情况填写 `--var-gib`）。
-- 双启动 `xnuloader`（刷入与当前 Android 相对的闲置槽位 `boot_a` 或 `boot_b`）：开机自动识别当前槽位并显示 3 秒启动菜单，倒计时结束免连电脑自动进 iOS 26；期间按音量键与电源键可选择「Boot iOS 26」、切回另一槽位的「Boot Android」或进入「USB Fastboot Debug Mode」。
+- `darwin`（默认 `8 GiB`）：写入 `system26.apfs`，作为 iOS 26 只读系统盘。
+- `darwin_var`：挂载为 `/private/var` 可写数据盘，容量按机型存储大小自行指定（例如 256 GB 机型可分 `112 GiB` 给 `darwin_var`、保留约 `111 GiB` 给 Android；512 GB／1 TB 机型按需填写 `--var-gib`）。
+- 双启动 `xnuloader`（刷入与当前 Android 相对的闲置槽位 `boot_a` 或 `boot_b`）：开机显示 3 秒启动菜单，倒计时结束免连电脑自动进入 iOS 26；期间按音量键与电源键可选择「Boot iOS 26」、切回另一槽位的「Boot Android」或进入「USB Fastboot Debug Mode」。
 
-在线缩容 `/data`（`f2fs-resize`）、生成并写回 GPT 表（`userdata-dual-carve.py`）、写入 `system26.apfs`、刷入 `xnuloader`、Android OTA 更新处理以及恢复原厂分区表的完整命令见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。
-
-注：若需临时使用 Android DSU 镜像，可在解锁 Android 后执行 `ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/dsu.py install --replace`。
+在线缩容 `/data`、写入分区表与 `system26.apfs`、刷入 `xnuloader`、处理 Android OTA 更新以及恢复原厂分区表的完整步骤见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。
 
 ## 5. 启动并使用 iOS 26
 
-日常使用直接按电源键开机，等待 3 秒即可进入 iOS 26 桌面。若连着电脑做无人值守调试或更换新编译的内核，可在工作区根目录执行：
+部署完成后，日常使用直接按电源键开机，等待 3 秒即可进入 iOS 26 桌面：
 
-```sh
-ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --kernel 12377-local --hold --seconds 1800 --tour "home@3*1"
-```
+- 桌面与手势：上滑回主屏、左右翻页、下拉控制中心和通知中心、打开系统应用。
+- 无线网络：在「设置 → Wi-Fi」中选择网络并输入密码加入，配置在重启后自动保留。
+- 屏幕亮度：在控制中心或「设置 → 显示与亮度」中拖动滑块调节背光亮度。
 
-脚本会打包内核与根盘、启动 iOS，日志和截图存在 `docs/progress/evidence/k90auto/` 下同名目录。
+安装第三方应用（需使用已解密的 `.ipa` 包，安装的应用与数据保存在 `darwin_var` 分区，重启后保留）：
 
-可以试的：
-
-- 上滑回主屏、左右翻页、下拉控制中心和通知中心、打开系统应用。
-- 用 Safari 上网。Wi-Fi 网络名和密码写进 `hackios-xnu-kernel/out/fw-wifi/network`（第一行网络名，第二行密码，Git 忽略），开机后自动加入；没有这个文件时在「设置 → Wi-Fi」里加入，配置保存在 `darwin_var` 中跨开机保留。
-- 调亮度：控制中心和「设置 → 显示与亮度」的滑块经 DSI0 发送 DCS `0x51` 直接调节面板背光（默认开启）；加 `--boot-args "fb_dim=1"` 时改由混合器按比例调暗画面。
-
-安装应用：iOS 运行期间随时可以装，不用重新打包或重启。两种方式：
-
-- 手机上：用 Safari 下载 `.ipa`，在弹出的提示里点「下载」，约 10 秒后图标出现在主屏。Safari 自己的下载提示会停在下载中或显示失败，不影响安装。
-- 电脑上：手机连着 USB 时执行下面的命令，装好后自动打开，40 MB 的 IPA 约 20 秒。
+- 手机直接安装：在 Safari 中下载 `.ipa` 文件并在弹窗中点击「下载」，约 10 秒后应用图标出现在主屏。
+- 电脑通过 USB 安装（详见 [k90auto 说明](tools/k90auto/README.md)）：
 
   ```sh
-  python3 tools/k90auto/install-ipa.py docs/progress/evidence/k90auto/kernel-12377-rate10-use1 App.ipa --open
+  python3 tools/k90auto/install-ipa.py <轮次目录> App.ipa --open
   ```
 
-IPA 要是解密过的，App Store 的加密 IPA 不能运行，`install-ipa.py` 发送前会检查并提示。安装的应用与数据实时写入 `darwin_var` 分区，重启后继续保留。卸载用 `python3 tools/k90auto/rsh.py <轮次目录> /redwood/bin/appinst remove 应用ID`。
-
-提前结束调试轮次：`python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-12377-rate10-use1 --stop`。
+若需要连电脑打包并引导新编译的内核或执行自动化测试，见 [k90auto 说明](tools/k90auto/README.md)。
 
 ## 6. 双系统切换（iOS 与 Android）
 

@@ -59,10 +59,8 @@ KERNEL = "12377-st4"
 # SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
 SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"
 # Programs rc.jobs.interactive starts at boot, packed when they have been built (build commands in
-# tools/k90auto/README.md): appinst watches the download folders for .ipa files, wifijoin joins the
-# network of hackios-xnu-kernel/out/fw-wifi/network.
-BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/appinst/appinst",
-                 "hackios-xnu-kernel/out/ios26-resume/wifijoin/wifijoin"]
+# tools/k90auto/README.md): appinst watches the download folders for .ipa files.
+BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/appinst/appinst"]
 # The boot-args every round has (CYCLE_FIXED_ARGS replaces all of them, for a round whose variable is
 # one of them: the kernel takes the first of two). Diagnostics stay out of here and go in --boot-args.
 FIXED_ARGS = " ".join([
@@ -211,7 +209,7 @@ def main():
     # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).
     gpu_speed = os.environ.get("GPU_SPEED", "14")
     # CYCLE_PROGRAMS=path[:path] puts more files into /redwood/bin of the image beside rwsh, var_store and
-    # the two that rc.jobs.interactive starts when they are built (appinst, wifijoin).
+    # appinst.
     env = dict(os.environ, GPU_SPEED=gpu_speed, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
                PAYLOAD_PROGRAMS=":".join(["hackios-xnu-kernel/out/ios26-resume/rwsh", "hackios-xnu-kernel/out/ios26-resume/var_store",
                                           *[p for p in BOOT_PROGRAMS if (WORKSPACE / p).exists()],
