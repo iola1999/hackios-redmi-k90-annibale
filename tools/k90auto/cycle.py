@@ -54,7 +54,7 @@ SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty s
 # 12377-st4 is rate10 with the /private/var flash store on dsu_store, the panel brightness control
 # (DCS 0x51/0x52, DCS_DEFAULT = 4), the GPU temperature sensor at 0x0c22a000, and the WCN7850 Bluetooth
 # Skywalk channel and RedwoodBT service (kernel-12377-st4-r1).
-KERNEL = "12377-st4"
+KERNEL = "12377-st5"
 # The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
 # SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
 SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"

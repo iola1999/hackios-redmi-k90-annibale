@@ -120,12 +120,13 @@ WIFI_CONTROL_PLIST = plistlib.dumps({"ConfigureNewInterfaces": True})
 WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguration",
                       f"f\t644\t0\t0\t/private/var/preferences/SystemConfiguration/{WIFI_CONTROL}\t/fw/{WIFI_CONTROL}"]
 
-# Application data container and AppGroup directories (Calculator, MobileNotes, Reminders)
+# Application data container and AppGroup directories (Calculator, MobileNotes, Reminders, MobileCal)
 CALCULATOR_CONTAINER_UUID = "28C5E77E-97C5-4927-A2B0-04987EBF4665"
 NOTES_CONTAINER_UUID = "39D6F88F-A8D6-4A38-B1F1-15A98FCA5776"
 NOTES_GROUP_UUID = "4AE7F99E-B7C5-4309-8C8F-1B2C3D4E5F60"
 REMINDERS_CONTAINER_UUID = "5BF8A0AF-C8E6-4B1A-9D2E-2C3D4E5F6A71"
 REMINDERS_GROUP_UUID = "6CF9B1BA-D9F7-4C2B-AE3F-3D4E5F6A7B82"
+MOBILECAL_CONTAINER_UUID = "7DFA02CB-E0A8-4D3C-BF40-4E5F6A7B8C93"
 
 APP_CONTAINER_LINES = [
     "d\t755\t501\t501\t/private/var/mobile/Containers",
@@ -162,6 +163,12 @@ APP_CONTAINER_LINES = [
     f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library",
     f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library/Preferences",
     f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library/Caches",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Documents",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Library",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Library/Preferences",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Library/Caches",
+    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/tmp",
 ]
 
 DEFAULT_APP_ENV = {
@@ -179,6 +186,11 @@ DEFAULT_APP_ENV = {
         f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
         f"HOME=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
         f"TMPDIR=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/tmp",
+    ],
+    "MobileCal": [
+        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}",
+        f"HOME=/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}",
+        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/tmp",
     ],
 }
 # userland/build.sh's staging directory; xpc/launchd.plist is there only when it ran with IOS=../ios26
