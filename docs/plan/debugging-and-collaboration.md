@@ -46,6 +46,7 @@
 - 比较初始化顺序要追踪资源申请、框架回调和首次启动的完整调用关系。同一驱动有多种模式时先确认本机走哪个入口：普通 HFI 与硬件调度模式的 START 顺序不同。等待应答期间对方发来的资源请求必须处理或明确失败。
 - 接口是否存在按编译或运行结果、代码实际用法、头文件的顺序采信，并写明是哪棵树：`xnu12377` 的 `ctl_bind` 在 `<sys/kern_control_private.h>` 的 `KERNEL_PRIVATE` 段里。
 - 容器不可用时，从构建树 `BUILD/obj/DEVELOPMENT_ARM64_BCM2837/compile_commands.json` 取同类文件的 `arguments` 编单个文件，再用 `nm -u` 对照 `mach.development.bcm2837.unstripped`，能确认编译与符号可见性。
+- `xnu26/build-macos.sh` 增量构建有三条约束：`*/conf/Makefile.template` 含 `${OBJS}: $(firstword $(MAKEFILE_LIST))`，修改 `*/conf/files` 触发 `doconf` 重写 `Makefile` 后会让该子系统全部 `.o`／`.cpo` 全量重编，把 `Makefile` 时间戳改回早于 `BUILD/obj/SETUP/config` 又会让 `gmake` 重跑所有子系统的 `doconf`；`makedefs/MakeInc.cmd` 已对子 make 传 `MAKEJOBS=--jobs=$(hw.ncpu)`，外层再传 `-jN` 会重置 jobserver 并成倍派生编译进程；Xcode clang 21 在 `-Weverything` 下会对内核头文件双下划线宏输出数百 MB 的 `-Wreserved-identifier` 诊断。`xnu26/build-macos.sh` 已自动剔除外层 `-j` 并将 `DOCONFDEPS` 与生成 `Makefile` 的时间戳钳制在 `SETUP/config` 与存量 `.o` 之间，`xnu26/xcrun` 已对 `clang`／`clang++` 追加 `-Wno-reserved-identifier -Wno-reserved-macro-identifier`。
 - 容器内执行后检查文件和 diff 再构建：heredoc 经 stdin 传入要 `docker exec -i`，漏掉时曾退出 0 而文件未改。复制、打包、上传按依赖检查前一步结果；跨环境复制根目录保留目标系统的符号链接语义。
 - 构建命令见[内核构建说明](../analysis/kernel-build-linux.md)，arm64e 用户态产物见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
 

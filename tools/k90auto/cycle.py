@@ -43,17 +43,18 @@ CHECKPOINT_EVERY = 2
 UNLOCK_LINE = "sb26: boot unlock done"
 GPU_STOP = "submissions closed"   # after this the compositor draws in software, so the tour is cut short
 UNLOCK_WAIT = 420           # upload (about 120 s) plus boot to the home screen
-# The loader every round runs, also flashed in boot_a: v17 is the v16 loader, which keeps 128 MB below
-# 4 GB for the Wi-Fi card (lowdma=), without which the driver says "no thread, or no memory the radio can
-# be given" (kernel-12377-rate7-def1), in the loader-v17 firmware.
-LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v17.img"
-LOADER_BUILD = "a48c7fb"
+# The loader every round runs: v18 is v17's firmware with the loader of ba6f0d0, which lists the end of
+# the DSU slot as dsu_store for keeping /private/var (docs/analysis/2026-11-05-persistence-feasibility.md);
+# v19 adds 45d97a8, which takes a DSU file of up to 1024 extents (a fresh install had 166, over the old 64).
+# Until it is flashed in boot_a, every round starts it through LK, the check below.
+LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v19.img"
+LOADER_BUILD = "45d97a8"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # The kernel every round boots unless --kernel names another: the newest one checked on the phone.
-# 12377-rate10 is rate7 (the Wi-Fi driver of cmd83, the 120 Hz work of 2026-11-02) with the charging
-# state of 67f8d61 (a phone on external power whose battery is not discharging reports charging) and
-# the Wi-Fi signal and transmit readings of 9922d45 (kernel-12377-rate10-w1).
-KERNEL = "12377-rate10"
+# 12377-st4 is rate10 with the /private/var flash store on dsu_store, the panel brightness control
+# (DCS 0x51/0x52, DCS_DEFAULT = 4), the GPU temperature sensor at 0x0c22a000, and the WCN7850 Bluetooth
+# Skywalk channel and RedwoodBT service (kernel-12377-st4-r1).
+KERNEL = "12377-st4"
 # The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
 # SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
 SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"
@@ -78,6 +79,10 @@ FIXED_ARGS = " ".join([
     # administered one of ours; the card's firmware carries none. package.py puts the firmware in.
     "pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1",
     "pcie_rddm=1 wifi_mlo=1 wifi_mac=02:4b:39:30:00:01 wifi_station=1",
+    # /private/var kept across boots in the last 4 GiB of the DSU slot (dsu_store), saved at teardown
+    # (docs/analysis/2026-11-05-persistence-feasibility.md), and Bluetooth on SE14 UART / WCN7850 (bt=4,
+    # docs/analysis/2026-11-02-bluetooth-bringup.md).
+    "ufs=2 ufs_write=1 var_store=1 var_save_ms=60000 bt=4",
 ])
 TOUR = [
     "home@3*2",
@@ -111,7 +116,7 @@ def loader_ready():
         return "no xnuloader in fastboot devices"
     if "result: idle" not in fastboot("getvar", "result"):
         return "loader result is not idle"
-    if "ramdisk-state: idle 0 0 0" not in fastboot("getvar", "ramdisk-state"):
+    if "ramdisk-state: idle 0 0 " not in fastboot("getvar", "ramdisk-state"):
         return "loader RAM disk is not empty"
     return None
 

@@ -75,3 +75,22 @@
 - dada 用的 `bluetoothd` 偏移来自 iPhone18,1 的 23G90，我们的 iPhone18,3 二进制还没有抽出来核对。
 
 最有用的第一个真机实验是第 1 步：不改 iOS，一轮就能确定 SE14 是否为蓝牙链路、UART 固件在不在、ROM 版本、该用哪个 NVM、补丁是否被接受、射频能否收到广播。
+
+## 8. 实测（2026-11-05）
+
+第 0～2 步已在 K90 真机走通。实现文件包括内核侧 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`（`RedwoodBT` IOService），用户态 `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`（补入 `usr/sbin/bluetoothd` 并更新 DSU 系统盘），以及打包脚本 `tools/k90auto/package.py` 与 `tools/k90auto/cycle.py`（默认带 `bt=4`）。
+
+### 8.1 第 1 步硬件起机（`kernel-12377-st2-r1`）
+
+- SE14（QUP2 SE6，`0x898000`）协议寄存器 `GENI_FW_REVISION_RO` 读出 `0x20a`，协议号为 2（UART），无需额外加载 QUP 固件。
+- WCN7850 在 115200 波特下回应 `0xfc00/0x19` 与 `0xfc00/0x23`，ROM 版本为 `0x20`（soc `0x401a0200`），板号为 0，匹配 `/fw/hmtbtfw20.tlv`（275,208 字节，1,134 段）与 `/fw/hmtnv20.bin`（10,305 字节，43 段）。
+- 补丁与 NVM 下发耗时约 28 秒，HCI Reset 后读回本地地址 `02:4b:39:30:00:02`、HCI 13／LMP 13、厂商号 `0x001d`（Qualcomm），芯片自启动后主动上报 `BTFW.HAMILTON.2.0.1-00450-PATCHZ-1.131051.2`。
+- 内核发起 5 秒 LE 扫描，收到 295 条广播报告、去重后发现 43 个周边 BLE 设备，与在线 Wi-Fi（ath12k，`en0`）同时运行无冲突。
+
+### 8.2 第 2 步接入 iOS 26 与 `0x204a` 扩展广播锁定问题（`st3-r1`、`st4-r1`、`st4-r2`）
+
+- `package.py` 在 `out/fw-bt` 存在时默认开启 `BLUETOOTH=1`：编译 `/redwood/bin/bluetool` 替身并替换 `com.apple.BlueTool.plist`，放行 `mkjobs.py` 的 `bluetooth` 任务，为 `com.apple.bluetoothd.plist` 设置 `KeepAlive=true` 与 `BT_HCI_TRANSPORT=H4:POSIX`、`BT_CHIP=ACI BT`。不必依赖内核 exec 环境注入，launchd 缓存里的 `EnvironmentVariables` 直接生效。
+- `st3-r1` 首次跑 `bt=4` 时，`bluetoothd` 连上 `com.apple.uart.sk.bluetooth` 与 Skywalk 通道，完成协议栈初始化（`Stack initialization complete`），但在启动扫描时连续报 `STATUS 712`（HCI 状态码 `0x0c` Command Disallowed），日志记录 `bt: the chip refuses 0x2007 with status 0x0c` 与 `0x200b with status 0x0c`。
+- 根因定位：`bluetoothd` 在初始化阶段发送 `0x204a`（`HCI_LE_Read_Periodic_Advertiser_List_Size`）。按 Bluetooth Core Spec Vol 4 Part E §3.1.1，`0x204a` 属于扩展广播命令表（Table 3.2，`0x2035`～`0x204a`）；WCN7850 收到任一扩展广播命令后即将当前会话锁定为 Extended Advertising 模式，拒绝后续传统广播与扫描命令（Table 3.1 的 `0x2007`、`0x200b` `LE_Set_Scan_Parameters`、`0x200c` `LE_Set_Scan_Enable`）。
+- 修复与验证：在 `annibale_bt_ios.c` 的 `bt_answer_vendor()` 代答表中加入 `0x204a`（带 1 字节附加载荷 `0x00`，完整代答 `04 0e 05 01 4a 20 00 00`），不向芯片转发该命令。`kernel-12377-st4-r1` 重测后，`0x2007`、`0x200b`、`0x200c` 全部返回状态 0，`bluetoothd[47]` 全程无重启（`pid 47`），扫描状态进入 `Starting(2) --> Scanning(3)`，发现 9 台 BLE 设备并解析出 Apple Continuity 广播（`id:4C`）；控制中心蓝牙按钮高亮为开启，设置主页显示 `Bluetooth On`，点入 `Settings -> Bluetooth` 页面开关为绿色开启、底部显示 `This iPhone is discoverable as "iPhone" while Bluetooth Settings is open.` 与 `Devices` 扫描动画（`kernel-12377-st4-r1/run/tour-sheet.png`）。
+

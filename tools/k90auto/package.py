@@ -10,7 +10,8 @@ then this script puts in:
   - the AIR library tools/k90auto/build-air.py built and signed;
   - etc/inject.conf, the gesture script as etc/rc.jobs, and the launchd jobs from jobs/ (in the job
     plists and in the launchd cache, which must agree);
-  - the Wi-Fi firmware, when hackios-xnu-kernel/out/fw-wifi has it.
+  - the Wi-Fi firmware, when hackios-xnu-kernel/out/fw-wifi has it, and with BT_FW=1 the Bluetooth firmware
+    from hackios-xnu-kernel/out/fw-bt.
 
 root.apfs is then built with tools/apfs/mkapfs.py and compared with an image of the untouched base:
 every path that differs has to be one this script meant to change.
@@ -101,6 +102,16 @@ WIFI_FW_FILES = (WIFI_FW_USED + [p.name for p in WIFI_FW_DIR.glob("network")] if
                  sorted(p.name for p in WIFI_FW_DIR.glob("qdss_trace_config*.cfg")) +
                  sorted(p.name for p in WIFI_FW_DIR.glob("lfw-*.bin")) +
                  [p.name for p in WIFI_FW_DIR.glob("network")] if WIFI_FW else [])
+# By default, when hackios-xnu-kernel/tools/mk-fw-bt.py has extracted the phone's bluetooth partition
+# into out/fw-bt, the three files WCN7850 ROM 0x20 board 0 uses on the K90 go into fw/ (hmtbtfw20.tlv,
+# hmtbtfw20.ver and hmtnv20.bin, 285 KB; kernel-12377-st2-r1). BT_FW=all puts in every hmt* file; BT_FW=0 none.
+BT_FW_DIR = WORKSPACE / "out/fw-bt"
+BT_FW_USED = ["hmtbtfw20.tlv", "hmtbtfw20.ver", "hmtnv20.bin"]
+BT_FW_MODE = os.environ.get("BT_FW", "used" if all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else "0")
+BT_FW = BT_FW_MODE != "0"
+BT_FW_FILES = (BT_FW_USED if BT_FW_MODE in ("used", "1") and all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else
+               sorted(p.name for p in BT_FW_DIR.glob("hmt*")) if BT_FW else [])
+assert not BT_FW or BT_FW_FILES, f"BT_FW={BT_FW_MODE}, but {BT_FW_DIR} has no hmt* files (tools/mk-fw-bt.py extract)"
 # configd gives an interface a network service (DHCP and the rest) at the first boot of a data volume;
 # for one that appears later, InterfaceNamer adds a service only when its control preference
 # ConfigureNewInterfaces is set (configd's ifnamer.c: on iOS it "normally" configures no interface after
@@ -196,7 +207,7 @@ for item in os.environ.get("JOB_ENV", "").split():
     key, _, value = setting.partition("=")
     if not job_name.endswith(".plist") or not key:
         raise SystemExit(f"JOB_ENV item {item!r} is not NAME.plist:KEY=VALUE")
-    JOB_ENV.append((job_name, key, value))
+    JOB_ENV.append((job_name, key, value.replace("~", " ")))
 # EXT_ENV="MercuryPosterExtension:KEY=VALUE ..." does the same for a process with no launchd job: the
 # items for one name go into /redwood/etc/env/NAME, one KEY=VALUE a line, and the inserted library
 # sets them and starts the process again once, because libSystem reads OS_ACTIVITY_DT_MODE before any
@@ -308,7 +319,16 @@ AUDIO = os.environ.get("AUDIO", "1") == "1"
 AUDIO_SOURCES = ["userland/src/audio_plugin.c"]
 AUDIO_FLAGS = ["-Os", "-Wall", "-Wextra", "-bundle", "-framework", "CoreFoundation"]
 AUDIO_PLUGIN = "/lib/RedwoodAudio.driver/RedwoodAudio"
-REST_TRIAL = os.environ.get("REST_ALLOW", "").split() + (["audio"] if AUDIO else [])
+# BLUETOOTH=1 (on by default when BT_FW carries the WCN7850 firmware, or when REST_ALLOW names bluetooth)
+# builds userland/src/bluetool.c into /bin/bluetool, points com.apple.BlueTool at it, lets the bluetooth
+# jobs through mkjobs.py's DENY, and sets KeepAlive and BT_HCI_TRANSPORT/BT_CHIP on com.apple.bluetoothd.
+BLUETOOTH = (os.environ.get("BLUETOOTH", "1" if BT_FW else "0") == "1"
+             or "bluetooth" in os.environ.get("REST_ALLOW", "").split())
+BLUETOOL_SOURCES = ["userland/src/bluetool.c"]
+BLUETOOL_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-fblocks"]
+REST_TRIAL = (os.environ.get("REST_ALLOW", "").split()
+              + (["audio"] if AUDIO else [])
+              + (["bluetooth"] if BLUETOOTH else []))
 REST_ALLOW = ["com.apple.dmd"] + REST_TRIAL
 REST_DENY = ["com.apple.PerfPowerServices"]
 SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0"]
@@ -577,6 +597,20 @@ def add_rest_jobs(root, cache):
         if (job["Label"] in labels or job["Label"] in REST_DENY or shared
                 or (root / "LaunchDaemons" / path.name).exists()):
             continue
+        if BLUETOOTH and path.name == "com.apple.BlueTool.plist":
+            job["ProgramArguments"] = ["/redwood/bin/bluetool"]
+            job.pop("Program", None)
+            job["UserName"] = "root"
+            data = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
+        elif BLUETOOTH and path.name == "com.apple.bluetoothd.plist":
+            job["ProgramArguments"] = ["/redwood/bin/bluetoothd"]
+            job.pop("Program", None)
+            job["KeepAlive"] = True
+            env = job.setdefault("EnvironmentVariables", {})
+            env.setdefault("BT_HCI_TRANSPORT", "H4:POSIX")
+            env.setdefault("BT_CHIP", "ACI BT")
+            env.setdefault("OS_ACTIVITY_DT_MODE", "YES")
+            data = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         (root / "LaunchDaemons" / path.name).write_bytes(data)
         jobs["/System/Library/LaunchDaemons/" + path.name] = job
         labels.add(job["Label"])
@@ -668,6 +702,9 @@ def main():
     audio = OUT / "RedwoodAudio"
     if AUDIO:
         commands["audio"] = build(AUDIO_SOURCES, "", AUDIO_FLAGS, audio, dynamic=False)
+    bluetool = OUT / "bluetool"
+    if BLUETOOTH:
+        commands["bluetool"] = build(BLUETOOL_SOURCES, "", BLUETOOL_FLAGS, bluetool, dynamic=False)
     ax = OUT / "libredwood-ax.dylib"
     if AX_PROCESSES:
         commands["ax"] = build(AX_SOURCES, "/redwood/lib/libredwood-ax.dylib", AX_FLAGS, ax)
@@ -680,6 +717,7 @@ def main():
                             *(FPVOLUME_SOURCES if FPVOLUME else []),
                             *(AX_SOURCES if AX_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
+                            *(BLUETOOL_SOURCES if BLUETOOTH else []),
                             "userland/src/sb_metal_registration_sequence.inc",
                             "userland/src/sb_metal_compression_policy.inc",
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
@@ -752,6 +790,9 @@ def main():
         shutil.copy2(ax, dest / "lib/libredwood-ax.dylib")
     if AUDIO:
         shutil.copy2(audio, dest / AUDIO_PLUGIN.lstrip("/"))
+    if BLUETOOTH:
+        shutil.copy2(bluetool, dest / "bin/bluetool")
+        shutil.copy2(WORKSPACE / "ios26/rootfs/usr/sbin/bluetoothd", dest / "bin/bluetoothd")
     shutil.copy2(userland, dest / "lib/libredwood.dylib")
     assert sha(dest / "lib/libredwood.dylib") == sha(userland), \
         "libredwood.dylib in the image is not the one build.sh produced"
@@ -818,6 +859,8 @@ def main():
         shutil.copy2(WIFI_FW_DIR / name, dest / "fw" / name)
     if WIFI_FW:
         (dest / "fw" / WIFI_CONTROL).write_bytes(WIFI_CONTROL_PLIST)
+    for name in BT_FW_FILES:
+        shutil.copy2(BT_FW_DIR / name, dest / "fw" / name)
     # the desktop's own gesture script in place of build.sh's etc/rc.jobs: an acceptance run needs
     # the eight rounds the harness measures. The probe's line ends with "&": init runs the lines of rc.jobs
     # one after another and would otherwise hold the gestures for the probe's last offset.
@@ -857,7 +900,9 @@ def main():
             f"{name} in root.apfs is not what this pack built"
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
              | ({"/bin/lsprobe"} if PROBE and "/bin/lsprobe" not in before else set())
+             | ({"/bin/bluetool", "/bin/bluetoothd"} - set(before) if BLUETOOTH else set())
              | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} if WIFI_FW else set())
+             | {"/fw/" + name for name in BT_FW_FILES}
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
              | ({"/lib/libredwood-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
@@ -880,6 +925,7 @@ def main():
                 *(["/lib", "/lib/libredwood-fpvolume.dylib"] if FPVOLUME else []),
                 *(["/lib", "/lib/libredwood-ax.dylib"] if AX_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),
+                *(["/bin/bluetool", "/bin/bluetoothd"] if BLUETOOTH else []),
                 "/etc/inject.conf",
                 "/etc/rc.jobs", "/" + JOB, *(["/" + ICON_JOB] if ICON_METAL else []),
                 "/xpc/launchd.plist", *["/bin/" + program.name for program in EXTRA_PROGRAMS],
@@ -894,6 +940,7 @@ def main():
                 *(["/etc", "/etc/env", *("/etc/env/" + name for name in EXT_ENV)] if EXT_ENV else []),
                 *(["/bin/lsprobe"] if PROBE else []),
                 *(["/fw", *("/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL])] if WIFI_FW else []),
+                *(["/fw", *("/fw/" + name for name in BT_FW_FILES)] if BT_FW else []),
                 # the two jobs below change this directory's own times as well
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],
@@ -972,6 +1019,7 @@ def main():
         "redwood_diag": REDWOOD_DIAG,
         "wifi_fw": {name: "present" if name == "network" else sha(WIFI_FW_DIR / name) for name in WIFI_FW_FILES}
                    if WIFI_FW else None,
+        "bt_fw": {name: sha(BT_FW_DIR / name) for name in BT_FW_FILES} if BT_FW else None,
         "changes": changes,
         "dirty_worktree": bool(dirty), "worktree_status": dirty,
         # A round can change more than the one variable its request names. Anything passed here is

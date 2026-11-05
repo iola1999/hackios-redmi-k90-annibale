@@ -86,9 +86,13 @@
 
 ## 9. 实测（2026-11-05）
 
-轮次与读数见 [11-05 记录](../progress/2026-11-05-defaults-and-charging.md) §3.7，代码在内核仓库的 `MiniAppleARMBacklight.cpp` 与 `MiniFramebufferDim.inc`。
+代码在内核仓库 `MiniAppleARMBacklight.cpp`、`MiniFramebufferDim.inc` 与 `MiniFramebufferDCS.inc`。
 
 - 只发布带 `IODisplayParameters` 的 `AppleARMBacklight` 不够：backboardd 在 CoreBrightness 里读空指针，反复崩溃（`rate11-w3`）。CoreBrightness 还经背光节点及其父节点读 `backlight-calibration-parameters`（16.16 定点数的字典，`-[CBBacklightNode getBacklightCalibration:]`，`0x1e2731760`）和 `backlight-marketing-table`（16.16 定点数组成的 data），后者缺失时显示初始化失败。
 - 两项补齐后（`rate12-br1`），iOS 走 IOMFB 路径：`IOMFBBrightnessLevel` 发到 IOMobileFramebuffer，单位是尼特 × 65536，渐变时每秒约 180 次；`brightness` 与 `brightness-nits` 没有出现在日志里。
-- 没有发 DCS。退路改用显示控制器的混合器：`fb_dim=1` 时把画面所在 stage 的常量 alpha 设为亮度比例的平方根（按面板 gamma 约 2.2 推断），截图看不出变化，寄存器回读随滑块变化（`rate13-br2`）。这种做法只能变暗，低亮度下有色阶，与第 6 节的拷贝时压暗相同。
+- 混合器压暗退路：`fb_dim=1` 时把画面所在 stage 的常量 alpha 设为亮度比例的平方根（按面板 gamma 约 2.2 推断），截图看不出变化，寄存器回读随滑块变化（`rate13-br2`）。这种做法只能变暗，低亮度下有色阶，与第 6 节的拷贝时压暗相同。
+- DSI0 寄存器与测试模式 FIFO（`kernel-12377-st2-r1`，`fb_dcs=2`）：只读打印确认 DSI0（`0x0ae94000`）的 `VERSION=0x02090000`、`CTRL=0x000001c5`、`CMD_MODE_DMA_CTRL=0x14000000`、`TRIG_CTRL=0x80000004`（`BLOCK_DMA_WITHIN_FRAME` 已开）、`DMA_CMD_OFFSET=0`。因 `DMA_CMD_OFFSET` 未映射进显示 SMMU，`MiniFramebufferDCS.inc` 采用 `TEST_PATTERN_GEN_CTRL`（`0x158`）的 `CMD_DMA_TPG_EN` 配合 `TEST_PATTERN_GEN_CMD_DMA_INIT_VAL`（`0x168`）直接向 DSI 命令 FIFO 推入 32 位字并触发 `DMA_SW_TRIGGER`（`0x090`），发送前后检查并清除 `ACK_ERR_STATUS`（`0x064`）与 `RDBK_DATA_CTRL`（`0x068`）。
+- 固定值发送与 DCS `0x52` 回读校验（`kernel-12377-st2-r2`，`fb_dcs=3`）：向面板发送一次 `51 03 5a`（858），`DMA_DONE` 在 6 微秒内完成，随后发 DCS `0x0a`（`RDDPM`）读回 `0x9c`（Booster ON、Sleep OUT、Display ON）、发 DCS `0x52`（`RDDISBV`）经 `RDBK_DATA0`（`0x06c`）读回 `0x035a`（858），与写入值完全一致。
+- 接入系统亮度滑块与默认开启（`kernel-12377-st2-r3`、`kernel-12377-st3-r1`）：`fb_dcs=4`（`DCS_DEFAULT = 4`）将 `IOMFBBrightnessLevel` 的 0～500 尼特线性映射到面板 DBV `5..0x1a5e`（6750），在 `flip_commit()` 帧边界（每 2 帧至多一次）发送 DCS `0x51`，前 8 次变更后自动发 DCS `0x52` 回读核对。控制中心拉低再拉高亮度滑块时，面板依次写入并读回 `2788 -> 22 -> 4726`（`panel reads 2788, 0x0ae4 written last (same)`、`panel reads 22, 0x0016 written last (same)`、`panel reads 4726, 0x1276 written last (same)`），控制中心下拉 102.3 帧／秒、主屏翻页 103.7 帧／秒；`st3-r1` 不传 `fb_dcs` 启动参数，确认默认生效。
+
 
