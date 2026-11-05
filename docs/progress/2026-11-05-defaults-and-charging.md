@@ -80,7 +80,7 @@
 
 ### 3.5 视频与天气
 
-- Safari 打开主机上的测试页：H.264 视频报 `err=3:Media failed to decode`；VP9 只到 `loadedmetadata`，`readyState` 停在 1。H.264 依赖硬件解码。
+- Safari 打开主机上的测试页：H.264 视频报 `err=3:Media failed to decode`；VP9 只到 `loadedmetadata`，`readyState` 停在 1。原因见[视频解码调研](../analysis/2026-11-05-video-decode.md) §2：H.264 已由系统的软件解码器解出画面，我们的 Metal 驱动合成不了这种两平面 YCbCr（`'420v'`）画面，推断这是直接原因；VP9 没有可用的解码器。
 - 天气：「我的位置」页显示「— —」，`locationd` 在 `mkjobs.py` 的 DENY 表里没有启动；列表里的城市也是「— —」，联网正常。
 - fp1 打开天气时 weatherd 带调试日志运行：连不上 `com.apple.kvsd`（syncdefaultsd 在 DENY 表里）、`com.apple.locationd.synchronous`，与 apsd 的连接无效；取天气数据的请求没有出现在 weatherd 的日志里，原因未查。
 - fp1 的 H.264：页面打开时报 `readyState` 4、没有错误，画面黑屏、时间停在 0，随后报 `err=3:Media failed to decode`。

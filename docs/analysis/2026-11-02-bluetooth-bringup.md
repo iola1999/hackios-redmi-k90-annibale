@@ -6,7 +6,7 @@
 
 ## 1. 需要用户决定的事
 
-1. 系统盘带上 `bluetoothd`。它有 12,151,072 字节，超过 `hackios-xnu-kernel/ios165/select-system.py` 里 `BIG_PROGRAM`（10 MB）的上限，现在不在系统盘上。放进去要重做 `system26.apfs` 和 Android DSU 里那份，系统盘的哈希会变。
+1. 系统盘带上 `bluetoothd`。它有 12,151,072 字节，超过 `hackios-xnu-kernel/ios165/select-system.py` 里 `BIG_PROGRAM`（10 MB）的上限，现在不在系统盘上。放进去要重做 `system26.apfs` 和 Android DSU 里那份，系统盘的哈希会变。2026-11-05 用户要求支持蓝牙，这一项按放进系统盘执行，排期见[后续工作](../plan/2026-11-05-next-work.md) §1。
 2. 蓝牙与 Wi-Fi 共用电源轨和 BT_EN。蓝牙轮次要在 Wi-Fi 上电之后进行，并且 Wi-Fi 在线时不能拉低 BT_EN；两者同时在线的情况 dada 没有验证过（它的蓝牙验证轮把 Wi-Fi 设成只读模式）。
 3. 第一阶段按 115200 波特跑，只够 BLE 扫描和 HID 一类低速设备，蓝牙音频要等提速到 3 Mbaud 之后再看。
 
