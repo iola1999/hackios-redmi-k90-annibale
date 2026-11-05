@@ -104,7 +104,8 @@ fastboot devices        # 出现 xnuloader 即成功
 ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/dsu.py install --replace
 ```
 
-- 需要约 25 GB 空闲空间，手机上可能弹出确认，需要点一下。
+- 需要约 25 GB 空闲空间。安装程序会弹出「Dynamic System Updates」验证框，点「使用 PIN 码」后输入锁屏密码。
+- 手机开机后要先解锁一次，共享存储才可用；没有解锁时脚本拒绝执行，旧的 DSU 镜像不会被删。
 - 重建系统盘后要重新安装；内容对不上时，启动脚本会自动改走 USB 上传。
 - 移除：在 Android 的「开发者选项 → DSU」或安装程序的通知里丢弃。
 - 不装 DSU 也能用，启动时自动经 USB 上传，只是每次多等约 2 分钟；`K90_DSU=0` 强制走 USB。

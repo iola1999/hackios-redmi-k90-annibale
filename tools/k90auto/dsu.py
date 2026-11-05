@@ -118,6 +118,10 @@ def install(args):
         sys.exit(f"dsu: {image} ({size} bytes) does not fit a {args.slot_gib} GiB slot")
     if "device" not in adb("get-state", check=False):
         sys.exit("dsu: the phone is not in Android")
+    # Shared storage is credential-encrypted: until the screen has been unlocked once after a boot
+    # the push fails ("secure_mkdirs() failed"), and by then the old image would already be wiped.
+    if adb("shell", "test -d " + str(Path(REMOTE).parent) + " && echo ok", check=False).strip() != "ok":
+        sys.exit(f"dsu: {Path(REMOTE).parent} is not there yet; unlock the phone once after boot")
     before = status()
     print(f"dsu: gsi_tool status before: {before}")
     if "installed" in before and not args.replace:
