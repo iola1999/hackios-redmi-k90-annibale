@@ -47,12 +47,27 @@ USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k
 
 构建产物放在 Git 忽略的目录里，主要是 `hackios-xnu-kernel/out/`：
 
-- 系统盘：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 需另行下载），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`，得到约 5.3 GB 的 `system26.apfs`；同时生成的 `userland/root/` 是下一项打根盘用的基线。
-- 内核、根盘与 Metal 驱动：见 [k90auto 说明](tools/k90auto/README.md)。
+- 系统盘：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 的下载见下文），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`，得到约 5.3 GB 的 `system26.apfs`；同时生成的 `userland/root/` 是下一项打根盘用的基线。
+- 内核：按[内核仓库说明](hackios-xnu-kernel/README.md) §2 构建，再在工作区根目录执行 `python3 tools/k90auto/register-kernel.py 12377-local` 登记。
+- 根盘与 Metal 驱动：见 [k90auto 说明](tools/k90auto/README.md)。
 - loader 镜像：见下文「构建 loader 镜像」。
 - GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md) 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去。其中 `gen80000_zap.mbn` 用 `adb pull /odm/firmware/gen80000_zap.mbn` 从手机取。
 - Wi-Fi 固件：按备份方法读出 modem 分区（本测试机用 `modem_a`），再执行 `python3 hackios-xnu-kernel/tools/mk-fw-wifi.py extract modem_a.img.gz hackios-xnu-kernel/out/fw-wifi`。脚本从分区镜像的 `image/kiwi/` 取出 WCN7850 固件，启动时自动放入驱动读取的 4 个文件。
 - 开机种子（建议）：一份开机稳定后的 `/private/var`。没有它时，每次开机主屏图标要等系统重建应用列表后才出现。取法见[每次开机都是首次开机](docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。
+
+系统盘只用 IPSW 里的三个镜像，在工作区根目录下载并解密（约 10.4 GB，需要 `brew install sevenzip` 和 Python 的 `cryptography` 包）：
+
+```sh
+D=hackios-xnu-kernel/out/ipsw/v57/26; mkdir -p $D
+URL=https://updates.cdn-apple.com/2026SummerFCS/c2f9fa07-0acc-4038-99f4-d7a4b1ac9c06/iPhone18,3_26.6.2_23G90_Restore.ipsw
+python3 tools/ipsw/fetch.py 094-96558-090.dmg.aea $D/os.dmg.aea "$URL" 11481186987
+python3 tools/ipsw/fetch.py 094-95851-092.dmg.aea $D/systemos.dmg.aea "$URL" 11481186987
+python3 tools/ipsw/fetch.py 094-96441-094.dmg $D/appos.dmg "$URL" 11481186987
+for n in os systemos; do
+  aea decrypt -i $D/$n.dmg.aea -o $D/$n.dmg -key-value "base64:$(python3 tools/ipsw/aea-key.py $D/$n.dmg.aea)"
+done
+hackios-xnu-kernel/ios26/fetch.sh
+```
 
 构建 loader 镜像（`hackios-xnu-kernel/out/handoff-loader-v17.img`）分三步，完整命令见 [loader 镜像构建](docs/analysis/annibale-uefi-build.md)：
 
@@ -99,16 +114,16 @@ ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/dsu.py install --replace
 手机处于 loader 或 Android 时，在工作区根目录执行：
 
 ```sh
-ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --hold --seconds 1800 --tour "home@3*1"
+ANDROID_SERIAL="$ANDROID_SERIAL" python3 tools/k90auto/cycle.py use1 --kernel 12377-local --hold --seconds 1800 --tour "home@3*1"
 ```
 
-脚本会打包、读入系统盘、启动 iOS，等进入主屏后保持运行 `--seconds` 秒，到时自动停止并回到 loader。手机在 Android 时会先自动切到 loader。120 Hz、Wi-Fi 等已验证的功能默认打开。有开机种子时加 `--seed 文件`。`use1` 是这次的标签，每次换一个；日志和截图存在 `docs/progress/evidence/k90auto/` 下同名目录。
+脚本会打包、读入系统盘、启动 iOS，等进入主屏后保持运行 `--seconds` 秒，到时自动停止并回到 loader。手机在 Android 时会先自动切到 loader。120 Hz、Wi-Fi 等已验证的功能默认打开。有开机种子时加 `--seed 文件`。`use1` 是这次的标签，每次换一个；`12377-local` 是第 3 节登记的内核；日志和截图存在 `docs/progress/evidence/k90auto/` 下同名目录。
 
 可以试的：
 
 - 上滑回主屏、左右翻页、下拉控制中心和通知中心、打开系统应用。
 - 用 Safari 上网。Wi-Fi 网络名和密码写进 `hackios-xnu-kernel/out/fw-wifi/network`（第一行网络名，第二行密码，Git 忽略），开机后自动加入；没有这个文件时在「设置 → Wi-Fi」里加入，每次开机要重新加入。
-- 调亮度（试用）：启动命令加 `--kernel 12377-rate14 --boot-args "fb_dim=1"`，控制中心的亮度滑块会让画面变暗。面板本身的背光不变，画面按比例变暗，低亮度下渐变会有色阶。
+- 调亮度（试用）：启动命令加 `--boot-args "fb_dim=1"`，控制中心的亮度滑块会让画面变暗。面板本身的背光不变，画面按比例变暗，低亮度下渐变会有色阶。
 
 安装应用：iOS 运行期间随时可以装，不用重新打包或重启。两种方式：
 

@@ -36,7 +36,7 @@ codesign --force --sign - <目录>/libredwoodmetal.dylib
 - AIR 库只由这个脚本编，`package.py` 不编。arm64e 构建只读自己那份源（`out/ios26-resume/mesa-arm64e/mesa-26.2.5/src/compiler/air/`），`tools/mesa/air/` 的改动不复制过去就不会进库，构建照样成功、库照样有效。
 - 流程：把 `FILES` 列出的文件复制进 arm64e 树并断言复制生效；`tools/mesa/air/` 里有与构建树不一致、又不在 `FILES` 里的文件时报错，新文件要同时加进 `FILES`。然后 `ninja -C BUILD -j8 TARGET`，把 ninja 的输出 `LIB` 拷成 `OUT`（`out/ios26-resume/bbmetal-device/libredwoodair.dylib`）并 adhoc 签名，最后写 `air-build-record.json`：两侧源摘要、库的字节数与 sha256、`holds` 里各个格式串是否在库里。
 - `--check` 只读：只算摘要并打印，不复制、不构建、不写文件。
-- 工具链：venv 里的 meson 1.12.1 加 homebrew 的 ninja，bison 排在系统那个前面（前端的 parser 要它），可用 `AIR_VENV`／`AIR_BISON`／`AIR_NINJA` 覆盖。默认 venv 在 `/tmp/mesa-rebase/venv/bin`，重启或清理 `/tmp` 后就没有了。
+- 工具链：venv 里的 meson 1.12.1 加 homebrew 的 ninja，bison 排在系统那个前面（前端的 parser 要它），可用 `AIR_VENV`／`AIR_BISON`／`AIR_NINJA` 覆盖。默认 venv 在 `/tmp/mesa-rebase/venv/bin`，重启或清理 `/tmp` 后就没有了，建法见第 6 节。
 - 交叉构建配置 `out/ios26-resume/mesa-arm64e/cross.ini`：c／cpp／objc 都是 Xcode toolchain 的 clang 加 `-arch arm64e -isysroot <Xcode>/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.1.sdk -miphoneos-version-min=26.0`；ar／ranlib／strip 取自同一个 toolchain，`pkg-config = /usr/bin/false`；`[host_machine]` 是 `system = darwin`、`subsystem = ios`、`cpu_family = aarch64`、`cpu = arm64e`，`needs_exe_wrapper = true`。
 - 构建选项在同目录 `cmd_line.txt`：`buildtype = release`、`prefix = /redwood`、`gallium-drivers = softpipe,freedreno`、`freedreno-kmds = msm`、`osmesa = true`、`llvm = disabled`、`gles2 = enabled`、`shader-cache = disabled`、`build-tests = false`。
 
@@ -75,6 +75,10 @@ arm64e 构建树 `out/ios26-resume/mesa-arm64e/mesa-26.2.5` 的源码等于 Mesa
 从零建树：
 
 ```sh
+# 宿主上一次性准备：meson 与 Mesa 生成代码用的 Python 包，Homebrew 的 ninja 与 bison
+python3 -m venv /tmp/mesa-rebase/venv           # 放别处时用 AIR_VENV 指向它的 bin/
+/tmp/mesa-rebase/venv/bin/pip install meson==1.12.1 mako==1.4.3 PyYAML==6.0.3 packaging==26.0
+brew install ninja bison
 # hackios-dev 容器里，hackios-xnu-kernel/ 目录（补丁步骤要 GNU patch）
 PREPARE=1 VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5 REBASE=26 tools/mk-mesa.sh
 # 宿主上，工作区根目录（Xcode 的 arm64e clang 与 iPhoneOS SDK）
@@ -82,7 +86,7 @@ python3 tools/k90auto/setup-mesa-arm64e.py      # 目标目录已存在时拒绝
 python3 tools/k90auto/build-air.py
 ```
 
-- 2026-11-05 实测：按上面步骤在另一个目录建的树，源码与真机构建树 `diff -r` 无差异（只差 Python 缓存），编出的 `libredwoodair.dylib` 与真机构建树编出的逐字节相同（未签名 `6c65dc5a…`，签名后 `70f072b2…`）。
+- 2026-11-05 实测：用上面版本新建的 venv，按上面步骤在另一个目录建的树，源码与真机构建树 `diff -r` 无差异（只差 Python 缓存），编出的 `libredwoodair.dylib` 与真机构建树编出的逐字节相同（未签名 `6c65dc5a…`，签名后 `70f072b2…`）。
 - Mesa 的 isaspec 生成器按 Python 集合的顺序写 `build/src/freedreno/isa/encode.h`，这个顺序随每个进程的哈希种子变化，同一份源码两次构建会得到语句顺序不同的 `encode.h` 和不同字节的库。`build-air.py` 与 `setup-mesa-arm64e.py` 因此固定 `PYTHONHASHSEED=0`。
 - 改构建树里的 Mesa 源码时同时改 `rebase-26` 的补丁，改完在容器里用 `PREPARE=1` 重打一遍，与构建树 `diff -r` 应无差异，再跑 `build-air.py`。补丁与构建树不一致时构建照样成功，唯一的迹象是一轮跑完日志里少几行。
 - `air-build-record.json` 只覆盖 `build-air.py` 的 `FILES`（`tools/mesa/air/` 里的文件）。判断库里有没有某段插桩，用 `strings <库> | grep -c '<格式串>'`。
