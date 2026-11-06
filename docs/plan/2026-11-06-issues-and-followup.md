@@ -311,9 +311,9 @@
 
 本节汇总用户在整个会话（2026-11-05 至 2026-11-07 00:49）历次真机测试中提出的全部未彻底解决或待真机复核的问题，作为后续单人自主排查、根因修复与无人值守自动化验证的唯一执行清单。
 
-### 8.1 2026-11-07 00:46 真机实测 7 项当前阻塞问题（第一优先级）
+### 8.1 2026-11-07 真机实测 8 项高优先级问题与需求（第一优先级）
 
-基于 `00:43` 刷入的 `boot-a-ios.img`（SHA-256 `c42c76f3...`）及实测取证日志 `out/evidence-r2/m6_boot_0045.log`、`out/evidence-r2/m6_user_test_0049.log`、`out/evidence-r2/m6_user_test_0051.log` 与截图 `out/evidence-r2/m6_desktop_0046.png`：
+基于 `00:43` 刷入的 `boot-a-ios.img`（SHA-256 `c42c76f3...`）及实测取证日志 `out/evidence-r2/m6_boot_0045.log`、`out/evidence-r2/m6_user_test_0049.log`、`out/evidence-r2/m6_user_test_0051.log`、`out/evidence-r2/m6_user_test_0059.log` 与截图 `out/evidence-r2/m6_desktop_0046.png`：
 
 1. **开机进入桌面后应用图标全空（仅显示文字）、约 1 分钟后才依次出现，且期间桌面无法点击交互**：
    - **现象**：开机进入主屏后，所有应用图标初始均为空白（仅有下方应用名称文字），等待约 1 分钟图标才逐个渲染出来（此前版本还出现过一直无图标、点开设置后才瞬间全出，以及左右切页时时钟和日历动态图标先显空底板再出内容）；在图标未全部生成期间，主屏无法响应点击操作。
@@ -327,9 +327,11 @@
 4. **天气（Weather）App 打开后始终无法加载天气详情**：
    - **现象**：连上 Wi-Fi 后打开天气 App，详情页一直无法加载出当前或指定位置的天气数据。
    - **现场线索**：需结合 `weatherd`、`locationd`、定位权限／默认位置供给及 WeatherKit 网络请求（TLS／证书校验／`apsd`／`akd`／`fairplay`）排查具体失败环节。
-5. **电池百分比停在 44%，状态栏显示充电图标但未观察到电量增长**：
-   - **现象**：状态栏显示正在充电（电量从早先的 84% -> 75% -> 68% 降至 44%），持续插电使用过程中未观察到电量百分比上升（早期版本还出现过充电状态图标偶发跳回未插电状态）。
-   - **现场线索**：需核查 PM8550B SMB2 硬件充电器寄存器（USBIN 限流配置 ICL、充电使能位、快充握手状态）与 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c) 读取的 BQ27Z561 电量计实时充放电电流 `current_ua`，解除硬件输入电流限制。
+5. **状态栏显示充电但实际未充入（电量从 44% -> 42% -> 38% 持续下降）与低电量切回 Android 补电应急机制**：
+   - **现象**：状态栏显示正在充电图标，但实际未充进去电，电量从早先的 84% -> 75% -> 68% -> 44% -> 42% 一路掉到 38%（`m6_user_test_0059.log` 第 4850、13406、19592 行记录 `BQ27Z561 SOC=42% V=3772..3807 mV I=-159..-1692 mA`，净电流持续为负）。
+   - **根因排查与应急补电规程**：
+     - **硬件充电修复**：排查 PM8550B SMB2 充电控制器寄存器（USBIN 输入限流 ICL、充电使能位、Type-C／PD 握手档位）与 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c)，解除低电流限流使净电流转正。
+     - **真机验证低电量保护（应急切回 Android 充电）**：在 PM8550B 充电驱动修复生效前，无人值守脚本及调试过程实时监测 `BQ27Z561 SOC`；当电量低于 `30%～35%` 时，按[引导目标切换 SOP](device-boot-target-sop.md) 临时切回 Android 槽位利用原厂快充补电至安全水位（如 `>= 60%`），再切回 iOS 槽位继续无人值守调试，防止真机因电量耗尽断电停机。
 6. **隔空投送（AirDrop）从「接收关闭」切换为「开启接收」无反应（仍显示关闭），且设置内蓝牙显示开启但控制中心蓝牙显示关闭**：
    - **现象**：在设置或控制中心将隔空投送从「接收关闭」改为「所有人／仅联系人」无任何变化，仍保持「接收关闭」；设置列表里蓝牙显示为「打开」，但下拉控制中心看到的蓝牙图标处于「关闭」状态。
    - **现场线索**：`m6_user_test_0049.log` 与 `m6_user_test_0051.log`（第 7558、8086 行）显示 `bt: connected to com.apple.uart.sk.bluetooth (unit 1, waited 40000 ms, ready 0)` 后断开，`bluetoothd` 循环运行 `BlueTool` 启动脚本并上报 `com.apple.Bluetooth.HWFailure`，对 `kCBMsgIdLocalDeviceGetModulePowerMsg` 返回未就绪状态 `0xcafebabe`（导致控制中心判定蓝牙关闭、AirDrop 拒绝开启接收），且 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 中对 `SFAirDropDiscoveryController` 与 `airdrop` Gestalt 的离线拦截直接阻止了状态切换。
@@ -342,6 +344,14 @@
      - 经 `dsc.py` 反汇编符号化确认：`SpringBoardHome`（`0x1c1a3b9e8 -> 0x1c198bfa4`）在 `libdispatch` 后台线程（`0x1c2dcc1e4`）调用 `-[SBCalendarIconImageProvider iconLayerWithInfo:traitCollection:options:]`，进入 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 第 310 行的钩子 `sb26_calendar_icon_layer_fallback`（`0x100e72c4c`）：
        1. **ARM64 HFA 寄存器签名不匹配**：`struct SBIconImageInfo`（`CGSize size; double scale; double continuousCornerRadius;`）作为 4 个 `double` 的同质浮点聚合体（HFA）通过浮点寄存器 `d0..d3` 传参，`traitCollection` 与 `options` 实际在通用寄存器 `x2`、`x3`；而 `sb26_calendar_icon_layer_fallback(id self, SEL _cmd, void *info, id tc, unsigned long opts)` 将 `info` 声明为指针占用 `x2`，导致传给原实现 `orig_calendar_layer` 与 `iconImageWithInfo:traitCollection:options:` 的参数及浮点寄存器全部错位。
        2. **后台线程无事务修改 `CALayer` 触发 `CA_ASSERT_MAIN_THREAD_TRANSACTIONS` 断言 `abort()`**：`sb26_calendar_icon_layer_fallback` 第 340 行在后台 GCD 线程直接调用 `[new_layer setContents:cg_img]`（`QuartzCore` `0x183f79d34 -> 0x183f61320 -> 0x183f5e884 -> 0x183f5eb98 -> 0x184230d70`），未包裹 `[CATransaction begin]`／`[CATransaction commit]`，触发 `QuartzCore` 断言 `"CoreAnimation: CA_ASSERT_MAIN_THREAD_TRANSACTIONS is set and an implicit transaction wasn't created on a main thread."` 并直接调用 `abort()` 杀死 `SpringBoard`；此外还需一并核查 `inject_sb26_airdrop.inc` 中 `MRUMirroringController` 后台队列回调的线程安全性。
+8. **第三方 IPA 应用在主屏幕长按仅显示「从主屏幕移除」无法彻底卸载，需支持主屏直接卸载并预装原生「IPA 管理器」App（同时清理设备已装测试应用）**：
+   - **为什么当前在主屏幕删不掉（根因）**：
+     - [`hackios-xnu-userland/userland/src/appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m) 第 520～530 行在向 `LSApplicationWorkspace` 注册应用时，把字典属性写成了 `@"ApplicationType": @"System"` 与 `@"IsDeletable": @NO`（早期为了绕过 `FrontBoard` 对 `User` 类型应用的签名描述文件校验，把第三方 IPA 伪装成了不可删除的系统内置应用）。
+     - `SpringBoard` 读取到 `ApplicationType == "System"` 且 `IsDeletable == NO` 后，在主屏长按图标菜单中隐藏了「删除 App」选项，只允许「从主屏幕移除」（移入资源库，保留 Bundle 与数据容器）。
+   - **目标方案与实现要求**：
+     1. **支持在主屏幕直接彻底卸载（与 App Store 下载的应用体验一致）**：将 [`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m) 注册字典中的 `@"IsDeletable"` 设为 `@YES`，并打通 `SpringBoard`（`SBApplication`／`SBApplicationController` 的 `isUninstallAllowed` 与 `uninstallApplication:`）到 `LSApplicationWorkspace unregisterApplication:` 及删除 `/private/var/containers/Bundle/Application/<UUID>` 与对应 `MCMAppDataContainer` 数据容器的完整卸载链路，使主屏长按直接出现「删除 App」并可彻底删除。
+     2. **预装原生「IPA 管理器」App（`RedwoodInstaller.app`）**：开发并预装一个类似 Android 安装器的图形化管理工具，支持手动扫描与选择已下载的 `.ipa` 文件执行安装（以及从「文件」App／Safari 分享打开 `.ipa` 手动安装），集中展示全部已安装的第三方应用（名称、Bundle ID、版本、占用空间），并提供一键「彻底卸载」与「打开」按钮；启动脚本仅通过该管理器或命令行显式触发安装。
+     3. **清理当前设备上已安装且无法手动删除的残留测试应用**：通过 `appinst list` 与 `appinst remove <BUNDLE-ID>`（或在 IPA 管理器中）将用户设备上已安装的测试应用清理干净。
 
 ### 8.2 前期累计反馈待真机复核与持续攻关全量清单（第二优先级）
 
