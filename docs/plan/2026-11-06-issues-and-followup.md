@@ -324,9 +324,12 @@
 3. **打开设置进入 Wi-Fi 等子页面时屏幕轻微变亮／闪烁，且首次输入密码连接 Wi-Fi 提示「无法加入网络」（约 `00:46:35` 前几秒），随后才自动连上**：
    - **现象**：设置中 Wi-Fi 可以正常开启，但打开设置或进入 Wi-Fi 等子页面时屏幕亮度仍有轻微跳升或先暗后亮（此外开机苹果 Logo 阶段屏幕亮度偏低）；首次输入密码连接 Wi-Fi 弹窗提示「无法加入网络」，稍后后台才自动连接成功。
    - **现场线索**：`m6_boot_0045.log` 第 12906～13696 行显示 [`MiniAppleARMBacklight.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp) 在开机解锁时被 `CoreBrightness` 从 `400 nits` 下调至 `171.403 nits`（`0x1114`），进入设置子页面时 `IOMFBBrightnessLevel` 与 `DisplayBrightness` 再次触发亮度变化；[`lx_join.c`](../../hackios-xnu-kernel/wifi/lx/src/lx_join.c) 首次关联与四次握手（EAPOL）或 `wifid` 超时判定仍存在竞态。
-4. **天气（Weather）App 打开后始终无法加载天气详情**：
-   - **现象**：连上 Wi-Fi 后打开天气 App，详情页一直无法加载出当前或指定位置的天气数据。
-   - **现场线索**：需结合 `weatherd`、`locationd`、定位权限／默认位置供给及 WeatherKit 网络请求（TLS／证书校验／`apsd`／`akd`／`fairplay`）排查具体失败环节。
+4. **天气（Weather）、地图（Maps）等苹果官方内置应用均无法请求／加载内容数据**：
+   - **现象**：连上 Wi-Fi 后 Safari 可以打开网页，但打开天气（Weather）、地图（Maps）等苹果官方系统应用时，始终查不到详情、加载不出任何在线内容。
+   - **共性根因排查方向**：
+     1. **系统网络可达性状态（`NWPathMonitor`／内核 `NECP`／`configd`／`nehelper`）**：苹果官方应用与守护进程（`weatherd`、`geod` 等）普遍使用 `NSURLSession`（`waitsForConnectivity`）或 `Network.framework` 检查 `NWPathMonitor` 状态；需核查 `en0` 连网后 `configd` 的 `SCDynamicStore`（`State:/Network/Global/IPv4`、`State:/Network/Global/DNS`）及内核 `NECP` 策略是否将 `en0` 标记为满足联网条件的主路由接口（防止系统框架误判当前处于离线状态而拦截请求）。
+     2. **系统时间同步与 TLS 证书校验（`timed`／`trustd`／`securityd`）**：真机测试中观察到连上 Wi-Fi 后系统时间未及时更新，且存在时钟停滞偏差；若系统时间偏差过大或 `trustd` 根证书／OCSP 校验异常，苹果官方服务的 HTTPS／TLS 握手或带时间戳签名的 API Token（如 WeatherKit JWT、GeoServices 瓦片清单）会直接鉴权失败。
+     3. **基础守护进程链与苹果设备服务鉴权（`geod`／`weatherd`／`locationd`／`apsd`／`akd`／`fairplaydeviceidentityd`）**：抓取打开天气与地图时的实时日志，逐一排查 `com.apple.geod`（地图数据服务）、`com.apple.weatherd`、`com.apple.locationd`、`com.apple.nsurlsessiond` 是否正常启动及 XPC 通信是否报错，并核查 WeatherKit／GeoServices 所需的设备凭据或匿名 Token 获取链路。
 5. **状态栏显示充电但实际未充入（电量从 44% -> 42% -> 38% 持续下降）与低电量切回 Android 补电应急机制**：
    - **现象**：状态栏显示正在充电图标，但实际未充进去电，电量从早先的 84% -> 75% -> 68% -> 44% -> 42% 一路掉到 38%（`m6_user_test_0059.log` 第 4850、13406、19592 行记录 `BQ27Z561 SOC=42% V=3772..3807 mV I=-159..-1692 mA`，净电流持续为负）。
    - **根因排查与应急补电规程**：
