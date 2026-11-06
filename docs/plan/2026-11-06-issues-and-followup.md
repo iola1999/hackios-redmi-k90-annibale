@@ -95,6 +95,76 @@
    - **文件系统数据保护类（`va_dataprotect_class`）、克隆（`VOL_CAP_FMT_CLONE_MAPPING`）与创建时间（`va_addedtime`）原生支持**：在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 与 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 中补齐 `rn_dataprotect_class`、`va_addedtime`、`VOL_CAP_FMT_PERSISTENTOBJECTIDS`、`VOL_CAP_FMT_CLONE_MAPPING` 与 `VOL_CAP_INT_RENAME_SWAP`，在 [`apfs_vnops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c) 中返回 `PROTECTION_CLASS_D`，并移除 [`inject_posterboard.c`](../../hackios-xnu-userland/userland/src/inject_posterboard.c) 的 `NSURL` 钩子。
    - **系统应用数据容器统一制备**：在 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 的 `INJECT` 列表中将 `MobileCal` 加入 `libredwood-app.dylib`，在 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c) 中自动创建容器下的 `Documents`、`Library/Preferences`、`Library/Caches` 与 `tmp` 子目录，并移除 [`ax.m`](../../hackios-xnu-userland/userland/src/ax.m) 中针对 `MobileCal` 的环境变量分支。
 
+### 1.8 主屏大尺寸小组件卡片黑底与控制中心下拉白底切换（已落地并重编 AIR 库，待真机复核）
+
+- **现象**：主屏天气与日历等大尺寸小组件卡片背景显示为不透明纯黑底板；下拉控制中心时背景随高斯模糊金字塔下采样管线切换为正常白色毛玻璃，收起控制中心后卡片背景立刻恢复纯黑。
+- **根因**：
+  1. 主屏天气与日历大尺寸卡片背景采用 `MTMaterialView` 与 `CABackdropLayer`，材质片元着色器通过片元阶段读取当前帧缓冲颜色（Metal 语法 `[[color(0)]]`，即 Framebuffer Fetch）并在着色器内部混合。
+  2. `air_to_nir.c` 将 `air.render_target` 转换为 `nir_load_output` 内联原语（标记 `io_semantics.fb_fetch_output = true`）；随后 Mesa 的 `nir_lower_fb_read.c` 将 `load_output` 降级为纹理读取指令 `nir_texop_txf_ms_fb`，并绑定三维纹理坐标第 3 分量为 `layer = nir_load_layer_id(b)`。
+  3. `ir3_nir_lower_layer_id.c` 将 `nir_load_layer_id` 转换为 `load_input(VARYING_SLOT_LAYER)` 插值读取；CoreAnimation 的 2D 矩形绘制管线顶点着色器未输出 `VARYING_SLOT_LAYER`，`ir3_link_shaders` 匹配失败，硬件顶点参数缓存（VPC）未写入对应槽位。
+  4. 片元着色器执行 `isamm` 指令从未初始化的 VPC 寄存器 `r1.z` 读取图层编号，读得非零残留数值（`layer >= 1`）；高通 Adreno A830 硬件纹理单元对单图层 2D 表面（`array_size = 1`）执行数组边界断言，图层索引超出范围时硬件返回全零颜色 `(0, 0, 0, 0)`，材质着色器基于全零底色计算混色输出 `rgb(0,0,0)` 与 `alpha(1)`，卡片背景呈现纯黑。
+  5. 下拉控制中心时全屏四边形下采样模糊绘制重置了 VPC 寄存器（`r1.z == 0`）或直接采样 2D 模糊纹理，底层像素采样成功，显示为正常浅色底板；收起控制中心恢复 2D 直接合成，VPC 脏寄存器再次引入越界采样，卡片背景变回纯黑。
+- **修复**：
+  - 在 [`hackios-xnu-kernel/tools/mesa/rebase-26/0016-nir-lower-fb-read-zero-layer.patch`](../../hackios-xnu-kernel/tools/mesa/rebase-26/0016-nir-lower-fb-read-zero-layer.patch) 与 `nir_lower_fb_read.c` 中，检查片元着色器是否包含 `VARYING_SLOT_LAYER`（`b->shader->info.inputs_read & BITFIELD64_BIT(VARYING_SLOT_LAYER)`）；未包含时直接将图层绑定为立即数常量 0（`nir_imm_int(b, 0)`），阻断 `nir_load_layer_id` 及未链接 `load_input(VARYING_SLOT_LAYER)` 的生成，确保 `txf_ms_fb` 采样坐标第 3 分量为立即数 0。
+  - 在 [`hackios-xnu-userland/tools/mesa/air/air_to_nir.c`](../../hackios-xnu-userland/tools/mesa/air/air_to_nir.c) 与 [`hackios-xnu-kernel/tools/mesa/air/air_to_nir.c`](../../hackios-xnu-kernel/tools/mesa/air/air_to_nir.c) 中保持双向同步与 3461 行零净增长，明确 2D 单图层目标帧缓冲读取的常量图层 0 语义与状态清理。
+  - 运行 `python3 tools/k90auto/build-air.py` 完成 `libredwoodair.dylib` 编译与签名。
+
+### 1.9 存储拓扑原生对齐与 ramfs_clonefile 深度拷贝实现（已落地并完成编译验证，待真机复核）
+
+- **现象**：Safari 在完成文件下载后无法将文件移入「我的 iPhone」目录，下载进度停留在完成阶段且无法转存；系统中存储设备树仅有单一 `disk0` 节点，缺少 iPhone 原生的 APFS 容器与角色卷树。
+- **根因**：
+  1. 原生 iPhone 存储架构由物理磁盘 `disk0`、APFS 分区 `disk0s1`、合成容器 `disk1`（`AppleAPFSContainer`）及各角色卷（`disk1s1` System 卷、`disk1s2` Data 卷、`disk1s3` Preboot 卷）组成。原实现仅注册单个 `IOMedia` 节点且未发布 `AppleAPFSContainer` 与 `AppleAPFSVolume` 服务树，缺少 `APFSRole`、`Roles` 与 `VolumeUUID` 属性。
+  2. 内核 `devfs` 缺少 `disk0`、`disk0s1`、`disk1`、`disk1s1`、`disk1s2`、`disk1s3` 及其字符设备 `rdisk*` 节点。
+  3. `ramfs` 未注册 `vnop_clonefile` 接口。Safari 下载完成时调用 `copyfile(..., COPYFILE_CLONE)` 或 `fclonefileat()` 执行原子转存，系统调用因接口缺失返回 `ENOTSUP`（35），导致转存失败。
+- **修复**：
+  - 在 [`RedwoodBT.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/RedwoodBT.cpp) 中构建 `disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1, disk1s2, disk1s3)` 标准服务树，补齐角色掩码（System 为 `0x1`，Data 为 `0x40`，Preboot 为 `0x10`）、卷名、UUID 与内容类型属性。
+  - 在 [`redwood_disk_nodes.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_disk_nodes.inc) 中批量创建 `disk0`、`disk0s1`、`disk1`、`disk1s1`、`disk1s2`、`disk1s3`、`disk2`、`disk2s1`、`disk3`、`disk3s1` 及其字符设备；在 [`userland/src/init.c`](../../hackios-xnu-userland/userland/src/init.c) 中增加 `setup_disk_dev_nodes()` 双重确认。
+  - 在 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 中将 `f_fstypename` 设置为 `"apfs"`，`f_mntfromname` 设为 `"/dev/disk1s2"`，卷名返回 `"Data"` 并置位 `VOL_CAP_FMT_CLONE_MAPPING` 与 `VOL_CAP_INT_CLONE`；在 [`apfs_vfsops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vfsops.c) 中将根卷设为 `"/dev/disk1s1"`，Cryptex 卷设为 `"/dev/disk2s1"` 与 `"/dev/disk3s1"`。
+  - 编写 [`ramfs_clonefile.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_clonefile.inc)，实现常规文件（深拷贝数据页块映射表、物理块分配与扩展属性）、符号链接及目录树递归深拷贝，并在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 注册 `vnop_clonefile_desc`，使用户态 `clonefile()` 与 `copyfile(..., COPYFILE_CLONE)` 返回成功。
+
+### 1.10 内核 Panic 与看门狗崩溃日志硬件同步直写与开机自愈（已落地并完成编译验证，待真机复核）
+
+- **现象**：内核在触发 panic 或看门狗复位时，日志仅留存在物理内存环形缓冲区；系统发生硬复位或断电后现场日志丢失，重启后无法获取崩溃调用栈与错误根因。
+- **根因**：
+  1. [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 中的 `loader_panic_log()` 仅将日志写入内存数组；`loader_return()` 在提取日志前先执行了 `redwood_ufs_quiesce()` 释放存储控制器，导致后续无法再写入磁盘；定时器退出与看门狗喂狗路径在内核发生错误时未触发存储同步。
+  2. `darwin_var` 分区在元数据槽（0 至 64 MiB）与数据块区（512 MiB 起始）之间存在 448 MiB 连续未分配物理扇区，缺少专用的崩溃日志同步保留区与自愈恢复机制。
+- **修复**：
+  - 在 [`ramfs_disk.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 中划定 16 MiB 保留扇区 `RDWFS_PANIC_OFFSET`（[64 MiB, 80 MiB)），定义 `struct klog_head` 双 CRC32（头部与载荷独立校验）强完整性数据结构，魔数采用 `'KLOG'`（`0x474f4c4b`）。
+  - 在 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 中实现 `loader_panic_sync_ufs()`，打通 `loader_panic_log()`、`loader_return()`（调整时序在硬件静默前执行落盘）、`hv_wdt_pet()` 看门狗喂狗检测与定时器退出的硬件同步直写链路，调用 `redwood_ufs_var_io()` 将崩溃回溯与控制台上下文同步直写至 UFS。
+  - 在 `ramfs_disk.inc` 挂载流程中增加 `ramfs_disk_restore_panic_log()`，开机检测有效头部并校验双 CRC32 后，自动在 `/private/var/db/panic.log` 创建节点并还原崩溃日志，随后将 UFS 头部标记为归档魔数 `'DLOG'`（`0x474f4c44`）并重写校验和，防止开机重复还原。
+
+### 1.11 隔空投送（AirDrop）与控制中心「屏幕镜像」主线程阻塞异步治理（已落地并打包，待真机复核）
+
+- **现象**：点击隔空投送（AirDrop）图标导致整机卡死无响应；下拉控制中心点击「屏幕镜像」菜单时转圈阻塞 10 余秒，期间主线程冻结且无法操作界面。
+- **根因**：
+  1. AirDrop 互斥锁挂起：SpringBoard 在主线程同步初始化 `SFAirDropDiscoveryController` 时调用 `SFOperationCreate`，尝试与无线 P2P 守护进程建立通信并持有互斥锁；因 K90 平台缺少 `awdl0` 网卡导致底层通信超时并挂起 SpringBoard 主线程。
+  2. 屏幕镜像同步轮询阻塞：控制中心在主线程调用 `MRUMirroringController` 的 `availableOutputDevices`，同步触发 `FigRouteDiscovererCopyProperty` 轮询网络投屏终端，耗时达 10 秒并阻塞主线程。
+- **修复**：
+  - 在 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 与 [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c) 中拦截 `SFAirDropDiscoveryController` 的 `-init` 方法，使用 `if_nametoindex("awdl0") == 0` 检测网卡，网卡缺失时返回离线单例，阻止主线程调用 `SFOperationCreate`；在 `MobileGestalt` 拦截中针对 `airdrop` 与 `airdrop-p2p` 返回 `kCFBooleanFalse`，使界面保持安全离线状态。
+  - 拦截 `MRUMirroringController` 的 `availableOutputDevices`，主线程调用直接返回已缓存设备列表或空列表，消除 10 秒主线程同步等待；将网络路由探测移至后台 GCD 队列 `com.redwood.mru.discovery`，监听系统路由变化通知异步刷新缓存。
+
+### 1.12 主屏日历 App 动态图标透明与位图渲染恢复（已落地并打包，待真机复核）
+
+- **现象**：主屏日历 App 动态图标完全透明，仅显示下层壁纸，缺失日期数字与星期文本。
+- **根因**：iOS 26 启用 Liquid Glass 特性时，`-[appearance hasGlass]` 返回 `YES`，导致 `-[SBIconImageView shouldForceBitmapImages]` 返回 `NO`；图标渲染转入 `iconLayerWithInfo:` 路径，该方法对 `ISImage` 发送 `[image ICRIconLayer]`，因未实现该方法返回 `nil`，导致图层内容为空并呈现透明。
+- **修复**：在 [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c) 与 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 的 `software_bitmap_selection` 中检测图标类名，包含 `Calendar` 时强制返回 `YES`，使日历图标走通成熟的 `iconImageWithInfo:` 位图渲染路径；并在 `SBCalendarIconImageProvider` 的 `iconLayerWithInfo:` 增加回退保护，当图层为空时从位图提取 `CGImage` 构造图层。
+
+### 1.13 WebKit VP9 视频软解支持与字体服务（com.apple.fontservicesd）自启动（已落地并打包，待真机复核）
+
+- **现象**：YouTube 等现代网页视频黑屏或提示格式不支持；YouTube 首页部分字符显示为方框问号 `<?>`。
+- **根因**：
+  1. 现代网页视频广泛采用 VP9 编码，WebKit 在缺少硬件解码器时默认关闭 VP9 支持并拒绝播放视频流。
+  2. 网页文字排版依赖 `com.apple.fontservicesd` 进行字体动态加载与索引；此前 `IOS_JOBS` 守护进程列表缺失该服务且 `/var/db/fontconfig` 目录不存在，导致 WebKit 出现字体加载失败与沙盒写入报错。
+- **修复**：
+  - 在 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c) 中挂钩 `-[WKPreferences init]`，激活 `SWVPDecodersAlwaysEnabled` 特性，挂载 WebRTC 内置的 VP9 软件解码入口，写入 `NSUserDefaults` 偏好启用 WebKit 原生 VP9 软解支持。
+  - 在 [`userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 的 `IOS_JOBS` 守护进程列表中加入 `com.apple.fontservicesd`，并在文件系统打包时建立 `/var/db/fontconfig` 目录与 0755 权限。
+
+### 1.14 视频帧 NV12（'420v'）双平面 IOSurface 纹理绑定与 BT.601 转换管线（已落地并打包，待真机复核）
+
+- **现象**：Safari 播放视频时报错拒绝导入纹理，系统日志提示 `MTLPixelFormatYCBCR8_420_2P`（格式 500）单平面导入接口非法。
+- **根因**：AVFoundation 解码输出的视频帧普遍采用 NV12（`'420v'`）双平面 `IOSurface`（平面 0 为 R8 亮度分量，平面 1 为 RG8 色度分量）；CoreAnimation 在调用 Metal 驱动 `newTextureWithDescriptor:iosurface:plane:` 时传入格式 500，驱动单平面导入接口判定格式非法并拒绝。
+- **修复**：在 [`redwooddrawable.m`](../../hackios-xnu-userland/userland/src/redwooddrawable.m) 与 [`redwooddrawable_420v.inc`](../../hackios-xnu-userland/userland/src/redwooddrawable_420v.inc) 中拦截 `newTextureWithDescriptor:iosurface:plane:`，当传入格式为 500 且 `plane == 0` 时，分别将平面 0 绑定为 R8 纹理，平面 1 绑定为 RG8 纹理；调用 BT.601 Compute Shader 转换管线（`ycbcr_420v_to_rgb`）将 YCbCr 像素转换为 RGBA8 纹理后返回上层渲染树合成。
+
 ## 2. 上游优化项与工程工具链跟进
 
 对照[上游对照分析](../analysis/2026-11-05-upstream-lessons.md)与[上游 2/3/4 阶段对照分析](../analysis/2026-11-06-upstream-2-3-4-analysis.md)，当前状态与后续安排如下：
@@ -109,15 +179,15 @@
 ## 3. 会话内已反馈但尚未投入／待继续攻关的事项
 
 1. **桌面图标与小组件（Widget）渲染异常**：
-   - **主屏日历 App 图标完全透明／空白**：主屏时钟动态图标正常，但日历 App 图标透明无内容；需排查 `iconservicesagent` 动态日历图标生成插件（`CalendarIcon`／`CUIKIcon`）或离屏 Metal 绘制路径。
-   - **主屏天气与日历大尺寸小组件背景呈黑色（下拉控制中心高斯模糊背景下却恢复正常白色，收起控制中心又变回黑色）**：说明小组件图层内容已生成，但主屏直接合成时的 backdrop 混合状态、像素格式或 alpha 通道处理异常，需结合 `inject_sb26_layers.c` 与 `redwoodmetal` 混合管线定位。
+   - **主屏日历 App 图标完全透明／空白（已落地，待真机复核）**：已由 §1.12 在 `inject_sb26_airdrop.inc` 中强制走位图渲染路径 `iconImageWithInfo:` 并增加图层回退保护修复。
+   - **主屏天气与日历大尺寸小组件背景呈黑色（已落地，待真机复核）**：已由 §1.8 在 Mesa 补丁 0016 中对无 `VARYING_SLOT_LAYER` 的 2D 管线回退常量图层 0 修复越界采样。
 2. **特定交互卡死、主线程阻塞与崩溃日志跨开机持久化**：
-   - **点击隔空投送（AirDrop）图标整机卡死**：需排查 `sharingd`／AWDL／蓝牙广播 XPC 同步等待导致的 SpringBoard 主线程死锁。
-   - **下拉控制中心点击「屏幕镜像（投屏）」菜单卡顿转圈 10 余秒且期间无法操作**：需排查 `mediaremoted`／AirPlay 发现服务同步阻塞 UI 主线程。
-   - **Safari 输入网址过程中偶发整机卡死并触发看门狗黑屏重启**：需排查输入法词库查询、WebKit 进程或 GPU 挂起，并将内核 panic／看门狗现场日志实时落盘到 `darwin_var` 的 `klog` 区以便重启后取证。
+   - **点击隔空投送（AirDrop）图标整机卡死（已落地，待真机复核）**：已由 §1.11 在 `inject_sb26_airdrop.inc` 中检测 `awdl0` 缺失返回离线单例避免主线程持锁超时修复。
+   - **下拉控制中心点击「屏幕镜像（投屏）」菜单卡顿转圈 10 余秒（已落地，待真机复核）**：已由 §1.11 拦截投屏设备查询走本地内存缓存并由后台 GCD 队列异步刷新修复。
+   - **Safari 输入网址过程中偶发整机卡死并触发看门狗黑屏重启（日志直写已落地，待真机复核）**：已由 §1.10 在 `darwin_var` 划定 16 MiB 专用扇区建立 `'KLOG'` 硬件同步直写与开机自愈机制，崩溃现场日志可在重启后完整提取。
 3. **网页字体与视频播放**：
-   - **YouTube 首页文字显示为方框问号 `<?>`（其他中文网站正常）**：需在挂载原版未裁剪 `os.dmg`（含完整 `/System/Library/Fonts`）后复核 WebKit 字体回退表（Font Fallback）与沙盒字体读取权限。
-   - **网页视频无法播放**：需在 [`redwoodmetal.m`](../../hackios-xnu-kernel/tools/userland-driver/redwoodmetal.m) 与 [`redwooddrawable.m`](../../hackios-xnu-userland/userland/src/redwooddrawable.m) 中补齐两平面 YCbCr（`'420v'`／NV12）`IOSurface` 纹理采样与色彩空间转换，打通 H.264／VP9 软解播放，随后推进 SM8750 Iris VPU v3.5 硬解。
+   - **YouTube 首页文字显示为方框问号 `<?>`（已落地，待真机复核）**：已由 §1.13 在 `IOS_JOBS` 纳入 `com.apple.fontservicesd` 自启动并补齐 `/var/db/fontconfig` 权限修复。
+   - **网页视频无法播放（已落地，待真机复核）**：已由 §1.13 启用 WebKit VP9 CPU 软解，以及 §1.14 在 `redwooddrawable_420v.inc` 中实现 NV12（`'420v'`）双平面纹理绑定与 BT.601 Compute Shader 转换管线修复；后续继续推进 SM8750 Iris VPU v3.5 硬件解码。
 4. **第三方容器应用与内置服务**：
    - **安装并验证 `LiveContainer+SideStore.ipa`**：在 `darwin_var` 直写持久化就绪后安装并验证跨开机保留与运行。
    - **天气（Weather）App 无法获取天气数据**：排查 `weatherd` 对 `locationd`、`kvsd` 与网络状态通知的依赖。
