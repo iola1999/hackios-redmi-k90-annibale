@@ -106,19 +106,35 @@
    - 跨开机着色器编译缓存（`/private/var/db/redwood-aircache` 与管线缓存随 `var_store` 持久化，消除冷启动首次打开控制中心／应用时的编译卡顿）。
    - Mesa `ir3` A8xx 补丁回移与 `SwapWait`／ACD 调优。
 
-## 3. 外设与子系统继续适配队列
+## 3. 会话内已反馈但尚未投入／待继续攻关的事项
+
+1. **桌面图标与小组件（Widget）渲染异常**：
+   - **主屏日历 App 图标完全透明／空白**：主屏时钟动态图标正常，但日历 App 图标透明无内容；需排查 `iconservicesagent` 动态日历图标生成插件（`CalendarIcon`／`CUIKIcon`）或离屏 Metal 绘制路径。
+   - **主屏天气与日历大尺寸小组件背景呈黑色（下拉控制中心高斯模糊背景下却恢复正常白色，收起控制中心又变回黑色）**：说明小组件图层内容已生成，但主屏直接合成时的 backdrop 混合状态、像素格式或 alpha 通道处理异常，需结合 `inject_sb26_layers.c` 与 `redwoodmetal` 混合管线定位。
+2. **特定交互卡死、主线程阻塞与崩溃日志跨开机持久化**：
+   - **点击隔空投送（AirDrop）图标整机卡死**：需排查 `sharingd`／AWDL／蓝牙广播 XPC 同步等待导致的 SpringBoard 主线程死锁。
+   - **下拉控制中心点击「屏幕镜像（投屏）」菜单卡顿转圈 10 余秒且期间无法操作**：需排查 `mediaremoted`／AirPlay 发现服务同步阻塞 UI 主线程。
+   - **Safari 输入网址过程中偶发整机卡死并触发看门狗黑屏重启**：需排查输入法词库查询、WebKit 进程或 GPU 挂起，并将内核 panic／看门狗现场日志实时落盘到 `darwin_var` 的 `klog` 区以便重启后取证。
+3. **网页字体与视频播放**：
+   - **YouTube 首页文字显示为方框问号 `<?>`（其他中文网站正常）**：需在挂载原版未裁剪 `os.dmg`（含完整 `/System/Library/Fonts`）后复核 WebKit 字体回退表（Font Fallback）与沙盒字体读取权限。
+   - **网页视频无法播放**：需在 [`redwoodmetal.m`](../../hackios-xnu-kernel/tools/userland-driver/redwoodmetal.m) 与 [`redwooddrawable.m`](../../hackios-xnu-userland/userland/src/redwooddrawable.m) 中补齐两平面 YCbCr（`'420v'`／NV12）`IOSurface` 纹理采样与色彩空间转换，打通 H.264／VP9 软解播放，随后推进 SM8750 Iris VPU v3.5 硬解。
+4. **第三方容器应用与内置服务**：
+   - **安装并验证 `LiveContainer+SideStore.ipa`**：在 `darwin_var` 直写持久化就绪后安装并验证跨开机保留与运行。
+   - **天气（Weather）App 无法获取天气数据**：排查 `weatherd` 对 `locationd`、`kvsd` 与网络状态通知的依赖。
+
+## 4. 外设与子系统继续适配队列
 
 按既有规划继续推进各外设与系统能力适配：
 
-- **蓝牙（第 3、4 步）**：已完成开启与 BLE 扫描（`bt=4`）；继续推进 BLE 外设配对、SE14 UART 3 Mbaud 提速（`0xFC48` 加 GENI 时钟）与蓝牙音频路由，见[蓝牙接入调研](../analysis/2026-11-02-bluetooth-bringup.md) §6、§8。
+- **蓝牙（第 3、4 步）**：已完成开启、BLE 扫描与配对码弹窗；继续推进蓝牙耳机连接与音频路由、SE14 UART 3 Mbaud 提速（`0xFC48` 加 GENI 时钟）与隔空投送，见[蓝牙接入调研](../analysis/2026-11-02-bluetooth-bringup.md) §6、§8。
 - **音量与音频输出**：音量键、HUD 提示框与控制中心音量滑块已接通（`AUDIO=1`）；继续推进 ADSP、AudioReach 与扬声器功放驱动出声，见[音量与声音输出调研](../analysis/2026-11-02-audio-and-volume.md)。
 - **视频播放与硬件解码**：先实现 Metal 驱动两平面 YCbCr（`'420v'`）合成并在 `MobileSafari` 中打通 H.264／VP9 软解播放，再推进 SM8750 Iris VPU v3.5 固件加载、HFI gen2 与 VideoToolbox 硬解插件，见[视频解码调研](../analysis/2026-11-05-video-decode.md)。
-- **相机**：提取主摄 OV50E `sensormodule` 配置，推进 CCI／CSIPHY／IFE 与 `cameracaptured` 接入，见[相机路线](camera-plan.md)。
+- **相机**：控制中心打开相机当前为黑屏；提取主摄 OV50E `sensormodule` 配置，推进 CCI／CSIPHY／IFE 与 `cameracaptured` 接入，见[相机路线](camera-plan.md)。
 - **手电与振动（iOS 26）**：排查 `rate7-def1` 中手电 `0x0018` 传输丢弃与振动故障寄存器 `0x10` 清除问题，恢复控制中心手电开关与系统触感反馈，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。
-- **充电状态与温控**：墙插充电器下验证 `annibale_battery.c` 防抖窗口，推进原生 `CLPC` 调频策略分析与复刻，见[路线图 §5.4](2026-10-26-roadmap.md#54-苹果原生策略分析与复刻clpc)。
+- **充电状态与温控**：墙插充电器与电脑 USB 下验证 `annibale_battery.c` 在线检测与防抖窗口，推进原生 `CLPC` 调频策略分析与复刻，见[路线图 §5.4](2026-10-26-roadmap.md#54-苹果原生策略分析与复刻clpc)。
 - **天气、Safari 下载、蜂窝与 App Store**：修复 `weatherd` 依赖服务、Safari 下载文件移入「我的 iPhone」、蜂窝基带与 App Store 登录下载，见[总账跟踪](2026-10-23-tracking.md) §2。
 
-## 4. Android 系统内 OTA 影响结论
+## 5. Android 系统内 OTA 影响结论
 
 已写入[双系统分区与持久化部署手册](dual-boot-setup.md) §5：
 
