@@ -412,3 +412,31 @@
 4. **内核电池驱动真实 SPMI 写入与假日志清除（Worker C）**：排查 `annibale_battery.c` 中 SPMI 通道所有权（`owner == 4`，ADSP/Charger EE）与 arbiter v7 映射逻辑，打通系统执行环境对充电配置寄存器的真实写入；为全部寄存器写入调用增加返回值校验与状态回读比对，彻底清除未校验写入结果即输出使能成功的假日志；写入失败时准确记录错误状态码并返回错误。
 5. **文档隐私安全脱敏与规范审计（Worker D）**：依据 [AGENTS.md](../../AGENTS.md) §3 清除文档中全部真实本机用户目录与真机硬件序列号，规范统一替换为 `<LOCAL_IPA_PATH>` 与 `<ANDROID_SERIAL>`；经 `tools/unwrap_md.py --check` 校验，跟踪文档与跟进文档无硬换行违规；经代码行数审计，内核与用户态全部新增及修改源码文件单文件物理行数均符合 <= 1200 行红线约束，存量超标文件保持净减少。
 
+### 8.5 R5 轮次：xnuloader 固件复位修复、小组件离屏 Alpha 治理、应用网络链路打通与离线全量构建就绪（2026-11-07）
+
+本轮次针对第四轮审计提出的遗留问题实施根因修复与全量统一构建：
+
+1. **xnuloader 固件平台复位加固与切槽保护（Device Lead）**：
+   - 修复平台复位路径：在 [`loader_02_platform_cpu_ufs_survey.inc`](../../hackios-xnu-kernel/xnuloader/loader_02_platform_cpu_ufs_survey.inc) 中前置声明 `PLAT`，在 `reboot()` 中加入 `PLAT == &platform_annibale` 条件，确保 `annibale` 平台复位始终调用 `psci_reset_attempt()`，禁止调用 `ST->rt->reset_system(EfiResetCold)` 导致硬件卡死。
+   - 阻断内核资源持有状态下的切槽操作：在 [`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `oem android` 命令处理中校验 `kernel_resources_held`，若内核未完全停止则直接返回 `FAIL` 拒绝切槽，防止内核未下电时切槽造成掉电异常。
+   - 启用 UEFI 充电协议探测：在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 的 `charger_start()` 中移除平台限制，允许 `annibale` 平台探测充电协议并在未提供时记录日志安全返回。
+2. **小组件离屏渲染 Alpha 治理与动态清屏通道（Worker B）**：
+   - 在 [`redwoodmetal.m`](../../hackios-xnu-kernel/tools/userland-driver/redwoodmetal.m) 中重构渲染通道清屏色彩捕获逻辑，记录首个清除附件属性；针对无 IOSurface 绑定的离屏中间目标纹理，在检测到默认纯黑清屏色 `(0, 0, 0, 1)` 时将其 Alpha 分量修正为 `0.0f`，保持材质卡片底层透明度。
+   - 在 [`air_metal.c`](../../hackios-xnu-userland/tools/mesa/air/air_metal.c) 与内核镜像源中为 `pipe->clear` 动态生成多颜色附件 `colormask`（每个活动附件按位填充 `0xfu << (i * 4)`），消除多附件模式下非零索引缓冲区的通道掩码截断；检测到离屏目标默认纯黑清屏时将 Alpha 设为 `0.0f`。两份源文件保持逐字节一致。
+3. **SpringBoard 细粒度位图判定与 RedwoodInstaller 资产补齐（Worker A）**：
+   - 在 [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c) 中落地真实条件分支判定，仅针对 `"Calendar"` 图标类名及无 Metal 硬件设备强制返回位图选择，其余场景保持原生 Liquid Glass 渲染。
+   - 在 [`build_installer.sh`](../../hackios-xnu-userland/userland/src/build_installer.sh) 中补齐 RedwoodInstaller 包含 18 种标准尺寸在内的完整 PNG 图标资产，并在 `installer_app.plist` 中声明 `CFBundleIcons`。
+   - 在 [`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m) 的 `remove_app` 与 `clean_test_apps` 中调用 `[LSApplicationWorkspace uninstallApplication:withOptions:]` 系统接口注销应用并清理 LaunchServices 缓存。
+4. **官方应用真实网络可达性重绑定与系统服务链路（Worker D）**：
+   - 在 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c) 中基于 `getifaddrs()` 实时检测物理网卡状态；扩展重绑定覆盖 `__DATA` 与 `__AUTH` 段的 `NWPath` 与 `SCNetworkReachability` 符号集；向客户端派发初次网络状态变更事件解除地图脱机阻塞；挂钩 `GEONetworkObserver` 并广播可达通知；增加系统基准时间校正保障 TLS 握手。
+   - 在 [`mkjobs.py`](../../hackios-xnu-userland/userland/mkjobs.py) 中配置 `com.apple.timed` 守护进程开机常驻与崩溃重启，保护 `mDNSResponder` 配置。
+   - 在 [`var.skel.extra`](../../hackios-xnu-userland/userland/var.skel.extra) 与 `resolv.conf` 中预置天气与地图应用的共享 AppGroup 容器目录和公共 DNS 服务器。
+5. **统一全量编译与引导镜像封装（Device Lead）**：
+   - 编译生成 `libredwoodair.dylib`（14,104,384 字节，SHA-256 `e7b4592cebb974af`）、`RedwoodInstaller.app`（212 KB）、`xnuloader.efi`（121,344 字节）以及 XNU 内核二进制（`out/xnu12377-st4.bin`）。
+   - 运行 `tools/k90auto/package.py` 打包生成 20,525,056 字节 `root.apfs`。
+   - 运行 `mkstandalone.py` 与 `reseal-loader-img.py` 封装生成 23,967,744 字节最新 `hackios-xnu-kernel/out/boot-a-ios.img`（SHA-256 `2969ddc311ddce3cdb5df9d10e76d46208c756e24d9b65a0bf73e0aa3dd5bde0`）。
+6. **真机设备离线状态记录与复核规划（AGENTS.md §5）**：
+   - 检查 `fastboot devices` 与 `adb devices`，设备未处于枚举状态（因 R4 阶段 SOC=23% 切槽掉电后处于关机等待硬件按键开机/充电状态）。
+   - 依据 [AGENTS.md](../../AGENTS.md) §5 无人值守约束，停止继续向 USB 接口轮询发送命令，转入离线构建验证与代码静态归档，等待真机通过人工按键开机与充电复位后集中执行刷机复核。
+
+
