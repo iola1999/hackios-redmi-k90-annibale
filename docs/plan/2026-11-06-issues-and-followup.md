@@ -141,3 +141,19 @@
 - 系统内 OTA（`update_engine`）不刷写 `gpt_both0.bin`，重启时 `resize.f2fs` 仅对齐 GPT 中 `userdata`（`sda34`）的边界，因此 `darwin`（`sda35`）与 `darwin_var`（`sda36`）分区及 iOS 数据完全保留。
 - 增量 OTA 会因 `boot`／`init_boot` 已被修改而校验失败，日常更新应使用**完整包 OTA（Full ROM）**。
 - 完整包 OTA 会将新版本 Android 写入当前闲置槽位（覆盖原 `xnuloader` 所在槽位的 `boot`）并在重启后切到新槽位；待新版本 Android 开机完成后台快照合并后，将 `xnuloader` 刷入退下来的新闲置槽位即可恢复双启动。
+
+## 6. 第一优先级真机恢复与部署取证（2026-11-06）
+
+### 6.1 物料准备与完整性核对
+
+1. **LUN 4 GPT 相位镜像**：`hackios-xnu-kernel/out/gpt_both4_slotb.bin`（45,056 字节），用于在 LK Fastboot 下写入 `partition:4` 并执行 `set_active a`。
+2. **原版三容器镜像**：位于 `hackios-xnu-kernel/out/ipsw/v57/26/`，包含 `os.dmg`（9,758,048,256 字节，2,382,336 块）、`systemos.dmg`（5,261,754,368 字节，1,284,608 块）与 `appos.dmg`（14,680,064 字节，3,584 块），合计 15,034,482,688 字节（14.002 GiB），由 `userdata-dual-carve.py` 写入 16 GiB `sda35`（`darwin`）分区。
+3. **独立双系统引导载荷与内核**：`hackios-xnu-kernel/out/boot-a-ios.img`（23,851,008 字节）与最新编译内核 `hackios-xnu-kernel/out/xnu12377-st6.bin`（20,958,824 字节），准备刷入 `boot_a`。
+4. **验证应用**：`/Users/fan/Downloads/LiveContainer+SideStore.ipa`（23,607,434 字节），由 `tools/k90auto/install-ipa.py` 执行 ad-hoc 签名并安装。
+
+### 6.2 真机硬件诊断与 USB 状态
+
+1. **USB 物理连接与枚举状态**：主机端 `ioreg -p IOUSB -l` 读出设备物理连接为 `idVendor = 6353`（0x18d1），`idProduct = 53261`（0xd00d），`USB Product Name = "Android"`，`USB Serial Number = "519e5a70"`，`locationID = 51576832`，接口类为 `bInterfaceClass = 255, bInterfaceSubClass = 66, bInterfaceProtocol = 3`（Fastboot）。
+2. **端点通信诊断**：控制端点 EP0 可读取描述符，但数据端点 0x01（Bulk OUT）对命令传输无响应。调用 IOKit `WritePipeTO` 返回 `0xe0004051`（`kIOUSBTransactionTimeout`），调用 libusb `libusb_bulk_transfer` 返回 `-7`（`LIBUSB_ERROR_TIMEOUT`）。
+3. **主机侧恢复处置**：排查并终止了占用该接口的后台进程 `lghub_agent`，并由主机下发 `libusb_reset_device` 端口复位与 `clear_halt` 清除端点停顿；主机侧复位完成后，设备端 Bulk OUT 端点仍处于无响应状态。
+4. **根据真机无人值守约束判定**：依据 [AGENTS.md](../../AGENTS.md) §5 与 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md) §4，设备属于「枚举但无应答且软件入口不可达」状态，需要由用户长按电源键进行硬件复位，或按住音量下加电源键重新进入 LK Fastboot。
