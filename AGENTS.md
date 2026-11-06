@@ -48,26 +48,34 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - **loader 未枚举即停手。** 起轮前 `fastboot devices` 里没有 `xnuloader`，或 `getvar result` 不是 idle，整条队列立刻停止：写标记文件、报用户、等指令。不自行 `reboot`、不自行断电重来、不自行换槽。
 - **序列号为空等于未枚举。** `adb devices` 列出设备但序列号为空时，除轮询外不发任何命令。序列号的判据是能原样读出来，不是列表里有一行。
 - **每轮收尾硬校验。** `getvar result` 必须是 idle、`getvar product` 必须是 `xnuloader`，两项都满足才允许下一轮。任一项不满足，队列停下报用户。
-- **A 槽重试有预算。** loader 每次启动消耗 2 次重试且不标记成功，约三轮后归零并回退到 B 槽。起轮前读 `slot-retry-count:a`，低于 3 先 `set_active a`；连续轮次每满 3 轮做一次冷启动检查点再继续。
+- **A 槽重试预算与 GPT GUID 相位。** `xnuloader` 启动时会自动维护自身槽位的重试计数与 `_a`／`_b` 分区 `PartitionTypeGUID` 相位；主机侧起轮前仍需检查 `slot-retry-count:a`（低于 3 先 `set_active a`），切槽时确保 LUN 4 与 LUN 0 的活动槽位持有各自的 `PartitionTypeGUID`（非活动槽位为 `77036cd4-...`），防止触发高通 LK `ValidateSlotGuids` 校验失败。
 - **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再起下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。
 - **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。
+- **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编（`hackios-xnu-kernel/tools/dsc/dsc.py` 或 `idalib-mcp`）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
 
-## 6. 其他
+## 6. 根因定位与原生对齐约定（必须遵守）
+
+- **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编（`hackios-xnu-kernel/tools/dsc/dsc.py` 或 `idalib-mcp`）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
+- **明确禁止的做法。** 不得用方法交换（swizzling）强改 UI 视图背景色或伪造通知／权限授权返回值；不得在渲染管线编译失败时回退为固定纯色管线掩盖着色器错误；不得针对单个应用硬编码环境变量绕过通用容器目录初始化；不得用用户态定时轮询打包脚本代替内核块设备直写持久化。
+- **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区（[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)）：`darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex（支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`），`darwin_var`（`/dev/ufs_darwin_var`）由内核直写块持久化层（`RDWFS001`，`ramfs_disk.inc`）直接读写物理块并以双 32 MiB 乒乓元数据槽位实时落盘。内核 `IOKit`（`disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`）、`devfs`（`/dev/disk*`）与 `statfs`（`/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`，总容量按 128 GB 容器十进制口径计算并扣除系统卷、Cryptex 与 `/private/var` 实际已用空间）与 iPhone 真机保持一致。
+- **子 Agent 与团队成员模型选择。** 派发复杂排查、反汇编分析、内核／驱动编码或 Teamwork 成员任务时，指定使用高能力模型（`inherit`／Gemini 4 Argon 或 `pro`）。
+
+## 7. 其他
 
 - 过程记录写 `docs/progress/`（按日期命名），规划写 `docs/plan/`，调研/实测数据写 `docs/analysis/`。
 - `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
 - 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 的陷阱。
-- 引导目标之间怎么切（Android／LK／loader 三种身份、各条切换路径的命令与成功判据、陷阱）见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。脚本与文档假设 loader 在 A 槽、Android 在 B 槽。两个方向都靠 `set_active` 换槽再 `reboot`；从 LK 用 `fastboot boot` 启动完整的 loader 镜像可以临时进 loader，单独的 handoff 载荷不行；枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
+- 双系统分区规划、在线缩容、写入系统盘、刷入双启动 `xnuloader`、Android／iOS 切换及 Android 系统内 OTA 影响见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。引导目标切换细节见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)：`xnuloader` 启动时读取 LUN 4 GPT 槽位属性自动识别自身槽位（`loader_slot`）与另一侧 Android 槽位（`android_slot`），在开机菜单或命令行切槽时同步交换 LUN 4 与 LUN 0 上 `_a`／`_b` 分区的 `PartitionTypeGUID`；从 LK 用 `fastboot boot` 启动完整的 loader 镜像可以临时进 loader，单独的 handoff 载荷不行；枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
 - loader 镜像与其中 UEFI 的构建见 [annibale UEFI 与 loader 镜像构建](docs/analysis/annibale-uefi-build.md)，UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支，克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
 - USB 命令超时、内核停止或重启后身份变化，先看[USB 恢复与减少人工按键的调试经验](docs/analysis/2026-10-25-usb-recovery-lessons.md)。判断无应答前检查 stdout、stderr 与实际耗时，区分驻留 loader、LK 与 Android；请求按键前记录当前轮软件恢复失败的结果，同一待用户动作合并提示。同一设备的命令串行执行，异常后的资源保留规则继续遵守。
-- Android 通知栏、手势条消失或 SystemUI 反复崩溃时，先看 [系统界面修复记录](docs/analysis/2026-10-23-android-systemui-recovery.md)。该文档也记录 userdata 尾部暂存的风险、备份边界和 loader USB 日志读取方法；真机调试优先通过 USB 把系统盘传入 RAM。
+- Android 通知栏、手势条消失或 SystemUI 反复崩溃时，先看 [系统界面修复记录](docs/analysis/2026-10-23-android-systemui-recovery.md)。该文档也记录早期 userdata 尾部暂存的风险、备份边界和 loader USB 日志读取方法；当前双系统引导直接从 UFS `darwin` 分区读取系统盘（约 1.4 秒）并挂载 `darwin_var` 可写数据盘，仅在未划分 `darwin` 分区的临时调试场景下才经 USB 将系统盘传入 RAM。
 - 接手、排查、构建和真机操作前阅读 [项目排查与协作手册](docs/plan/debugging-and-collaboration.md)，按其中的前提、操作、成功条件和失败处理执行。旧文档与新结果有差异时核对源码、产物和实测时间，设备当前状态重新读取。
 - 硬件资料：设备树资源见[硬件资源图谱](docs/analysis/annibale-hw-map.md)；触摸报告模式、TLMM 地址、BQ 电量、充电状态与 CPU 拓扑见[桌面交互案例](docs/analysis/2026-10-24-interactive-runtime.md)。硬件调试文件的读取也可能访问寄存器，操作前核对范围及恢复方式。
 - GPU：A830 的启动阶段、成功判据与关键修复见[A830 命令执行](docs/analysis/2026-10-24-a830-command-startup.md)，GPU 桌面、LPAC 路由与 Mesa CCHE 失效见 [GPU 桌面记录](docs/progress/2026-10-26-gpu-desktop-acceleration.md)。
-- iOS 26 桌面：解锁、着色器编译与 GPU 挂起的修复见[可用桌面记录](docs/progress/2026-10-30-ios26-usable-desktop.md)；开机次序与处理器占用见[开机次序与性能](docs/progress/2026-10-31-boot-order-and-performance.md)。
+- iOS 26 桌面：解锁、着色器编译与 GPU 挂起的修复见[可用桌面记录](docs/progress/2026-10-30-ios26-usable-desktop.md)；开机次序与处理器占用见[开机次序与性能](docs/progress/2026-10-31-boot-order-and-performance.md)；近期开机后视觉、亮度、通知权限、Wi-Fi、充电、关机与持久化问题见[11-06 问题与跟进清单](docs/plan/2026-11-06-issues-and-followup.md)。
 - 帧率与 120 Hz：手势帧率的卡点见 [120 Hz 手势瓶颈](docs/analysis/2026-11-01-120hz-gesture-bottleneck.md) 与 [GPU 升频之后的长帧](docs/analysis/2026-11-02-120hz-after-gpu-clock.md)。
-- 反汇编 QuartzCore 与查 iOS 26 虚表槽位用 `hackios-xnu-kernel/tools/dsc/`，用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)。
+- 反汇编与逆向分析：查 iOS 26 `dyld_shared_cache` 框架反汇编与虚表槽位用 `hackios-xnu-kernel/tools/dsc/dsc.py`（用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)）；独立二进制、引导程序（如 `LinuxLoader.efi`）与固件模块的反编译分析可结合 `idalib-mcp` 使用。
 - 经验文档优先记录排查方法、底层原理、判断依据和验收边界；已由代码或工具链解决的问题简短提及，具体命令集中在当前操作手册。
 - 从会话整理经验的可复用指令见 [经验整理 Prompt](docs/plan/experience-review-prompt.md)，整理方式调整后同步更新该文档。
 - 原始日志、截图、转储和本轮产物清单保存在 `.gitignore` 覆盖的本地调试目录，文字结论与必要的日志摘录写进 Markdown；提交前检查父仓库及各子模块的变更归属。
