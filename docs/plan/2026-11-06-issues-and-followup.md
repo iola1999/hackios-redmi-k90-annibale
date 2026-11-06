@@ -304,5 +304,31 @@
 
 ### 7.7 仓库提交与真机闭环验证总览
 
-1. **各仓库提交记录**：用户态仓库提交 [`a66051f`](https://github.com/iola1999/hackios-xnu-userland/commit/a66051f)，内核仓库提交 [`40377ec`](https://github.com/iola1999/hackios-xnu-kernel/commit/40377ec)，顶层工作区完成全量总账同步与子模块指针推进。
-2. **真机取证与验收结论**：真机通过 22.78 MiB 独立载荷完成 16 秒冷启动，`out/evidence-r2/m6_boot_2215.log` 验证各子系统平稳运行，`out/evidence-r2/m6_desktop_2215.png` 与 `out/evidence-r2/audit_2215.json` 证明主屏图标持久化与无缺陷渲染，R2 里程碑全部攻关项圆满完成。
+1. **各仓库提交记录**：用户态仓库提交 [`a66051f`](https://github.com/iola1999/hackios-xnu-userland/commit/a66051f)、[`c475273`](https://github.com/iola1999/hackios-xnu-userland/commit/c475273)，内核仓库提交 [`40377ec`](https://github.com/iola1999/hackios-xnu-kernel/commit/40377ec)、[`c9225c4`](https://github.com/iola1999/hackios-xnu-kernel/commit/c9225c4)，顶层工作区提交 [`34d1eff`](https://github.com/iola1999/hackios-redmi-k90-annibale/commit/34d1eff) 完成全量总账同步与子模块指针推进。
+2. **真机取证与验收结论**：真机刷入 23,916,544 字节 `boot-a-ios.img`（SHA-256 `c42c76f3a9a2fbeefa354e7c67b65d2fa0d919e844a5ba2632e6ee7ae2bc54fc`）后正常开机，Wi-Fi（`en0`）在 61 秒初始化完成并连网，`/private/var` 从 `darwin_var` 加载恢复。
+
+## 8. 2026-11-07 00:46 真机实测 7 项专项待解问题清单（下一阶段攻关目标）
+
+基于 `00:43` 刷入的 `boot-a-ios.img`（SHA-256 `c42c76f3...`）及实测取证日志 `out/evidence-r2/m6_boot_0045.log`、`out/evidence-r2/m6_user_test_0049.log`、`out/evidence-r2/m6_user_test_0051.log`，用户在真机操作中确认以下 7 项待解决的核心问题：
+
+1. **开机进入桌面后应用图标为空（仅显示文字）、约 1 分钟后才依次出现，且期间桌面无法点击交互**：
+   - **现象**：开机进入主屏后，所有应用图标初始均为空白（仅有下方应用名称文字），等待约 1 分钟图标才逐个渲染出来；在图标未全部生成期间，主屏无法响应点击操作。
+   - **现场线索**：`m6_user_test_0049.log` 显示 `iconservicesagent`（PID 211）在开机后持续编译及执行 258+ 条 Metal 渲染管线（`maxCommandBufferCount = 64`，在 `-[_MTLCommandBuffer initWithQueue:]` 信号量阻塞等待），同时 `SpringBoard` 主线程被图标同步生成或 `sb26_stepped_refresh_step` 刷新事务阻塞。
+2. **主屏顶部天气与日历大尺寸小组件仍为纯黑背景**：
+   - **现象**：主屏顶部的天气与日历两个大尺寸小组件背景依然显示为纯黑色（`m6_desktop_0046.png` 中负一屏日历、天气、提醒事项、屏幕使用时间小组件同样为纯黑背景，而电池和 Siri 建议小组件背景正常）。
+   - **现场线索**：`m6_boot_0045.log` 第 12991～12995 行显示 `backboardd` 在渲染小组件材质管线 `com.apple.coreanimation.PRGhAXm_TimgA2Xhfu_Isrc` 时使用 `attachment 0 format 115`（`MTLPixelFormatRGBA16Float`，64 位半精度浮点）与双颜色附件（`colour 2`），且 `chronod`（PID 66）／`WidgetRenderer_Default`（PID 301）绘制的 SwiftUI 小组件归档图层背景混合异常。
+3. **打开设置进入 Wi-Fi 页面时屏幕轻微变亮，且首次输入密码连接 Wi-Fi 提示「无法加入网络」（约 `00:46:35` 前几秒），随后才自动连上**：
+   - **现象**：设置中 Wi-Fi 可以正常开启，但点进 Wi-Fi 子页面时屏幕亮度仍有轻微跳升；首次输入密码连接 Wi-Fi 弹窗提示「无法加入网络」，稍后后台才自动连接成功。
+   - **现场线索**：`m6_boot_0045.log` 第 12906～13696 行显示 `MiniAppleARMBacklight` 在开机解锁时被 `CoreBrightness` 从 `400 nits` 下调至 `171.403 nits`（`0x1114`），进入设置子页面时 `IOMFBBrightnessLevel` 与 `DisplayBrightness` 再次触发亮度变化；`lx_join.c` 首次关联与四次握手（EAPOL）或 `wifid` 超时判定仍存在竞态。
+4. **天气（Weather）App 打开后始终无法加载天气详情**：
+   - **现象**：连上 Wi-Fi 后打开天气 App，详情页一直无法加载出天气数据。
+   - **现场线索**：需结合 `weatherd`、`locationd`、定位权限／模拟经纬度注入及 WeatherKit 网络请求（TLS／证书校验／`apsd`／`akd`／`fairplay`）排查具体失败环节。
+5. **电池百分比停在 44%，状态栏显示充电图标但未观察到电量增长**：
+   - **现象**：状态栏显示正在充电（44%），但持续使用过程中未观察到电量百分比上升。
+   - **现场线索**：需核查 PM8550B SMB2 硬件充电器寄存器（USBIN 限流配置 ICL、充电使能位、快充握手状态）与 BQ27Z561 电量计实时充放电电流 `current_ua`，确认物理充电电流是否受限在默认的 100 mA／500 mA 档位。
+6. **隔空投送（AirDrop）从「接收关闭」切换为「开启接收」无反应（仍显示关闭），且设置内蓝牙显示开启但控制中心蓝牙显示关闭**：
+   - **现象**：在设置或控制中心将隔空投送从「接收关闭」改为「所有人／仅联系人」无任何变化，仍保持「接收关闭」；设置列表里蓝牙显示为「打开」，但下拉控制中心看到的蓝牙图标处于「关闭」状态。
+   - **现场线索**：`m6_user_test_0049.log` 与 `m6_user_test_0051.log`（第 7558、8086 行）显示 `bt: connected to com.apple.uart.sk.bluetooth (unit 1, waited 40000 ms, ready 0)` 后断开，`bluetoothd` 循环运行 `BlueTool` 启动脚本并上报 `com.apple.Bluetooth.HWFailure`，对 `kCBMsgIdLocalDeviceGetModulePowerMsg` 返回未就绪状态 `0xcafebabe`（导致控制中心判定蓝牙关闭、AirDrop 拒绝开启接收），且 `inject_sb26_airdrop.inc` 中对 `SFAirDropDiscoveryController` 与 `airdrop` Gestalt 的离线拦截直接阻止了状态切换。
+7. **下拉控制中心展开「隔空投送／投屏（屏幕镜像）」功能后两三秒，屏幕转菊花重启（`SpringBoard` 崩溃重启）**：
+   - **现象**：在控制中心展开隔空投送或屏幕镜像投屏面板后等待 2～3 秒，屏幕黑屏出现转菊花（`SpringBoard` 进程从 PID 199 崩溃并重生为 PID 294）。
+   - **现场线索**：`m6_user_test_0049.log` 显示在 `00:46:20`（`t = 339.5s`）展开控制中心对应模块约 2～3 秒后，`SpringBoard`（PID 199）异常退出并由 `launchd` 拉起新实例 PID 294，需结合 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 的后台异步路由刷新回调、对象生命周期或未实现选择器排查崩溃调用栈。
