@@ -1,6 +1,6 @@
 # 根文件系统：系统盘怎样进内核
 
-本文记录内核挂载根文件系统的约定、loader 常驻区的布局，以及把系统盘装进常驻区的几条路径。现在的做法是每次开机经 USB 上传系统盘，或从 Android DSU 读入，操作见 [README](../../README.md) §5、§6。「路线 D」是 loader 从 GPT 分区预读系统盘的做法，loader 代码里的 `rdfile` 条目仍按它工作，定义见 §4。
+本文记录内核挂载根文件系统的约定、loader 常驻区的布局，以及把系统盘装进常驻区的几条路径。现在的做法是从双系统 `darwin` 分区、Android DSU 或经 USB 读入系统盘，操作见 [README](../../README.md) §4、§5。「路线 D」是 loader 从 GPT 分区预读系统盘的做法，loader 代码里的 `rdfile` 条目仍按它工作，定义见 §4。
 
 ## 1. 内核侧：两块 RAM 盘
 
@@ -29,7 +29,7 @@
 | 路线 D（`rdfile`） | 见 §4 | `mkpayload.py` 与 loader 支持，当前流程不用 |
 
 - QEMU 的 `RD_ADDR=0xFC000000` 是结果：那次 QEMU 选出的窗口基址是 0xF4000000，加 128 MiB 正好落在这里。窗口变化时摆放地址要跟着变。
-- DSU 的安装与移除见 [README](../../README.md) §5，读入与回退 USB 的逻辑在 `tools/k90auto/run-auto.py`（[k90auto 说明](../../tools/k90auto/README.md) §3），loader 侧在 `xnuloader/loader_dsu.inc`。
+- 系统盘的磁盘分区部署见 [README](../../README.md) §4 与[双系统分区与持久化部署手册](../plan/dual-boot-setup.md)，读入与回退 USB 的逻辑在 `tools/k90auto/run-auto.py`（[k90auto 说明](../../tools/k90auto/README.md) §3），loader 侧在 `xnuloader/loader_dsu.inc`。
 
 ## 4. 路线 D：loader 从 GPT 分区预读
 

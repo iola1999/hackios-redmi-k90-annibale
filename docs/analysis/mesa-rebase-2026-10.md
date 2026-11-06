@@ -74,11 +74,11 @@ VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f61
 
 - `REBASE=26` 在 `tools/mesa/*.patch` 循环之后按文件名顺序应用 `tools/mesa/rebase-26/*.patch`。rebase-26 是子目录，原有的 `tools/mesa/*.patch` 通配不会收进它，25.0.7 构建因此不受影响。
 - 旧补丁在 `REBASE=26` 时允许失败或跳过，其他版本仍要求严格应用（第 2 节）。
-- 补丁戳 `mesa-$VERSION/.redwood-patches` 在 `REBASE=26` 时计入 rebase-26 的补丁内容；`out/built-from` 另计入版本号与 `REBASE`，`userland/build.sh` 据此判断库是否过期。两个戳的输入集合见 `tools/mesa/NOTE.md`。
+- 补丁戳 `mesa-$VERSION/.redwood-patches` 在 `REBASE=26` 时计入 rebase-26 的补丁内容；`out/built-from` 另计入版本号与 `REBASE`，`userland/build.sh` 据此判断库是否过期。两个戳的计算逻辑见 `hackios-xnu-userland/tools/mk-mesa.sh` 与 `hackios-xnu-userland/tools/mesa-stamp.sh`。
 
 ## 7. 源码副本与构建树
 
-- `hackios-xnu-kernel/tools/mesa/` 和 `tools/mk-mesa.sh` 属于与内核检出共用工作树的 userland 仓库（`common/setup.sh` 展开，用 `common/ugit` 提交）。iOS 26 的构建读这一份；`hackios-xnu-userland/` 检出里的 `tools/mesa/` 只供 iOS 16.5 线使用，说明见该目录的 `NOTE.md`。
+- `hackios-xnu-kernel/tools/mesa/` 和 `tools/mk-mesa.sh` 属于与内核检出共用工作树的 userland 仓库（`common/setup.sh` 展开，用 `common/ugit` 提交），与 `hackios-xnu-userland/tools/mesa/` 保持同步；补丁说明见 [`tools/mesa/rebase-26/README.md`](../../hackios-xnu-userland/tools/mesa/rebase-26/README.md)。
 - iOS 26 的 arm64e AIR 库由 `tools/k90auto/build-air.py` 构建，它的构建树和工具链见 [arm64e 用户态构建路径](2026-10-28-arm64e-userland-build-path.md)。
 
 ## 8. 剩余工作

@@ -45,7 +45,7 @@ cd hackios-redmi-k90-annibale/hackios-xnu-kernel
 USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k90-port common/setup.sh
 ```
 
-`common/setup.sh` 把用户态仓库检出到 `hackios-xnu-kernel/` 目录里，下文的 `userland/`、`tools/mesa/` 等目录来自它，见[内核仓库说明](hackios-xnu-kernel/README.md) §1。
+`common/setup.sh` 把用户态仓库检出到 `hackios-xnu-kernel/` 目录里，下文的 `userland/`、`ios26/`、`tools/mesa/`、`firmware-gen8/` 等目录来自它，见[内核仓库说明](hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§1。
 
 构建产物放在 Git 忽略的目录里，主要是 `hackios-xnu-kernel/out/`：
 
@@ -53,7 +53,7 @@ USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k
 - 内核：按[内核仓库说明](hackios-xnu-kernel/README.md) §2 构建，再在工作区根目录执行 `python3 tools/k90auto/register-kernel.py 12377-local` 登记。
 - 根盘与 Metal 驱动：见 [k90auto 说明](tools/k90auto/README.md)。
 - loader 镜像：见下文「构建 loader 镜像」。
-- GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md) 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去。其中 `gen80000_zap.mbn` 用 `adb pull /odm/firmware/gen80000_zap.mbn` 从手机取。
+- GPU 固件：按 [Adreno 830 固件说明](hackios-xnu-userland/firmware-gen8/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-userland/blob/k90-port/firmware-gen8/README.md)，执行 `common/setup.sh` 后亦位于 `hackios-xnu-kernel/firmware-gen8/README.md`）把 `gen80000_gmu.bin`、`gen80000_sqe.fw`、`gen80000_aqe.fw` 放进 `hackios-xnu-kernel/fw-gpu/`，构建根盘时复制进去；其中 `gen80000_zap.mbn` 用 `adb pull /odm/firmware/gen80000_zap.mbn` 从手机取。
 - Wi-Fi 固件：按备份方法读出 modem 分区（本测试机用 `modem_a`），再执行 `python3 hackios-xnu-kernel/tools/mk-fw-wifi.py extract modem_a.img.gz hackios-xnu-kernel/out/fw-wifi`。脚本从分区镜像的 `image/kiwi/` 取出 WCN7850 固件，启动时自动放入驱动读取的 4 个文件。
 - 开机种子（可选）：一份开机稳定后的 `/private/var` 归档，用于首次初始化 `darwin_var` 分区。取法见[每次开机都是首次开机](docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。
 

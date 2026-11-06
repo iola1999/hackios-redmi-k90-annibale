@@ -60,7 +60,7 @@ adb -s "${ANDROID_SERIAL}" shell 'dumpsys window windows | grep -E "StatusBar|Na
 
 此前的 `tools/stage-system.sh` 多次把 2,492,227,584 字节的 `system.apfs` 直接写入 userdata 尾部，起始偏移为 245,412,089,856。脚本没有检查该区间的文件系统块分配情况。文件系统仍有可用空间、目标位于分区尾部、Android 能开机，都不足以确认这段区间可以覆盖。
 
-本次未取得损坏文件与上述区间的物理 extent 对照，缓存损坏的具体原因仍未确认。现在的 `tools/stage-system.sh` 经 loader 的 USB ramdisk 接口把系统盘写入 RAM；装进 Android DSU 的系统盘以文件形式存放，由 Android 分配空间（[README §5](../../README.md#5-把系统盘装进-android-dsu)）。向裸分区写测试镜像之前，必须先确认目标区间的所有权及恢复方法；已挂载的 userdata 尾部不能作为默认暂存区。
+本次未取得损坏文件与上述区间的物理 extent 对照，缓存损坏的具体原因仍未确认。现在的 `tools/stage-system.sh` 经 loader 的 USB ramdisk 接口把系统盘写入 RAM；装进 Android DSU 的系统盘以文件形式存放，由 Android 分配空间（当前双系统分区部署见 [README §4](../../README.md#4-划分磁盘分区并安装引导) 与[双系统分区与持久化部署手册](../plan/dual-boot-setup.md)）。向裸分区写测试镜像之前，必须先确认目标区间的所有权及恢复方法；已挂载的 userdata 尾部不能作为默认暂存区。
 
 `annibale-backup/20261023-2100/userdata-tail-2492227584.bin` 的创建时间晚于第一次暂存操作。它保存的是备份时刻的尾部内容，不能恢复更早已被覆盖的数据。Android 继续运行后，文件系统状态可能再次变化，整段写回旧尾部备份需要重新评估。
 

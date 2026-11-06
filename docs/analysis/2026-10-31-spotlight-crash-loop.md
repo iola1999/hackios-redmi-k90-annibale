@@ -30,7 +30,7 @@
 - `select-system.py` 对框架目录的文件要求不大于 4 MB、扩展名不在 `SKIP_EXT`、路径不含 `.mlmodelc/`。模型目录里的 `.bin`、`.DAT`、`model.mil` 等因此全部不在镜像里。
 - 按 2026-10-26 的 `rootfs.slt` 统计，框架与应用里被排除的模型共 506 MB、53 个包，最大的是 CoreSceneUnderstanding（252 MB）、VoiceServices（62 MB）、SpotlightResources（32 MB）。
 - `KEEP_MODELS`：SpotlightResources 的 `RequiredAssets_root.bundle` 与 `RequiredAssets_en.bundle` 整包保留，共 39 个文件、21 MB，其中模型 8.5 MB，另有原先因大于 4 MB 被排除的 `parser/lexicon.cache` 与 `safety/safety_resources.map` 各约 6 MB。
-- 改了选择规则要重建 `system26.apfs`，装在 Android DSU 里的那份也要重新安装（[README](../../README.md) §5）。
+- 改了选择规则要重建 `system26.apfs`，写入磁盘或装在 Android DSU 里的那份也要同步更新（[README](../../README.md) §4）。
 
 ## 5. 修复后的读数
 

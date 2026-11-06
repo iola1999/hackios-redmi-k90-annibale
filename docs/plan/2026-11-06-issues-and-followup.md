@@ -105,8 +105,8 @@
   4. 片元着色器执行 `isamm` 指令从未初始化的 VPC 寄存器 `r1.z` 读取图层编号，读得非零残留数值（`layer >= 1`）；高通 Adreno A830 硬件纹理单元对单图层 2D 表面（`array_size = 1`）执行数组边界断言，图层索引超出范围时硬件返回全零颜色 `(0, 0, 0, 0)`，材质着色器基于全零底色计算混色输出 `rgb(0,0,0)` 与 `alpha(1)`，卡片背景呈现纯黑。
   5. 下拉控制中心时全屏四边形下采样模糊绘制重置了 VPC 寄存器（`r1.z == 0`）或直接采样 2D 模糊纹理，底层像素采样成功，显示为正常浅色底板；收起控制中心恢复 2D 直接合成，VPC 脏寄存器再次引入越界采样，卡片背景变回纯黑。
 - **修复**：
-  - 在 [`hackios-xnu-kernel/tools/mesa/rebase-26/0016-nir-lower-fb-read-zero-layer.patch`](../../hackios-xnu-kernel/tools/mesa/rebase-26/0016-nir-lower-fb-read-zero-layer.patch) 与 `nir_lower_fb_read.c` 中，检查片元着色器是否包含 `VARYING_SLOT_LAYER`（`b->shader->info.inputs_read & BITFIELD64_BIT(VARYING_SLOT_LAYER)`）；未包含时直接将图层绑定为立即数常量 0（`nir_imm_int(b, 0)`），阻断 `nir_load_layer_id` 及未链接 `load_input(VARYING_SLOT_LAYER)` 的生成，确保 `txf_ms_fb` 采样坐标第 3 分量为立即数 0。
-  - 在 [`hackios-xnu-userland/tools/mesa/air/air_to_nir.c`](../../hackios-xnu-userland/tools/mesa/air/air_to_nir.c) 与 [`hackios-xnu-kernel/tools/mesa/air/air_to_nir.c`](../../hackios-xnu-kernel/tools/mesa/air/air_to_nir.c) 中保持双向同步与 3461 行零净增长，明确 2D 单图层目标帧缓冲读取的常量图层 0 语义与状态清理。
+  - 在 [`hackios-xnu-userland/tools/mesa/rebase-26/0016-nir-lower-fb-read-zero-layer.patch`](../../hackios-xnu-userland/tools/mesa/rebase-26/0016-nir-lower-fb-read-zero-layer.patch) 与 `nir_lower_fb_read.c` 中，检查片元着色器是否包含 `VARYING_SLOT_LAYER`（`b->shader->info.inputs_read & BITFIELD64_BIT(VARYING_SLOT_LAYER)`）；未包含时直接将图层绑定为立即数常量 0（`nir_imm_int(b, 0)`），阻断 `nir_load_layer_id` 及未链接 `load_input(VARYING_SLOT_LAYER)` 的生成，确保 `txf_ms_fb` 采样坐标第 3 分量为立即数 0。
+  - 在 [`hackios-xnu-userland/tools/mesa/air/air_to_nir.c`](../../hackios-xnu-userland/tools/mesa/air/air_to_nir.c)（与内核构建树 `.userland.git` 下的同名文件双向同步）中保持 3461 行零净增长，明确 2D 单图层目标帧缓冲读取的常量图层 0 语义与状态清理。
   - 运行 `python3 tools/k90auto/build-air.py` 完成 `libredwoodair.dylib` 编译与签名。
 
 ### 1.9 存储拓扑原生对齐与 ramfs_clonefile 深度拷贝实现（已落地并完成编译验证，待真机复核）

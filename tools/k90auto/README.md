@@ -14,8 +14,8 @@
 
 各产物的来源：
 
-- 系统盘 `hackios-xnu-kernel/userland/system26.apfs`：构建与装进 Android DSU 见顶层 [README](../../README.md) §3、§5。
-- iOS 26 内核（12377 线）从头构建按[内核仓库说明](../../hackios-xnu-kernel/README.md) §2，构建完执行 `python3 tools/k90auto/register-kernel.py 12377-<名字>`：内核复制为 `hackios-xnu-kernel/out/xnu12377-<名字>.bin`，记录写进 `kernel-12377-<名字>/kernel.json`，`cycle.py --kernel 12377-<名字>` 和 `make-payload.py` 从这份记录取内核并核对哈希。`cycle.py` 的默认内核 `12377-rate10` 只在本项目的测试机上登记过，新环境要用 `--kernel` 指定。
+- 系统盘 `hackios-xnu-kernel/userland/system26.apfs`：构建与磁盘部署见顶层 [README](../../README.md) §3、§4。
+- iOS 26 内核（12377 线）从头构建按[内核仓库说明](../../hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§2，构建完执行 `python3 tools/k90auto/register-kernel.py 12377-<名字>`：内核复制为 `hackios-xnu-kernel/out/xnu12377-<名字>.bin`，记录写进 `kernel-12377-<名字>/kernel.json`，`cycle.py --kernel 12377-<名字>` 和 `make-payload.py` 从这份记录取内核并核对哈希。`cycle.py` 的默认内核 `12377-rate10` 只在本项目的测试机上登记过，新环境要用 `--kernel` 指定。
 - iOS 26 内核在 Mac 上增量构建：把改动的文件从 `hackios-xnu-kernel/xnu/files` 复制进 `hackios-xnu-kernel/out/xnu12377-cmd`，在 `hackios-xnu-kernel/` 下按上一版 `kernel-12377-<名字>/kernel.json` 里 `build.command` 记录的命令执行 `xnu26/build-macos.sh`（`KERNEL_UUID` 换新值），产物复制为 `out/xnu12377-<名字>.bin`，再写一份新的 `kernel-12377-<名字>/kernel.json`（`kernel.path`、`kernel.bytes`、`kernel.sha256`）。`make-payload.py` 从这份记录取内核并核对哈希。
 - `build-kernel.py NAME` 只用于 xnu-8796（iOS 16.5 线）：在 `kbuild` 容器里构建内核子模块的 HEAD 提交（未提交的修改不进内核），拒绝 `12377` 开头的名字；容器见[内核构建说明](../../docs/analysis/kernel-build-linux.md)。
 - AIR 库：`build-air.py` 是唯一的构建入口，先把 `hackios-xnu-kernel/tools/mesa/air/` 的源码复制进 arm64e 构建树再编译、签名，记录写在 `out/ios26-resume/mesa-arm64e/air-build-record.json`；`--check` 只核对。构建树由 `setup-mesa-arm64e.py` 建立，步骤见 [arm64e 用户态构建 §6](../../docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)。
@@ -160,7 +160,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 ## 8. 渲染问题的无人值守检查
 
-`cycle.py` 从工作树跑完一轮：打包、做载荷、读入系统盘并启动，等 SpringBoard 报出 `sb26: boot unlock done` 后执行一段固定的操作与截图，然后提前结束这一轮，写出 `render-report.txt`。日常使用的命令见顶层 [README §6](../../README.md#6-启动并使用-ios-26)。
+`cycle.py` 从工作树跑完一轮：打包、做载荷、读入系统盘并启动，等 SpringBoard 报出 `sb26: boot unlock done` 后执行一段固定的操作与截图，然后提前结束这一轮，写出 `render-report.txt`。日常使用的命令见顶层 [README §5](../../README.md#5-启动并使用-ios-26)。
 
 ```sh
 ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --baseline docs/progress/evidence/k90auto/kernel-NAME-上一轮

@@ -9,7 +9,7 @@
 - 运行设备树为 `qcom,adreno-gpu-gen8-0-1`，chip ID `0x44050001`，型号 `Adreno830v2`。厂商 gen8_0_0 与 gen8_0_1 的 catalog 除 revision 和 compatible 外相同。
 - GENERAL_10 写入 revision `0x08000100`，必须先于 CM3 解除复位（`d6e7015`）。
 - 固件族为 `gen80000`，本机 Android 启动日志和厂商 gen8_0_0 配置一致。按相近 chipid 选出的 gen80200 配置（18 MiB GMEM、revision `0x08020100`）不适用本机。
-- 实验固件取自 linux-firmware，见[固件说明](../../hackios-xnu-userland/firmware-gen8/README.md)。GMU、SQE、AQE 与本机 Android 文件的 SHA-256 一致；zap 不同，PAS 认证使用本机 Android 里的 `/odm/firmware/gen80000_zap.mbn`（12088 字节，SHA-256 `297318258cb36e5cf6205332a424735c0f9c8f4ba3f9382a6b1d409431b136f7`）。
+- 实验固件取自 linux-firmware，见[固件说明](../../hackios-xnu-userland/firmware-gen8/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-userland/blob/k90-port/firmware-gen8/README.md)）。GMU、SQE、AQE 与本机 Android 文件的 SHA-256 一致；zap 不同，PAS 认证使用本机 Android 里的 `/odm/firmware/gen80000_zap.mbn`（12088 字节，SHA-256 `297318258cb36e5cf6205332a424735c0f9c8f4ba3f9382a6b1d409431b136f7`）。
 - 最低工作点为 160 MHz、level `0x32`、DDR 索引 2，是运行设备树六个频率档组共有的最低档（`189ba55`）。更高档位见 [k90auto 说明](../../tools/k90auto/README.md)的 `GPU_SPEED`。
 
 | 文件 | 大小 | 装载方式 |

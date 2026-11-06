@@ -36,7 +36,7 @@
 
 - `rwsh` 的 `cat PATH [OFFSET]`、`ls PATH`、`rm PATH`，`tools/k90auto/fetch.py` 用 `cat` 分段取回设备上的文件；`tools/k90auto/roundstat.py` 按轮次并排打印手势帧率、每次绘制的驱动耗时与 buffer 纹理上传次数。
 - `tools/k90auto/prof.py --threads PID` 把 `dump PID` 的回溯按共享缓存映像命名并合并相同的栈，驱动与 AIR 的地址按 `images: driver ... air ...` 行命名；`12377-cmd28` 起回溯最多 32 帧，`usertrap=1` 只打印用户态异常。
-- Android DSU：系统盘经 USB 上传约 123 秒；loader v11 起的 `oem dsu load` 从闪存读入 4.94 GB 用 1.29 秒（`bo45`），v12 起 `oem dsu crc` 加 `getvar dsu-crc` 供 `run-auto.py` 按 1 GiB 分段比对 CRC-32，不一致就改走 USB。安装见 [README](../../README.md) §5。
+- Android DSU：系统盘经 USB 上传约 123 秒；loader v11 起的 `oem dsu load` 从闪存读入 4.94 GB 用 1.29 秒（`bo45`），v12 起 `oem dsu crc` 加 `getvar dsu-crc` 供 `run-auto.py` 按 1 GiB 分段比对 CRC-32，不一致就改走 USB。磁盘部署见 [README](../../README.md) §4。
 - 看门狗：loader v11 起在 K90 上武装，主机 180 秒不发命令就停止喂狗，`oem hang` 实测第 37 秒复位、第 60 秒回到 loader，不需要按键。完整的 loader 镜像可以从 LK 用 `fastboot boot` 引导，约 18 秒后枚举，不刷 `boot_a`，也不扣 A 槽的重试次数。
 - 内核录屏：`rec_secs=N rec_ring=1 rec_mb=M` 把上屏的帧缩小后存进预留内存，`hackios-xnu-kernel/tools/recording.py` 转成视频。占着 GPU 的内核不回到 loader，要在轮次停止之前用 loader v13 起的 `oem stage ADDRESS LENGTH` 取回（`tools/k90auto/fetch-recording.sh`，402 MB 用 9.3 秒），收尾会复位。
 

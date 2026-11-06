@@ -2,7 +2,7 @@
 
 本文记录 xnu-8796（iOS 16.5 内核线）在 Linux 容器 `kbuild` 里的构建方法。这条线的构建依赖 Linux 主机工具和 theos，所以放在容器里；容器常驻复用，`docker start kbuild` 即可。
 
-iOS 26 用的 12377 内核在 Mac 上用 `hackios-xnu-kernel/xnu26/build-macos.sh` 构建，不走这个容器，见 [arm64e 构建路径](2026-10-28-arm64e-userland-build-path.md) §0 与 [k90auto 说明](../../tools/k90auto/README.md) §3。
+iOS 26 用的 12377 内核在 Mac 上用 `hackios-xnu-kernel/xnu26/build-macos.sh` 构建，不走这个容器，见 [arm64e 构建路径](2026-10-28-arm64e-userland-build-path.md) 与 [k90auto 说明](../../tools/k90auto/README.md) §3。
 
 ## 1. 容器与依赖
 

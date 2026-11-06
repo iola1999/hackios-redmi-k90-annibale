@@ -1,6 +1,6 @@
 # annibale 真机调试手册
 
-本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见 [README §6](../../README.md#6-启动并使用-ios-26) 与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。
+本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见 [README §5](../../README.md#5-启动并使用-ios-26) 与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。
 
 ## 1. 槽位假设与当前启动方式
 
@@ -10,7 +10,7 @@
 
 - loader：`hackios-xnu-kernel/out/handoff-loader-v17.img`（`LOADER`），2026-11-05 起刷在 `boot_a`。Wi-Fi 需要 v16 起的 loader，它在 4 GB 以下给 Wi-Fi 卡留 128 MB 内存；v17 沿用 v16 的 loader，换了 UEFI。`cycle.py` 按 `getvar build-id` 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的 loader；不含时经 LK 用 `fastboot boot` 起 v17，不刷写分区。
 - 内核：`12377-rate10`（`KERNEL`），由 `make-payload.py` 和根盘打包成载荷，构建方法见 k90auto 说明。
-- 系统盘：`hackios-xnu-kernel/userland/system26.apfs`，超过 `0xffffffff` 字节，经 Android DSU 读入（[README §5](../../README.md#5-把系统盘装进-android-dsu)）或按第 9 节的分块协议经 USB 上传。
+- 系统盘：`hackios-xnu-kernel/userland/system26.apfs`，超过 `0xffffffff` 字节，由双系统 `darwin` 分区或 Android DSU 读入（见 [README §4](../../README.md#4-划分磁盘分区并安装引导) 与[双系统分区与持久化部署手册](dual-boot-setup.md)），或按第 9 节的分块协议经 USB 上传。
 - 启动参数：`make-payload.py` 的固定一组加 `cycle.py` 的 `FIXED_ARGS`，见第 8 节与 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。
 
 每轮收尾的 PSCI 复位会重新启动 `boot_a` 里刷着的 loader。`boot_a` 里 loader 的 build-id 不含 `a48c7fb` 时，每一轮都要多走一次 LK 检查点，所以建议按第 3 节把 v17 刷进 `boot_a`。
