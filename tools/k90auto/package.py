@@ -43,7 +43,11 @@ OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and t
 # can be built while somebody else has an edit in flight (and the manifest records which sources).
 SRC_ROOT = Path(os.environ.get("PAYLOAD_SRC_ROOT", str(WORKSPACE)))
 # PAYLOAD_PROGRAMS=path[:path] installs programs built outside build.sh into /bin of the root image.
-EXTRA_PROGRAMS = [Path(p) for p in os.environ.get("PAYLOAD_PROGRAMS", "").split(":") if p]
+DEFAULT_PROGRAMS = [WORKSPACE / "out/ios26-resume/rwsh", WORKSPACE / "out/ios26-resume/var_store",
+                    WORKSPACE / "out/ios26-resume/appinst/appinst"]
+EXTRA_PROGRAMS = ([Path(p) for p in os.environ["PAYLOAD_PROGRAMS"].split(":") if p]
+                  if "PAYLOAD_PROGRAMS" in os.environ
+                  else [p for p in DEFAULT_PROGRAMS if p.is_file()])
 # SEED=path packs a /private/var archive as etc/var.seed: `var_store save FILE` wrote it at the end of
 # an earlier boot and rwsh "outbox" carried it to the host (run/outbox.bin). With var_store=1 among
 # the boot arguments init unpacks it over the skeleton, so the LaunchServices database, the icon
