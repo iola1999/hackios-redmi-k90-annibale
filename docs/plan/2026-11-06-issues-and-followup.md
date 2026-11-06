@@ -254,18 +254,18 @@
 1. **LUN 4 GPT 相位镜像**：`hackios-xnu-kernel/out/gpt_both4_slotb.bin`（45,056 字节），用于在 LK Fastboot 下写入 `partition:4` 并执行 `set_active a`。
 2. **原版三容器镜像**：位于 `hackios-xnu-kernel/out/ipsw/v57/26/`，包含 `os.dmg`（9,758,048,256 字节，2,382,336 块）、`systemos.dmg`（5,261,754,368 字节，1,284,608 块）与 `appos.dmg`（14,680,064 字节，3,584 块），合计 15,034,482,688 字节（14.002 GiB），由 `userdata-dual-carve.py` 写入 16 GiB `sda35`（`darwin`）分区。
 3. **独立双系统引导载荷与内核**：`hackios-xnu-kernel/out/boot-a-ios.img`（23,851,008 字节）与最新编译内核 `hackios-xnu-kernel/out/xnu12377-st6.bin`（20,958,824 字节），准备刷入 `boot_a`。
-4. **验证应用**：`/Users/fan/Downloads/LiveContainer+SideStore.ipa`（23,607,434 字节），由 `tools/k90auto/install-ipa.py` 执行 ad-hoc 签名并安装。
+4. **验证应用**：`<LOCAL_IPA_PATH>`（`LiveContainer+SideStore.ipa`，23,607,434 字节），由 `tools/k90auto/install-ipa.py` 执行 ad-hoc 签名并安装。
 
 ### 6.2 真机硬件诊断与 USB 状态
 
-1. **USB 物理连接与枚举状态**：主机端 `ioreg -p IOUSB -l` 读出设备物理连接为 `idVendor = 6353`（0x18d1），`idProduct = 53261`（0xd00d），`USB Product Name = "Android"`，`USB Serial Number = "519e5a70"`，`locationID = 51576832`，接口类为 `bInterfaceClass = 255, bInterfaceSubClass = 66, bInterfaceProtocol = 3`（Fastboot）。
+1. **USB 物理连接与枚举状态**：主机端 `ioreg -p IOUSB -l` 读出设备物理连接为 `idVendor = 6353`（0x18d1），`idProduct = 53261`（0xd00d），`USB Product Name = "Android"`，`USB Serial Number = "<ANDROID_SERIAL>"`，`locationID = 51576832`，接口类为 `bInterfaceClass = 255, bInterfaceSubClass = 66, bInterfaceProtocol = 3`（Fastboot）。
 2. **端点通信诊断**：控制端点 EP0 可读取描述符，但数据端点 0x01（Bulk OUT）对命令传输无响应。调用 IOKit `WritePipeTO` 返回 `0xe0004051`（`kIOUSBTransactionTimeout`），调用 libusb `libusb_bulk_transfer` 返回 `-7`（`LIBUSB_ERROR_TIMEOUT`）。
 3. **主机侧恢复处置**：排查并终止了占用该接口的后台进程 `lghub_agent`，并由主机下发 `libusb_reset_device` 端口复位与 `clear_halt` 清除端点停顿；主机侧复位完成后，设备端 Bulk OUT 端点仍处于无响应状态。
 4. **根据真机无人值守约束判定**：依据 [AGENTS.md](../../AGENTS.md) §5 与 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md) §4，设备属于「枚举但无应答且软件入口不可达」状态，由用户长按电源键进行硬件复位进入 LK Fastboot。
 
 ### 6.3 真机冷启动恢复与 R2 部署取证
 
-1. **冷启动与载荷装配**：设备 519e5a70 完成电源键硬件复位后重新开机，在 16 秒内进入 `xnuloader`（`getvar result` 为 `idle`，`getvar product` 为 `xnuloader`）。载荷通过 `WIFI_FW_MODE="used"`（6.9 MB 固件）及 UFS `darwin_var` 原生持久化彻底消除 `BootShim.S` 55 MiB `PAYLOAD_CAP`（`0x03700000`）限制，打包生成 23,885,824 字节（22.78 MiB）`boot-a-ios.img`（SHA-256 `c74591d44ed0078d91cff014978dae01ea2e9c58057bd6d5a62374bdf27f416a`）。
+1. **冷启动与载荷装配**：设备 `<ANDROID_SERIAL>` 完成电源键硬件复位后重新开机，在 16 秒内进入 `xnuloader`（`getvar result` 为 `idle`，`getvar product` 为 `xnuloader`）。载荷通过 `WIFI_FW_MODE="used"`（6.9 MB 固件）及 UFS `darwin_var` 原生持久化彻底消除 `BootShim.S` 55 MiB `PAYLOAD_CAP`（`0x03700000`）限制，打包生成 23,885,824 字节（22.78 MiB）`boot-a-ios.img`（SHA-256 `c74591d44ed0078d91cff014978dae01ea2e9c58057bd6d5a62374bdf27f416a`）。
 2. **系统引导与持久化挂载取证**：由 `out/evidence-r2/m6_boot_2215.log`（共 14,573 行）完整记录开机过程。`daudio` 空转已被完全静音，`RDWFS001` 原生文件系统成功挂载并恢复已有 18266 个真实节点，`SpringBoard`（PID 31）与 `backboardd`（PID 41）稳定进入运行状态。
 3. **桌面与视觉审计结果**：由 `out/evidence-r2/m6_desktop_2215.png` 确认桌面状态，第 1 屏保留用户挪动的 Triangle 应用图标，状态栏时间 22:39，电池 70% 正常显示充电闪电图标。调用 `visual-audit.py` 生成 `out/evidence-r2/audit_2215.json` 执行视觉审计，判定 `defect_detected = false`，纯黑方块与状态栏穿透均为 0，审计成功通过。
 
@@ -375,7 +375,7 @@
    - **现象**：此前滑动关机出现过卡在关机转圈画面，或黑屏约 1 分钟后跳出看门狗红色横幅（`WATCHDOG`）挂起且长按电源键难唤醒；Safari 输入网址或日常操作中偶发整机卡死并触发看门狗黑屏重启。
    - **待办**：真机复核滑动关机能否立即保存数据并干净熄屏返回／停机；复核内核 panic 与看门狗超时前向 `darwin_var` `[64M, 80M)` 扇区直写崩溃日志及开机自动还原 `/private/var/db/panic.log` 链路。
 4. **网页字体、网页视频软硬解播放、Safari 下载与第三方 IPA 安装验证**：
-   - **现象与待办**：真机验证 YouTube 首页文字是否还会显示为方框问号 `<?>`；验证 Safari 播放 H.264／VP9 网页视频（含 `'420v'` NV12 双平面 IOSurface 纹理合成与 SM8750 Iris VPU v3.5 硬件解码）；验证 Safari 下载文件能否正常移入「我的 iPhone」（`ramfs_clonefile`）；安装并验证 `/Users/fan/Downloads/LiveContainer+SideStore.ipa` 跨开机保留与运行。
+   - **现象与待办**：真机验证 YouTube 首页文字是否还会显示为方框问号 `<?>`；验证 Safari 播放 H.264／VP9 网页视频（含 `'420v'` NV12 双平面 IOSurface 纹理合成与 SM8750 Iris VPU v3.5 硬件解码）；验证 Safari 下载文件能否正常移入「我的 iPhone」（`ramfs_clonefile`）；安装并验证 `<LOCAL_IPA_PATH>` 跨开机保留与运行。
 5. **音量与扬声器音频输出、蓝牙耳机音频路由**：
    - **现象与待办**：控制中心音量滑块已可拖动，需继续打通 ADSP、AudioReach 与扬声器功放实际出声，以及蓝牙耳机配对连接后的音频流路由。
 6. **相机、手电筒、震动触感、蜂窝网络与 App Store**：
@@ -390,7 +390,7 @@
    - 用户态与渲染驱动：运行 `userland/build.sh` 编译并签名 `appinst` 与 `RedwoodInstaller.app`；`build-air.py` 编译生成最新 `libredwoodair.dylib`。
    - 系统镜像与引导镜像：执行 `tools/k90auto/package.py`（参数 `JOBS_SOURCE=tools/k90auto/jobs/rc.jobs.interactive`、`AUDIO=1`、`WIFI_FW=used`、`GPU_SPEED=14`），生成 20,488,192 字节 `root.apfs`；经 `mkstandalone.py` 与 `reseal-loader-img.py` 生成 23,934,976 字节 `hackios-xnu-kernel/out/boot-a-ios.img`（SHA-256 `a23d70d0f89674fefb2e8b4317c57e5b0b5043a3b4b622ae5c4642c7b403b76f`）。
 2. **真机刷入与开机验证**：
-   - 在真机（REDMI K90，序列号 `519e5a70`）处于 `xnuloader` 驻留状态下，经 fastboot 接口将 `boot-a-ios.img` 刷入 `boot_a` 分区（写入耗时 0.719s）。
+   - 在真机（REDMI K90，序列号 `<ANDROID_SERIAL>`）处于 `xnuloader` 驻留状态下，经 fastboot 接口将 `boot-a-ios.img` 刷入 `boot_a` 分区（写入耗时 0.719s）。
    - 执行 `fastboot -s xnuloader reboot` 复位设备，`xnuloader` 自动引导内核并挂载 `darwin` 与 `darwin_var`。
 3. **8 项核心指标实测验证结论**：
    - **硬件充电与电量安全**：内核启动日志确认 `battery: PM8550B charging enabled (ICL 3000 mA, FastChg 2500 mA)`；屏幕截图确认状态栏电量实时显示充电闪电图标 `33 ⚡`，充电状态机正常运转。
@@ -401,3 +401,14 @@
    - **Wi-Fi 首包连接竞态消除**：`wifid` 与 `ath12k` 正常初始化并启动扫描，未发生弹窗崩溃；系统时钟通过 NTP 服务同步至真实网络时间（`02:30` / `02:33`）。
    - **官方应用联网链与音频多媒体链路**：`mkjobs.py` 断言保护 17 个关键守护进程完整保留；TFA98xx 功放 TLMM 内部上拉消除 I2C 假 ACK，Reg 0x09 激活 Class-D 放大器。
    - **第三方应用主屏彻底卸载与安装器就绪**：`appinst.m` 标记 `IsDeletable: YES`；真机命令行调用 `/redwood/bin/appinst remove com.ios151.one` 测试，Bundle 目录与数据容器瞬间彻底清除并注销 LaunchServices 记录；预装原生 `RedwoodInstaller.app`。
+
+### 8.4 R4 轮次：低电量保护充电、多颜色附件清屏掩码修复、图标与应用安装治理、真实 SPMI 电池写入与质量规范（2026-11-07）
+
+本轮次针对 R3 阶段真机取证暴露的次生问题与硬件边界开展专项治理，各 Worker 按照独占文件分工协同推进：
+
+1. **真机低电量保护与硬件快充链路恢复**：依据 [AGENTS.md](../../AGENTS.md) §5 与无人值守电量红线要求，真机电池 SOC 处于 32%（低于 35% 保护阈值）时，由 Device Lead 临时切入 Android 槽位通过原厂快充协议补电至 60% 以上安全水位；提取 Android 环境下 PM8550B SMB2 充电控制器、SPMI regmap 与 `/sys/class/power_supply/` 硬件通道参数，为内核电池驱动提供真实寄存器配置依据。
+2. **Metal 与 AIR 多颜色附件清屏掩码修复（Worker B）**：在 [`redwoodmetal.m`](../../hackios-xnu-kernel/tools/userland-driver/redwoodmetal.m) 中遍历全部 8 个颜色附件，将每个附件的 `MTLLoadActionClear` 状态编码至 `_discards` 高 8 位，同步将 `_clears` 判定调整为任意附件需要清屏即置位；在 [`air_metal.c`](../../hackios-xnu-userland/tools/mesa/air/air_metal.c) 与内核镜像源中解析 `draw->discard` 高 8 位，按位设置 `PIPE_CLEAR_COLOR0 << i` 掩码，修复 `iconservicesagent` 在 3 颜色附件模式下附件 1（`R32Float` 覆盖图层）与附件 2 未被清除导致的主屏与设置图标灰底白块问题。
+3. **SpringBoard 图标位图路径回滚与应用安装扫描收敛（Worker A）**：在 [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c) 中将 `-[SBIconImageView shouldForceBitmapImages]` 恢复为针对 `"Calendar"` 图标类名及无 Metal 设备的受控判定，保持通用应用图标与小组件遵循 `ICRIconLayer` 原生渲染；在 [`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m) 中收敛 `watch()` 监听范围，仅保留 `/private/var/db/appinst-inbox` 目录监听，移除针对 Safari 与文件提供者下载目录的开机自动轮询解包，消除开机首分钟大包重复解压安装导致的 CPU 争抢与 `ramfs` 异常膨胀（659 MB 增量）；补齐 `RedwoodInstaller.app` 在 LaunchServices 的主动注册逻辑，确保已挂载历史 `darwin_var` 的设备上安装器图标正常呈现。
+4. **内核电池驱动真实 SPMI 写入与假日志清除（Worker C）**：排查 `annibale_battery.c` 中 SPMI 通道所有权（`owner == 4`，ADSP/Charger EE）与 arbiter v7 映射逻辑，打通系统执行环境对充电配置寄存器的真实写入；为全部寄存器写入调用增加返回值校验与状态回读比对，彻底清除未校验写入结果即输出使能成功的假日志；写入失败时准确记录错误状态码并返回错误。
+5. **文档隐私安全脱敏与规范审计（Worker D）**：依据 [AGENTS.md](../../AGENTS.md) §3 清除文档中全部真实本机用户目录与真机硬件序列号，规范统一替换为 `<LOCAL_IPA_PATH>` 与 `<ANDROID_SERIAL>`；经 `tools/unwrap_md.py --check` 校验，跟踪文档与跟进文档无硬换行违规；经代码行数审计，内核与用户态全部新增及修改源码文件单文件物理行数均符合 <= 1200 行红线约束，存量超标文件保持净减少。
+
