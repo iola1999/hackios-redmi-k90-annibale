@@ -333,9 +333,15 @@
 6. **隔空投送（AirDrop）从「接收关闭」切换为「开启接收」无反应（仍显示关闭），且设置内蓝牙显示开启但控制中心蓝牙显示关闭**：
    - **现象**：在设置或控制中心将隔空投送从「接收关闭」改为「所有人／仅联系人」无任何变化，仍保持「接收关闭」；设置列表里蓝牙显示为「打开」，但下拉控制中心看到的蓝牙图标处于「关闭」状态。
    - **现场线索**：`m6_user_test_0049.log` 与 `m6_user_test_0051.log`（第 7558、8086 行）显示 `bt: connected to com.apple.uart.sk.bluetooth (unit 1, waited 40000 ms, ready 0)` 后断开，`bluetoothd` 循环运行 `BlueTool` 启动脚本并上报 `com.apple.Bluetooth.HWFailure`，对 `kCBMsgIdLocalDeviceGetModulePowerMsg` 返回未就绪状态 `0xcafebabe`（导致控制中心判定蓝牙关闭、AirDrop 拒绝开启接收），且 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 中对 `SFAirDropDiscoveryController` 与 `airdrop` Gestalt 的离线拦截直接阻止了状态切换。
-7. **下拉控制中心展开「隔空投送／投屏（屏幕镜像）」功能后两三秒，屏幕转菊花重启（`SpringBoard` 崩溃重启）**：
-   - **现象**：在控制中心展开隔空投送或屏幕镜像投屏面板后等待 2～3 秒，屏幕黑屏出现转菊花（`SpringBoard` 进程从 PID 199 崩溃并重生为 PID 294；此前未加异步拦截时则是点击 AirDrop 整机卡死、点击投屏转圈卡死 10 余秒）。
-   - **现场线索**：`m6_user_test_0049.log` 显示在 `00:46:20`（`t = 339.5s`）展开控制中心对应模块约 2～3 秒后，`SpringBoard`（PID 199）异常退出并由 `launchd` 拉起新实例 PID 294，需结合 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 的 `MRUMirroringController` 后台异步路由刷新回调、对象生命周期或未实现选择器排查崩溃调用栈。
+7. **下拉控制中心展开「隔空投送／投屏（屏幕镜像）」功能后两三秒，以及 `00:58:40` 左右日常操作中，屏幕转菊花重启（`SpringBoard` 崩溃重启）**：
+   - **现象**：
+     - 在控制中心展开隔空投送或屏幕镜像投屏面板后等待 2～3 秒，屏幕黑屏出现转菊花（`SpringBoard` 进程从 PID 199 崩溃并重生为 PID 294；此前未加异步拦截时则是点击 AirDrop 整机卡死、点击投屏转圈卡死 10 余秒）。
+     - 在 `00:58:33`～`00:58:44` 左右日常使用（`MobileSafari`／主屏切换）时，屏幕再次出现黑色转菊花（`BKDisplayRenderOverlaySpinny`），`SpringBoard` 从 PID 371 崩溃退出（`signal 6 / SIGABRT`）并重生为 PID 411。
+   - **现场日志与已定位根因（`out/evidence-r2/m6_user_test_0059.log` 第 13522～13546 行）**：
+     - 捕获到完整崩溃栈：`userabort: SpringBoard[371] aborts, shared cache slide 0x4da4000; called from: 0x193e7efcc 0x188fd4d70 0x188d02b98 0x188d02884 0x188d05320 0x188d1dd34 0x100e72c4c 0x1c672ffa8 0x1c67df9e8 0x1c67e066c 0x1c2dcc1e4 ...`。
+     - 经 `dsc.py` 反汇编符号化确认：`SpringBoardHome`（`0x1c1a3b9e8 -> 0x1c198bfa4`）在 `libdispatch` 后台线程（`0x1c2dcc1e4`）调用 `-[SBCalendarIconImageProvider iconLayerWithInfo:traitCollection:options:]`，进入 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 第 310 行的钩子 `sb26_calendar_icon_layer_fallback`（`0x100e72c4c`）：
+       1. **ARM64 HFA 寄存器签名不匹配**：`struct SBIconImageInfo`（`CGSize size; double scale; double continuousCornerRadius;`）作为 4 个 `double` 的同质浮点聚合体（HFA）通过浮点寄存器 `d0..d3` 传参，`traitCollection` 与 `options` 实际在通用寄存器 `x2`、`x3`；而 `sb26_calendar_icon_layer_fallback(id self, SEL _cmd, void *info, id tc, unsigned long opts)` 将 `info` 声明为指针占用 `x2`，导致传给原实现 `orig_calendar_layer` 与 `iconImageWithInfo:traitCollection:options:` 的参数及浮点寄存器全部错位。
+       2. **后台线程无事务修改 `CALayer` 触发 `CA_ASSERT_MAIN_THREAD_TRANSACTIONS` 断言 `abort()`**：`sb26_calendar_icon_layer_fallback` 第 340 行在后台 GCD 线程直接调用 `[new_layer setContents:cg_img]`（`QuartzCore` `0x183f79d34 -> 0x183f61320 -> 0x183f5e884 -> 0x183f5eb98 -> 0x184230d70`），未包裹 `[CATransaction begin]`／`[CATransaction commit]`，触发 `QuartzCore` 断言 `"CoreAnimation: CA_ASSERT_MAIN_THREAD_TRANSACTIONS is set and an implicit transaction wasn't created on a main thread."` 并直接调用 `abort()` 杀死 `SpringBoard`；此外还需一并核查 `inject_sb26_airdrop.inc` 中 `MRUMirroringController` 后台队列回调的线程安全性。
 
 ### 8.2 前期累计反馈待真机复核与持续攻关全量清单（第二优先级）
 
