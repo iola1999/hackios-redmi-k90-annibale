@@ -967,10 +967,8 @@ def main():
         job = plistlib.loads((dest / JOB).read_bytes())
     vs_file = dest / "LaunchDaemons/com.redwood.varstore.plist"
     if vs_file.exists():
-        vs_plist = plistlib.loads(vs_file.read_bytes())
-        vs_plist["ProgramArguments"] = ["/redwood/bin/var_store", "watch", "3"]
-        vs_file.write_bytes(plistlib.dumps(vs_plist, fmt=plistlib.FMT_XML))
-        cache["LaunchDaemons"]["/System/Library/LaunchDaemons/com.redwood.varstore.plist"] = vs_plist
+        vs_file.unlink()
+    cache["LaunchDaemons"].pop("/System/Library/LaunchDaemons/com.redwood.varstore.plist", None)
     (dest / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
     # What launchd will know this boot, names only: the cache is the authority (iOS 26 takes its jobs
     # from /System/Library/xpc/launchd.plist, not from the LaunchDaemons directory), so reading the
@@ -1020,7 +1018,6 @@ def main():
                 *(["/bin/bluetool", "/bin/bluetoothd"] if BLUETOOTH else []),
                 "/etc/inject.conf",
                 "/etc/rc.jobs", "/" + JOB, *(["/" + ICON_JOB] if ICON_METAL else []),
-                "/LaunchDaemons/com.redwood.varstore.plist",
                 "/xpc/launchd.plist", *["/bin/" + program.name for program in EXTRA_PROGRAMS],
                 # Anything added under a directory changes that directory's own times, and records()
                 # reports the directory alongside the file, so the parent of every added file belongs
@@ -1037,7 +1034,6 @@ def main():
                 # the two jobs below change this directory's own times as well
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],
-                *["/LaunchDaemons/" + name for name in ("com.redwood.varstore.plist", "com.redwood.var_store.plist")],
                 # the diagnostic switch rewrites the two jobs whose processes load the driver
                 *(["/LaunchDaemons/" + name for name in MSAA_JOBS] if REDWOOD_DIAG else []),
                 *{"/LaunchDaemons/" + name for name, _, _ in JOB_ENV},

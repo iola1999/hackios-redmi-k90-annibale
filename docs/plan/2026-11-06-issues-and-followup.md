@@ -21,12 +21,11 @@
   - [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c)：移除 `install_bar_background_hooks()` 与 `install_widget_hooks()`。
 - **真机验证**：开机进入主屏并下拉控制中心截图确认，主屏 Dock 与控制中心各模块恢复半透明圆角 Liquid Glass 背景，白底方框完全消失；控制中心亮度滑块内部白色填充条正常渲染。
 
-### 1.2 设置页总容量显示 0 KB、可用 2.61 GB（已修复并验证）
+### 1.2 设置页存储容量显示与 128 GB 容器口径对齐（已修复并落地）
 
-- **现象**：「设置 → 通用 → 关于本机」中总容量显示为 `0 KB`，可用容量显示为 `2.61 GB`。
-- **根因**：`/private/var` 挂载在内存文件系统 `ramfs` 上，[`hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 的 `ramfs_vfs_statfs()` 原先按物理内存页上限（`RAMFS_PAGES_MAX = 786432` 页，约 3.22 GB）上报 `f_blocks` 与 `f_bfree`，扣去已用页后 `statfs("/private/var")` 仅报告约 `2.61 GB` 可用；同时未接入 UFS `darwin_var` 分区真实块数。
-- **修复**：在 [`redwood_ufs.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_ufs.c) 中导出 `redwood_ufs_darwin_var_blocks()` 返回 `darwin_var` 分区真实 4 KB 块数（`29360128` 块 = 112 GiB），并在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 的 `ramfs_vfs_statfs()` 中按该分区块数上报 `f_blocks`、`f_bfree` 与 `f_bavail`（连同 8 GiB 系统盘合计 120 GiB ≈ 十进制 129 GB）。
-- **真机验证**：进入「设置 → 通用 → 关于本机」截图确认，总容量显示 `129 GB`，可用容量显示 `128.22 GB`。
+- **现象**：早期「设置 → 通用 → 关于本机」中总容量显示为 `0 KB`、可用 `2.61 GB`；初次接入 `darwin_var` 分区块数后显示为总容量 `129 GB`、可用 `128.22 GB`（未扣除系统卷与 Cryptex 占用，且按二进制 120 GiB 换算成了十进制 129 GB）。
+- **根因**：iOS 的 `storagekitd`／`Preferences` 通过 `IOKit` `IOMedia`（`disk0` 的 `Size` 属性）、`statfs()` 与 `getattrlistbulk`（`VOL_ATTR_CAPABILITIES`）按十进制字节（`1 GB = 10^9 B`）计算整机共享 APFS 容器的总容量与可用容量；真实 128 GB iPhone 17 的容器总容量为 `128,000,000,000` 字节（128 GB），可用容量为容器总容量减去 System 卷（9.76 GB）、OS Cryptex（5.26 GB）、App Cryptex（14.68 MB）、Preboot／Recovery（0.54 GB，小计 15.57 GB）以及 `/private/var` 实际已用数据块。
+- **修复**：在 [`RedwoodBT.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/RedwoodBT.cpp) 与 [`redwood_ufs.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_ufs.c) 中将 `disk0` 容量设为 `128,000,000,000` 字节（128 GB）；在 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 与 [`apfs_vfsops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vfsops.c) 中统一由 `redwood_container_total_bytes()`（`128,000,000,000` 字节）与 `redwood_container_free_bytes()`（扣除 15.57 GB 系统与 Cryptex 占用及 `/private/var` 实际已用页）上报 `/` 与 `/private/var` 的 `statfs` 及 `vfs_getattr`，总容量显示为 `128 GB`，初始可用容量约 `112.4 GB` 并随文件写入实时递减。
 
 ### 1.3 设置页一级列表图标全部缺失（已修复并验证）
 
@@ -81,22 +80,20 @@
    - **根因**：使用 `idalib-mcp` 反编译 `abl_a.img` 中的 `LinuxLoader.efi` 查明，`FindBootableSlot`（`sub_1D1B8`）内的 `ValidateSlotGuids` 比较 `boot_<slot>` 与 `abl_<slot>` 的 16 字节 `PartitionTypeGUID`（偏移 `+0`）：高通 A/B GPT 中活动槽位各分区具有独立的 `PartitionTypeGUID`（`boot` 为 `20117f86-...`，`abl` 为 `bd6928a1-...`），非活动槽位所有分区共用 `77036cd4-03d5-42bb-8ed1-37e5a88baa34`；若两者 `PartitionTypeGUID` 相同（`CompareMem == 0`），`FindBootableSlot` 打印 `"ValidateSlotGuids: BootableSlot %s does not have valid guids"` 并返回 `EFI_DEVICE_ERROR`。09:10:01 `xnuloader` 的 `slot_set_active_other()` 仅改写了 `boot_a`／`boot_b` 的属性（`+48`）而未交换 `_a`／`_b` 分区的 `PartitionTypeGUID`，导致随后执行 `fastboot set_active a` 时 `LinuxLoader.efi` 的 `SetActiveSlot`（`sub_1C21C`）把 `_a` 与 `_b` 的 `PartitionTypeGUID` 反向对调（`boot_a` 带有 `Active = 1` 但 `PartitionTypeGUID` 变成非活动的 `77036cd4-...`）。
    - **修复**：在 [`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 中新增 `gpt_swap_ab_type_guids()` 与 `slot_apply_active()`，在维护当前槽位或切换到另一槽位时检查目标槽位 `memcmp(boot_target, abl_target, 16) == 0`，若目标槽位持有非活动 `PartitionTypeGUID` 则同步交换 LUN 4 与 LUN 0 上全部 `_a`／`_b` 分区的 16 字节 `PartitionTypeGUID` 并重算主备 GPT CRC32；同时由 `sde-head.bin`／`sde-tail.bin` 生成 45056 字节的 `gpt_both4_slotb.bin` 与 `gpt_both4_slota.bin`，在 LK Fastboot 下执行 `fastboot flash partition:4 gpt_both4_slotb.bin && fastboot set_active a` 即可恢复 GPT 相位。
 
-### 1.7 `var_store` 实时防断电持久化与仓库临时绕过项根因排查（已落地并打包，待真机复核）
+### 1.7 `/private/var` 内核直写块持久化（`RDWFS001`）、原版未裁剪 iOS 26 镜像直挂与全仓库根因排查（已落地并打包，待真机复核）
 
-1. **`var_store` 持续实时落盘与突然断电保护**：
-   - **架构机制**：`/private/var` 运行期挂载在内存 `ramfs` 上，由 `launchd` 常驻守护进程 [`com.redwood.varstore.plist`](../../hackios-xnu-userland/userland/com.redwood.varstore.plist) 运行 `/redwood/bin/var_store watch 3` 持续把变更同步写入 UFS `/dev/rufs_dsu_store`（`darwin_var` 分区前 4 GiB：前两个 2 GiB 基础槽位 + 末尾 64 MiB 增量区）。
-   - **此前突然断电丢失变更的 4 项根因**：
-     1. [`var_store_dirty.inc`](../../hackios-xnu-userland/userland/src/var_store_dirty.inc) 的 `snapshot_watch_dirs()` 仅浅层 `stat()` 7 个固定目录本身的 `mtime`，而 `cfprefsd`、SQLite、`BulletinBoard` 修改子目录内文件或通过原子 `rename()` 替换文件时，顶层目录 `mtime` 不变，`watch` 守护进程无法感知变更。
-     2. [`var_store.c`](../../hackios-xnu-userland/userland/src/var_store.c) 的 `pack_tree()` 在增量模式下仅比较 `st_mtimespec > last_saved_at`，遗漏了保留原 `mtime` 的原子 `rename()`、`chmod()`／`chown()`（仅更新 `st_ctimespec`）及同一秒内的写入。
-     3. [`var_store_delta.inc`](../../hackios-xnu-userland/userland/src/var_store_delta.inc) 与 [`var_store_unpack.inc`](../../hackios-xnu-userland/userland/src/var_store_unpack.inc) 缺少删除记录（墓碑），用户删除文件、卸载应用或清理缓存后，断电重启从基础槽位恢复旧文件后无法重放删除动作。
-     4. [`var_store_delta.inc`](../../hackios-xnu-userland/userland/src/var_store_delta.inc) 的 64 MiB 增量区原为单槽原地覆写（先写 `hdr.magic = 0` 再写数据），若在写入耗时的数十毫秒内断电，增量区归零丢失上一轮增量。
-   - **根因修复**：
-     - 在 [`var_store_dirty.inc`](../../hackios-xnu-userland/userland/src/var_store_dirty.inc) 中改为递归扫描整棵 `/private/var`（排除临时日志与套接字目录），对每个节点的 `(路径, st_mode, st_uid, st_gid, st_size, st_mtimespec, st_ctimespec)` 计算 64 位 FNV-1a `tree_hash`，任何深度的文件新增、修改、重命名、属性变更或删除均立即触发增量落盘。
-     - 在 [`var_store.c`](../../hackios-xnu-userland/userland/src/var_store.c) 的 `pack_tree()` 中同时检查 `st_mtimespec >= last_saved_at || st_ctimespec >= last_saved_at`。
-     - 在 [`var_store_delta.inc`](../../hackios-xnu-userland/userland/src/var_store_delta.inc) 与 [`var_store_unpack.inc`](../../hackios-xnu-userland/userland/src/var_store_unpack.inc) 中新增 `ENT_DELETE = 6` 删除墓碑记录（维护最多 32768 条已存路径表，目录采用后序遍历写入墓碑以保证先删子项再 `rmdir`），并将 64 MiB 增量区拆分为两个 32 MiB 乒乓槽位（`DELTA_SLOTS = 2`，`0xFF800000` 与 `0xFFC00000`），每次写入较旧槽位、CRC32 校验通过后才切换最新序号；同时将 [`var_store_stamp.inc`](../../hackios-xnu-userland/userland/src/var_store_stamp.inc)、[`com.redwood.varstore.plist`](../../hackios-xnu-userland/userland/com.redwood.varstore.plist) 与 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 的扫描间隔缩短为 3 秒、冷却窗口缩短为 2 秒。
-2. **全仓库表象绕过项排查与根因替换**：
-   - **文件系统数据保护类（`va_dataprotect_class`）原生支持（替代 `inject_posterboard.c` 的 `NSURL` 钩子）**：反汇编 `PosterFoundation` 的 `_PFPosterPathURLResourceValues`（`0x1c5526000`）确认，`PosterBoard` 创建目录和文件时设置 `NSURLFileProtectionKey = NSURLFileProtectionNone`（对应内核 `PROTECTION_CLASS_D = 4`）；此前 `ramfs_setattr()` 未标记 `VATTR_SET_SUPPORTED(vap, va_dataprotect_class)` 导致 `setattrlist()` 返回 `ENOTSUP`。现已在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 中增加 `rn_dataprotect_class` 字段、父目录继承（`ramfs_make`）、`ramfs_getattr` 与 `ramfs_setattr` 支持，在 [`apfs_vnops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c) 的 `apfs_vnop_getattr()` 中返回 `PROTECTION_CLASS_D`，并从 [`inject_posterboard.c`](../../hackios-xnu-userland/userland/src/inject_posterboard.c) 中移除 `without_protection()` 及 `NSURL` 方法交换代码。
-   - **系统应用数据容器统一制备（替代 `ax.m` 中针对 `MobileCal` 的硬编码 `setenv`）**：在 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 的 `INJECT` 列表中将 `MobileCal` 加入 `libredwood-app.dylib`，在 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c) 中自动创建容器下的 `Documents`、`Library/Preferences`、`Library/Caches` 与 `tmp` 子目录，并从 [`ax.m`](../../hackios-xnu-userland/userland/src/ax.m) 移除 `MobileCal` 专用环境变量分支。
+1. **`/private/var` 内核直写 UFS 块持久化（`RDWFS001`）**：
+   - **磁盘布局与直写机制**：在 [`ramfs_disk.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc)、[`ramfs_fsctl.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_fsctl.inc) 与 [`redwood_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_ufs_rw.inc) 中为 `/private/var` 实现直接绑定 UFS `darwin_var` 分区（或 `dsu_store`）的内核块级持久化文件系统（魔数 `"RDWFS001"`）：
+     - `[0, 32 MiB)` 与 `[32 MiB, 64 MiB)` 为双乒乓元数据槽位（保存全部 inode、目录树、符号链接、扩展属性 xattr 与每个文件的 4 KB 物理块号表，带独立头部与负载 CRC32 校验），`[64 MiB, ...)` 为 4 KB 数据块区（由内核块分配位图管理）。
+     - 文件写入（`ramfs_store`）直接将 4 KB 数据页同步写入 `darwin_var` 对应物理块；文件读取（`ramfs_fetch`）按需从 `darwin_var` 物理块缺页读入。
+     - 任何目录／文件创建、重命名、截断、删除或属性修改在 20 毫秒聚合窗口内由内核 `thread_call` 自动将元数据提交到乒乓槽位，并在 `fsync()`、`fcntl(F_FULLFSYNC)`、`fcntl(F_BARRIERFSYNC)`、`sync()`、`unmount()` 与关机 `redwood_var_save_on_return()` 时立即同步落盘。
+     - 下次开机挂载 `/private/var` 时，内核 `ramfs_disk_mount()` 直接从最新有效槽位恢复完整目录树与块映射并通过 `kern.redwood.var_disk_loaded=1` 通知 `init` 跳过初始种子解包。
+2. **苹果原版未裁剪 iOS 26.6.2（`23G90`）三容器镜像 UFS 直挂**：
+   - 苹果原版 iOS 26.6.2 IPSW 包含 3 个只读 APFS 容器镜像：`os.dmg`（`9,758,048,256` B，`2,382,336` 块）、`systemos.dmg`（`5,261,754,368` B，`1,284,608` 块）与 `appos.dmg`（`14,680,064` B，`3,584` 块），合计 `15,034,482,688` B（`14.002 GiB`）。
+   - 在 [`userdata-dual-carve.py`](../../hackios-xnu-kernel/tools/userdata-dual-carve.py) 中将 `darwin` 分区默认大小调整为 `16 GiB`、`darwin_var` 调整为 `104 GiB`；在 [`init_mount.inc`](../../hackios-xnu-userland/userland/src/init_mount.inc) 与 [`init.c`](../../hackios-xnu-userland/userland/src/init.c) 的 `flash_root()`／`mount_cryptex()` 中支持按块偏移（`0`、`2382336`、`3666944`）直接从 `/dev/ufs_darwin` 挂载原版 `os.dmg`、`systemos.dmg` 与 `appos.dmg`，并通过 `bindfs` 将 `/redwood/lib/RedwoodMetal.bundle` 叠加到 `/System/Library/Extensions/RedwoodMetal.bundle`，保留原版系统的全部通知 Bundle、全部字体、本地化文案与 47 个预装系统应用。
+3. **全仓库表象绕过项排查与根因替换**：
+   - **文件系统数据保护类（`va_dataprotect_class`）、克隆（`VOL_CAP_FMT_CLONE_MAPPING`）与创建时间（`va_addedtime`）原生支持**：在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 与 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 中补齐 `rn_dataprotect_class`、`va_addedtime`、`VOL_CAP_FMT_PERSISTENTOBJECTIDS`、`VOL_CAP_FMT_CLONE_MAPPING` 与 `VOL_CAP_INT_RENAME_SWAP`，在 [`apfs_vnops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c) 中返回 `PROTECTION_CLASS_D`，并移除 [`inject_posterboard.c`](../../hackios-xnu-userland/userland/src/inject_posterboard.c) 的 `NSURL` 钩子。
+   - **系统应用数据容器统一制备**：在 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 的 `INJECT` 列表中将 `MobileCal` 加入 `libredwood-app.dylib`，在 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c) 中自动创建容器下的 `Documents`、`Library/Preferences`、`Library/Caches` 与 `tmp` 子目录，并移除 [`ax.m`](../../hackios-xnu-userland/userland/src/ax.m) 中针对 `MobileCal` 的环境变量分支。
 
 ## 2. 上游优化项与工程工具链跟进
 
