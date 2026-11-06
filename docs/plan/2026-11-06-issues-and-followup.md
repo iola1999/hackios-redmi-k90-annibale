@@ -35,29 +35,43 @@
 - **修复**：从 [`air_metal_texture.inc`](../../hackios-xnu-userland/tools/mesa/air/air_metal_texture.inc) 移除对 `PIPE_FORMAT_A8_UNORM` 的强制 `PIPE_SWIZZLE_X` 覆盖，配合 §1.1 的顶点 CSO 缓存深拷贝修复。
 - **真机验证**：打开「设置」主列表与「通用」子列表截图确认，Apple 账户、飞行模式、Wi-Fi、蓝牙、电池、通用、辅助功能、待机显示、控制中心、墙纸、显示与亮度等全部设置项左侧彩色图标完整显示。
 
-### 1.4 进入设置子页面时背光短暂变暗再恢复（已修复并验证）
+### 1.4 进入设置子页面时背光短暂变暗再恢复（继续修复中）
 
-- **现象**：首次打开「设置」或点击进入子页面转场时，屏幕亮度会自主跳变或短暂降低再恢复。
+- **现象**：首次打开「设置」或点击进入子页面转场时，屏幕亮度会自主跳变或短暂降低再恢复；09:05 真机实测反馈进入设置子页面亮度仍会先降再恢复。
 - **根因**：
-  1. 通过 [`dsc.py`](../../hackios-xnu-kernel/tools/dsc/dsc.py) 反汇编 iOS 26（23G90）`CoreBrightness` 框架（`SetLogicalBrightnessInternal` `0x1e2640e80`、`Display fade callback` `0x1e263c300`、`ScalerMax`／`ScalerMin` 限制斜坡 `0x1e26417dc`、`AAP` 斜坡 `0x1e2744e40`）并对照内核日志发现：`CoreBrightness` 每次更新亮度时都会同时向 `AppleARMBacklight` 下发 `brightness-nits` 并向 `IOMobileFramebuffer` 下发 `IOMFBBrightnessLevel`，转场期间还会夹杂非正数或 `< 65536` 的瞬态值（如 `404377` 对应 6.17 nits 或小于 1 nit 的过渡值）。
-  2. 开机时 `backboardd` 通过 `DisplayBrightnessNitsNVRAM=9175040`（`140.000 nits`）下发 NVRAM 保存的初始亮度，[`MiniAppleARMBacklight.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp) 原先未读取该键，面板保持在 loader 留下的 `0x35a`（约 55 nits）直到进入设置页才跳变。
-  3. 用户在控制中心或「设置 → 显示与亮度」手动拖动滑块时，`CoreBrightness` 在每个触摸采样帧都会向 `AppleARMBacklight` 连续下发高频 `DisplayBrightness`（每 100 毫秒 30～70 次）及 `DisplayBrightnessSliderPosition`；而在进入「设置」子页面触发自主转场斜坡（`140.0 ↔ 168.0 nits` 或 `168.0 → 158.7 → 168.0 nits`）时，斜坡期间无连续 `DisplayBrightness` 事件。
-- **修复**：在 [`MiniAppleARMBacklight.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp) 中：
-  1. `publish_calibration()` 发布 4 字节 `0` 的 `use-AAP`、`use-cabal` 与 `use-new-AAP-ramp` 属性。
-  2. `bl_take()` 支持读取开机 `DisplayBrightnessNitsNVRAM` 立即应用初始亮度（`140.000 nits`），忽略 `IOMobileFramebuffer` 侧的 `IOMFBBrightnessLevel` 以及 `<= 0` 或 `1025..65535` 的瞬态异常值。
-  3. 跟踪用户滑块活跃窗口（收到 `DisplayBrightnessSliderPosition` 或 250 毫秒内连续收到 `DisplayBrightness` 时开启 400 毫秒滑块窗口）；在非用户滑块窗口内，过滤变化幅度不超过 25% 的 `CoreBrightness` 自主转场微调斜坡，同时完整保留用户手动拖动滑块的平滑调光。
-- **真机验证**：重新编译内核封装进 `boot_a` 重启实测，开机立即应用 `DisplayBrightnessNitsNVRAM=9175040`（`value 2310, 140.000 nits`）；进入「设置」及各子页面转场期间面板背光保持恒定，无闪烁或变暗。
+  1. 09:05 真机仍运行着 05:34 启动的旧会话（运行时间 12640 秒），08:40 后台 `oem flash_boot` 写入 `boot_a` 未重启运行中的内核。
+  2. 通过 [`dsc.py`](../../hackios-xnu-kernel/tools/dsc/dsc.py) 反汇编 iOS 26（23G90）`CoreBrightness` 框架并核对转场日志发现：`CoreBrightness` 在设置子页面转场自主斜坡（`140.0 ↔ 168.0 nits`）的每一帧（约 16 毫秒间隔）也会同时向 `AppleARMBacklight` 下发 `DisplayBrightness`（`{Brightness: ...}`）与 `brightness-nits`，并向 `IOMobileFramebuffer` 下发 `IOMFBBrightnessLevel`。
+  3. [`MiniAppleARMBacklight.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp) 在 `417bae9` 中把「连续收到 `DisplayBrightness`」也作为开启 `bl.user_until` 滑块窗口的条件，导致自主转场斜坡第 2 帧即误触发 `bl.user_until`，绕过了 25% 自主斜坡过滤；同时直接忽略 `IOMFBBrightnessLevel`（`value_key == NULL`）会导致控制中心滑块松手后的目标尼特数无法经帧缓冲通道送达。
+- **修复方案**：
+  - 在 [`MiniAppleARMBacklight.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp) 中，仅在收到 `DisplayBrightnessSliderPosition`（仅用户实际触摸拖动亮度滑块时由 `CoreBrightness` 发送）时开启 `bl.user_until` 滑块活跃窗口，移除 `DisplayBrightness` 对 `bl.user_until` 的触发。
+  - 对 `AppleARMBacklight`（`brightness-nits`／`brightness`）与 `IOMobileFramebuffer`（`IOMFBBrightnessLevel`）统一执行同一套滑块窗口与 25% 斜坡过滤规则，在保持控制中心滑块实时调光的同时拦截设置子页面转场斜坡。
 
-### 1.5 日历（MobileCal）每次打开重复弹出通知权限申请（已修复并验证）
+### 1.5 日历（MobileCal）重复弹出通知权限申请与原生授权持久化（继续根因修复中）
 
 - **现象**：打开日历（`MobileCal`）弹出通知权限请求框，点击「允许」后关闭再重新打开日历，仍每次重复弹出同一权限申请。
 - **根因**：
-  1. [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 生成根盘 `launchd.plist` 时仅在 `DYLD_INSERT_LIBRARIES` 中注入了 `libredwood.dylib`（仅作用于 `SpringBoard`），未注入通用应用辅助库 `libredwood-ax.dylib`（[`userland/src/ax.m`](../../hackios-xnu-userland/userland/src/ax.m)）；同时 `MobileCal` 启动时调用 `UNUserNotificationCenter` 的 `-requestAuthorizationWithOptions:completionHandler:`，因缺少 `usernotificationsd` 通知授权持久化而每次弹窗。
-  2. [`var_store_delta.inc`](../../hackios-xnu-userland/userland/src/var_store_delta.inc) 中 `delta_reset()`、`delta_save()`、`delta_restore()` 原先判断 `if (store_at == 0 || slots <= 1)`，而 `/dev/rufs_dsu_store` 分区模式下 `STORE_AT` 恒为 `0`，导致增量保存被跳过；`delta_is_near_full()` 在 `fd == -1` 时直接调用 `delta_read_head()` 导致 `pread(-1)` 报 `Bad file descriptor`；且当 `delta_save()` 超过 64 MiB 增量上限触发 `out_flush(0)` 返回 `0` 时未回退调用 `save()` 合并基础槽位。
-- **修复**：
-  - [`tools/k90auto/package.py`](../../tools/k90auto/package.py)、[`userland/src/ax.m`](../../hackios-xnu-userland/userland/src/ax.m) 与 [`userland/src/inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c)：将 `/redwood/lib/libredwood-ax.dylib` 纳入 `package.py` 的 `DYLD_INSERT_LIBRARIES`，为 `MobileCal` 绑定固定容器目录 `7DFA02CB-E0A8-4D3C-BF40-4E5F6A7B8C93`，并在 `ax_suppress_notification_prompt()` 中拦截 `UNUserNotificationCenter` 的 `-requestAuthorizationWithOptions:completionHandler:` 直接回调 `handler(YES, nil)`。
-  - [`var_store_delta.inc`](../../hackios-xnu-userland/userland/src/var_store_delta.inc) 与 [`var_store_unpack.inc`](../../hackios-xnu-userland/userland/src/var_store_unpack.inc)：移除 `store_at == 0` 限制，在 `delta_is_near_full()` 中当 `fd < 0` 时临时打开 `DEVICE`，并在 `delta_save()` 超出 64 MiB 限制时自动调用 `save()` 合并写入基础槽位。
-- **真机验证**：连续多次打开 `MobileCal` 截图确认，直接进入日历主视图，不再弹出通知权限申请框。
+  1. 09:05 从真机取回 `/var/mobile/Library/UserNotifications/Library.plist` 与 `/var/mobile/Library/BulletinBoard/VersionedSectionInfo.plist` 对比发现：`Library.plist` 已登记 `com.apple.mobilecal -> 9258050C-94B0-48D0-BDDE-82BE8E85EA85` 且 `Categories.plist` 已落盘，但 `VersionedSectionInfo.plist` 仅含 `DocumentsApp`、`MobileSMS`、`tips` 三项，缺少 `com.apple.mobilecal` 的 `UNCSectionInfo` 记录。
+  2. `usernotificationsd`（`UserNotificationsCore` 的 `UNCSectionInfoStore`）在查询应用通知设置时从 `VersionedSectionInfo.plist` 读取 `authorizationStatus`；因 `com.apple.mobilecal` 的 section info 未写入或未初始化，每次查询均返回 `UNAuthorizationStatusNotDetermined (0)`，触发 `MobileCal` 再次请求授权。
+  3. 先前在 [`userland/src/ax.m`](../../hackios-xnu-userland/userland/src/ax.m) 中通过 `ax_suppress_notification_prompt()` 拦截 `UNUserNotificationCenter` 属于表象绕过。
+- **修复方案**：
+  - 定位并修复 `usernotificationsd`／`UNCSectionInfoStore` 对 `VersionedSectionInfo.plist` 的授权状态写入与持久化，移除 [`ax.m`](../../hackios-xnu-userland/userland/src/ax.m) 中的 `ax_suppress_notification_prompt()` 表象钩子。
+
+### 1.6 09:07 用户新反馈的 3 项真机问题（已记录，排查修复中）
+
+1. **首次连接 Wi-Fi 报错「无法加入」随后自动连上，以及 `ath12k` 调试日志刷屏**：
+   - **现象**：09:05:58 左右在「设置 → Wi-Fi」首次点击加入网络时弹窗报错「无法加入」，随后后台自动重试又成功连上。
+   - **根因（初步定位）**：
+     - 日志刷屏：[`hackios-xnu-kernel/wifi/lx/ath12k/lx_pci.c`](../../hackios-xnu-kernel/wifi/lx/ath12k/lx_pci.c) 默认开启 `ATH12K_DBG_HTC` 且 `__ath12k_dbg()` 无条件打印 `htc rx completion ep 2 skb ...`，连上网后 30 秒内打印 14030 行，冲掉了 1 MB 内核日志环形缓冲区中 09:05:58 的首次连接现场。
+     - 首次连接握手超时：[`lx_join.c`](../../hackios-xnu-kernel/wifi/lx/src/lx_join.c) 在收到关联应答（`0x10`）后尚未完成 `station_state(AUTH -> ASSOC)`（`WMI_PEER_ASSOC`）与 `bss_changed(BSS_CHANGED_ASSOC)`（`WMI_VDEV_UP`）时，接入点紧接着发来的四次握手第 1 条 EAPOL 消息已在 `wifi-rings` 线程触发 `handshake_message()` 回复第 2 条消息；此时驱动 peer 关联状态与 vdev 尚未就绪，导致第 2 条握手帧滞留在 TCL 环或被丢弃，约 3 秒后接入点以 reason 15 解除认证，报错「无法加入」，随后 `wifid` 自动发起第二次连接成功。
+   - **修复方案**：关闭 `ATH12K_DBG_HTC` 逐包日志刷屏；在 `lx_80211.c`／`lx_join.c` 中确保关联完成、`station_state(AUTH -> ASSOC)` 与 `bss_changed(BSS_CHANGED_ASSOC)` 就绪后再发送 EAPOL 第 2 条握手回复（或在关联配置完成后重发待发的握手回复）。
+2. **插着 USB 线无法充电／状态栏不显示充电且电量下降**：
+   - **现象**：手机插着电脑 USB 线运行 iOS 26 时，状态栏不显示闪电图标，电量在 3.5 小时内从 84%（4273 mV）降至 75%（4148 mV，电流 `-175`～`-1281 mA`）。
+   - **根因**：[`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c) 仅从 BQ27Z561 电量计读取净电流 `current_ua`，无独立 VBUS／充电器在线信号源；代码将 `< -250 mA` 判定为 `last_external = false`（拔出充电器）。电脑 USB 端口（SDP 500 mA）供电功率低于 iOS 亮屏运行功耗（净电流约 `-400`～`-800 mA`），开机首次采样后即被判为未接电源；同时需排查 PMIC USB 输入限流与充电器在线状态寄存器读取。
+   - **修复方案**：排查 SM8750 PMIC（PM8550B／SMB139x）USB VBUS 在线状态与输入限流配置，将「充电器物理在线（`external`）」与「电池净电流正负」解耦，使插线时正确上报外部电源连接并提高可用充电电流。
+3. **系统内滑动关机后画面卡死在最后一帧**：
+   - **现象**：09:07 在 iOS 系统内触发关机并滑动确认后，屏幕一直卡在关机转圈画面无法熄屏关机。
+   - **根因**：iOS 关机调用 `reboot(RB_HALT)` 进入 `PE_halt_restart(kPEHaltCPU)`，当前内核直接调用 `loader_return()` 退回 RAM 中的 `xnuloader`（09:07:59 实测 `fastboot -s xnuloader getvar result` 为 `idle 0 0`），而 `MiniIOMobileFramebufferQuiesce()` 将最后一帧拷回主帧缓冲并把混合器亮度恢复为 `DIM_ALPHA_FULL`（100%），面板背光保持常亮，外观上表现为死机卡住。
+   - **修复方案**：区分系统关机（`kPEHaltCPU`）、系统重启（`kPERestartCPU`）与调试停轮返回 loader：在 `kPEHaltCPU`／`kPERestartCPU` 时先保存 `var_store`、将面板背光与混合器调至全黑（DCS `0x51` 写 0 并关显示），再调用 PSCI `SYSTEM_OFF` 或 `SYSTEM_RESET`。
 
 ## 2. 上游优化项与工程工具链跟进
 
