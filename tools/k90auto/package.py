@@ -229,7 +229,7 @@ INJECT = (
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n"
     "/redwood/lib/libredwood.dylib backboardd\n"
     "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences\n"
-    "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders\n" +
+    "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders MobileCal\n" +
     ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
     ("/redwood/lib/libredwood-fpvolume.dylib fileproviderd\n" if FPVOLUME else "") +
@@ -968,7 +968,7 @@ def main():
     vs_file = dest / "LaunchDaemons/com.redwood.varstore.plist"
     if vs_file.exists():
         vs_plist = plistlib.loads(vs_file.read_bytes())
-        vs_plist["ProgramArguments"] = ["/redwood/bin/var_store", "watch", "20"]
+        vs_plist["ProgramArguments"] = ["/redwood/bin/var_store", "watch", "3"]
         vs_file.write_bytes(plistlib.dumps(vs_plist, fmt=plistlib.FMT_XML))
         cache["LaunchDaemons"]["/System/Library/LaunchDaemons/com.redwood.varstore.plist"] = vs_plist
     (dest / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
