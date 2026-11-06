@@ -36,7 +36,8 @@ import sys
 import zlib
 
 HERE = Path(__file__).resolve().parent        # tools/k90auto/
-WORKSPACE = HERE.parents[1] / "hackios-xnu-kernel"      # the kernel checkout, from <workspace>/tools/k90auto
+REPO = HERE.parents[1]
+WORKSPACE = REPO / "hackios-xnu-kernel"      # the kernel checkout, from <workspace>/tools/k90auto
 OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and the logs stay
 # PAYLOAD_SRC_ROOT packs from a clean copy of the sources instead of the working tree, so a package
 # can be built while somebody else has an edit in flight (and the manifest records which sources).
@@ -47,7 +48,9 @@ EXTRA_PROGRAMS = [Path(p) for p in os.environ.get("PAYLOAD_PROGRAMS", "").split(
 # an earlier boot and rwsh "outbox" carried it to the host (run/outbox.bin). With var_store=1 among
 # the boot arguments init unpacks it over the skeleton, so the LaunchServices database, the icon
 # cache and PosterBoard's data are there from the first second instead of being rebuilt.
-SEED = Path(os.environ["SEED"]) if os.environ.get("SEED") else None
+DEFAULT_SEED = REPO / "docs/progress/evidence/k90auto/kernel-12377-cmd30-seed3/seed-icons.bin"
+seed_env = os.environ.get("SEED", "")
+SEED = Path(seed_env) if (seed_env and seed_env not in ("0", "none", "no") and Path(seed_env).is_file()) else None
 # The AIR library is not compiled here; tools/k90auto/build-air.py is the only entry point that
 # builds it, because the arm64e build reads its own copy of the sources and an unsynced edit builds
 # a valid library that is missing what the round is meant to measure. Its record says which library
@@ -88,7 +91,7 @@ VARSTORE_LINE = "/redwood/bin/var_store show\n"
 # sends on this phone (pcie_bdf= picks a board data file by name, pcie_qdss=1 sends the QDSS file).
 # lfw-*.bin, when there, are linux-firmware's ath12k/WCN7850/hw2.0 amss.bin and m3.bin, copied by hand
 # (pcie_fw=3).
-WIFI_FW_DIR = WORKSPACE / "out/fw-wifi"
+WIFI_FW_DIR = WORKSPACE / "hackios-xnu-kernel/out/fw-wifi" if (WORKSPACE / "hackios-xnu-kernel/out/fw-wifi").is_dir() else WORKSPACE / "out/fw-wifi"
 WIFI_FW_USED = ["amss20.bin", "regdb.bin", "bd_p11.elf", "phy_ucode20.elf"]
 WIFI_FW_MODE = os.environ.get("WIFI_FW", "used" if all((WIFI_FW_DIR / n).exists() for n in WIFI_FW_USED) else "0")
 WIFI_FW = WIFI_FW_MODE != "0"
@@ -101,7 +104,7 @@ WIFI_FW_FILES = (WIFI_FW_USED if WIFI_FW_MODE == "used" else
 # By default, when hackios-xnu-kernel/tools/mk-fw-bt.py has extracted the phone's bluetooth partition
 # into out/fw-bt, the three files WCN7850 ROM 0x20 board 0 uses on the K90 go into fw/ (hmtbtfw20.tlv,
 # hmtbtfw20.ver and hmtnv20.bin, 285 KB; kernel-12377-st2-r1). BT_FW=all puts in every hmt* file; BT_FW=0 none.
-BT_FW_DIR = WORKSPACE / "out/fw-bt"
+BT_FW_DIR = WORKSPACE / "hackios-xnu-kernel/out/fw-bt" if (WORKSPACE / "hackios-xnu-kernel/out/fw-bt").is_dir() else WORKSPACE / "out/fw-bt"
 BT_FW_USED = ["hmtbtfw20.tlv", "hmtbtfw20.ver", "hmtnv20.bin"]
 BT_FW_MODE = os.environ.get("BT_FW", "used" if all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else "0")
 BT_FW = BT_FW_MODE != "0"
@@ -238,7 +241,8 @@ INJECT = (
 JOBS = "etc/rc.jobs"
 # JOBS_SOURCE=... runs a different touch script than the acceptance one. A diagnostic that has
 # to catch the screen mid-drag needs its own timing, and the acceptance script stays as it is.
-JOBS_SOURCE = Path(os.environ.get("JOBS_SOURCE", HERE / "rc.jobs.desktop"))
+DEFAULT_JOBS = HERE / "jobs/rc.jobs.interactive" if (HERE / "jobs/rc.jobs.interactive").exists() else HERE / "rc.jobs.desktop"
+JOBS_SOURCE = Path(os.environ.get("JOBS_SOURCE", DEFAULT_JOBS))
 # Whether the name above came from the environment or from the default. A round that ran the
 # default and a round that asked for that same file are different statements, and the archive has
 # to carry which one happened: two rounds with 3550 and 17 frames differ by their gesture script,
@@ -405,7 +409,7 @@ REST_TRIAL = (os.environ.get("REST_ALLOW", "").split()
               + (["audio"] if AUDIO else [])
               + (["bluetooth"] if BLUETOOTH else []))
 REST_ALLOW = ["com.apple.dmd"] + REST_TRIAL
-REST_DENY = ["com.apple.PerfPowerServices"]
+REST_DENY = ["com.apple.PerfPowerServices", "com.apple.syncdefaultsd"]
 SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0"]
 
 # SHIM_FLAGS are build.sh's flags for the same library.
