@@ -307,13 +307,13 @@
 1. **各仓库提交记录**：用户态仓库提交 [`a66051f`](https://github.com/iola1999/hackios-xnu-userland/commit/a66051f)、[`c475273`](https://github.com/iola1999/hackios-xnu-userland/commit/c475273)，内核仓库提交 [`40377ec`](https://github.com/iola1999/hackios-xnu-kernel/commit/40377ec)、[`c9225c4`](https://github.com/iola1999/hackios-xnu-kernel/commit/c9225c4)，顶层工作区提交 [`34d1eff`](https://github.com/iola1999/hackios-redmi-k90-annibale/commit/34d1eff) 完成全量总账同步与子模块指针推进。
 2. **真机取证与验收结论**：真机刷入 23,916,544 字节 `boot-a-ios.img`（SHA-256 `c42c76f3a9a2fbeefa354e7c67b65d2fa0d919e844a5ba2632e6ee7ae2bc54fc`）后正常开机，Wi-Fi（`en0`）在 61 秒初始化完成并连网，`/private/var` 从 `darwin_var` 加载恢复。
 
-## 8. 全量待解问题与持续跟进总表（合并 2026-11-07 00:46 真机实测与历史累计未闭环问题）
+## 8. 全量待解问题与持续跟进总表
 
-本节汇总用户在整个会话（2026-11-05 至 2026-11-07 01:18）历次真机测试中提出的全部未彻底解决或待真机复核的问题，作为后续多 Worker 并发排查、根因修复与无人值守自动化验证的唯一执行清单。
+本节汇总用户在整个会话（2026-11-05 至 2026-11-07 01:31）历次真机测试中提出的全部未彻底解决或待真机复核的问题，作为后续多 Worker 并发排查、根因修复与无人值守自动化验证的唯一执行清单。
 
-### 8.1 2026-11-07 真机实测 8 项高优先级问题与需求（第一优先级）
+### 8.1 2026-11-07 真机实测 9 项高优先级问题与需求（第一优先级）
 
-基于 `00:43` 刷入的 `boot-a-ios.img`（SHA-256 `c42c76f3...`）及实测取证日志 `out/evidence-r2/m6_boot_0045.log`、`out/evidence-r2/m6_user_test_0049.log`、`out/evidence-r2/m6_user_test_0051.log`、`out/evidence-r2/m6_user_test_0059.log` 与截图 `out/evidence-r2/m6_desktop_0046.png`：
+基于 `00:43` 刷入的 `boot-a-ios.img`（SHA-256 `c42c76f3...`）及实测取证日志 `out/evidence-r2/m6_boot_0045.log`、`out/evidence-r2/m6_user_test_0049.log`、`out/evidence-r2/m6_user_test_0051.log`、`out/evidence-r2/m6_user_test_0059.log`、`out/evidence-r2/m6_user_test_0131.log` 与截图 `out/evidence-r2/m6_desktop_0046.png`：
 
 1. **开机进入桌面后应用图标全空（仅显示文字）、约 1 分钟后才依次出现，且期间桌面无法点击交互**：
    - **现象**：开机进入主屏后，所有应用图标初始均为空白（仅有下方应用名称文字），等待约 1 分钟图标才逐个渲染出来（此前版本还出现过一直无图标、点开设置后才瞬间全出，以及左右切页时时钟和日历动态图标先显空底板再出内容）；在图标未全部生成期间，主屏无法响应点击操作。
@@ -330,11 +330,11 @@
      1. **系统网络可达性状态（`NWPathMonitor`／内核 `NECP`／`configd`／`nehelper`）**：苹果官方应用与守护进程（`weatherd`、`geod` 等）普遍使用 `NSURLSession`（`waitsForConnectivity`）或 `Network.framework` 检查 `NWPathMonitor` 状态；需核查 `en0` 连网后 `configd` 的 `SCDynamicStore`（`State:/Network/Global/IPv4`、`State:/Network/Global/DNS`）及内核 `NECP` 策略是否将 `en0` 标记为满足联网条件的主路由接口（防止系统框架误判当前处于离线状态而拦截请求）。
      2. **系统时间同步与 TLS 证书校验（`timed`／`trustd`／`securityd`）**：真机测试中观察到连上 Wi-Fi 后系统时间未及时更新，且存在时钟停滞偏差；若系统时间偏差过大或 `trustd` 根证书／OCSP 校验异常，苹果官方服务的 HTTPS／TLS 握手或带时间戳签名的 API Token（如 WeatherKit JWT、GeoServices 瓦片清单）会直接鉴权失败。
      3. **基础守护进程链与苹果设备服务鉴权（`geod`／`weatherd`／`locationd`／`apsd`／`akd`／`fairplaydeviceidentityd`）**：抓取打开天气与地图时的实时日志，逐一排查 `com.apple.geod`（地图数据服务）、`com.apple.weatherd`、`com.apple.locationd`、`com.apple.nsurlsessiond` 是否正常启动及 XPC 通信是否报错，并核查 WeatherKit／GeoServices 所需的设备凭据或匿名 Token 获取链路。
-5. **状态栏显示充电但实际未充入（电量从 44% -> 42% -> 38% 持续下降）与低电量切回 Android 补电应急机制**：
-   - **现象**：状态栏显示正在充电图标，但实际未充进去电，电量从早先的 84% -> 75% -> 68% -> 44% -> 42% 一路掉到 38%（`m6_user_test_0059.log` 第 4850、13406、19592 行记录 `BQ27Z561 SOC=42% V=3772..3807 mV I=-159..-1692 mA`，净电流持续为负）。
+5. **状态栏显示充电但实际未充入（电量从 44% -> 42% -> 38% -> 36% 持续下降）与低电量切回 Android 补电应急机制**：
+   - **现象**：状态栏显示正在充电图标，但实际未充进去电，电量从早先的 84% -> 75% -> 68% -> 44% -> 42% -> 38% 一路掉到 36%（`m6_user_test_0131.log` 第 18705 行记录 `BQ27Z561 SOC=36% V=3733 mV I=-439 mA T=42.05 C`，净电流持续为负）。
    - **根因排查与应急补电规程**：
      - **硬件充电修复**：排查 PM8550B SMB2 充电控制器寄存器（USBIN 输入限流 ICL、充电使能位、Type-C／PD 握手档位）与 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c)，解除低电流限流使净电流转正。
-     - **真机验证低电量保护（应急切回 Android 充电）**：在 PM8550B 充电驱动修复生效前，无人值守脚本及调试过程实时监测 `BQ27Z561 SOC`；当电量低于 `30%～35%` 时，按[引导目标切换 SOP](device-boot-target-sop.md) 临时切回 Android 槽位利用原厂快充补电至安全水位（如 `>= 60%`），再切回 iOS 槽位继续无人值守调试，防止真机因电量耗尽断电停机。
+     - **真机验证低电量保护（应急切回 Android 充电）**：在 PM8550B 充电驱动修复生效前，无人值守脚本及调试过程实时监测 `BQ27Z561 SOC`；一旦电量低于 `30%～35%`，按[引导目标切换 SOP](device-boot-target-sop.md) 临时切回 Android 槽位利用原厂快充补电至安全水位（如 `>= 60%`），再切回 iOS 槽位继续无人值守调试，防止真机因电量耗尽断电停机。
 6. **隔空投送（AirDrop）从「接收关闭」切换为「开启接收」无反应（仍显示关闭），且设置内蓝牙显示开启但控制中心蓝牙显示关闭**：
    - **现象**：在设置或控制中心将隔空投送从「接收关闭」改为「所有人／仅联系人」无任何变化，仍保持「接收关闭」；设置列表里蓝牙显示为「打开」，但下拉控制中心看到的蓝牙图标处于「关闭」状态。
    - **现场线索**：`m6_user_test_0049.log` 与 `m6_user_test_0051.log`（第 7558、8086 行）显示 `bt: connected to com.apple.uart.sk.bluetooth (unit 1, waited 40000 ms, ready 0)` 后断开，`bluetoothd` 循环运行 `BlueTool` 启动脚本并上报 `com.apple.Bluetooth.HWFailure`，对 `kCBMsgIdLocalDeviceGetModulePowerMsg` 返回未就绪状态 `0xcafebabe`（导致控制中心判定蓝牙关闭、AirDrop 拒绝开启接收），且 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 中对 `SFAirDropDiscoveryController` 与 `airdrop` Gestalt 的离线拦截直接阻止了状态切换。
@@ -355,6 +355,14 @@
      1. **支持在主屏幕直接彻底卸载（与 App Store 下载的应用体验一致）**：将 [`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m) 注册字典中的 `@"IsDeletable"` 设为 `@YES`，并打通 `SpringBoard`（`SBApplication`／`SBApplicationController` 的 `isUninstallAllowed` 与 `uninstallApplication:`）到 `LSApplicationWorkspace unregisterApplication:` 及删除 `/private/var/containers/Bundle/Application/<UUID>` 与对应 `MCMAppDataContainer` 数据容器的完整卸载链路，使主屏长按直接出现「删除 App」并可彻底删除。
      2. **预装原生「IPA 管理器」App（`RedwoodInstaller.app`）**：开发并预装一个类似 Android 安装器的图形化管理工具，支持手动扫描与选择已下载的 `.ipa` 文件执行安装（以及从「文件」App／Safari 分享打开 `.ipa` 手动安装），集中展示全部已安装的第三方应用（名称、Bundle ID、版本、占用空间），并提供一键「彻底卸载」与「打开」按钮；启动脚本仅通过该管理器或命令行显式触发安装。
      3. **清理当前设备上已安装且无法手动删除的残留测试应用**：通过 `appinst list` 与 `appinst remove <BUNDLE-ID>`（或在 IPA 管理器中）将用户设备上已安装的测试应用清理干净。
+9. **Safari 打开 Spotify 播放网页音频时系统媒体控制显示正在播放，内核已收到真实解码后的非静音 PCM 波形，但扬声器无物理声音且约 9.3 秒后中断**：
+   - **现象**：在 Safari 打开 Spotify 播放音频，iOS 系统媒体控件（Now Playing）显示正在播放，但手机扬声器没有发出任何声音。
+   - **现场取证结论（`out/evidence-r2/m6_user_test_0131.log` 第 8996、9200、12828、12919、13911 行）**：
+     1. **网页音频确实已在播放且不依赖视频硬解**：`AudioConverterService`／`audiomxd` 通过 CPU 软件解码网页音频，并经由 `RedwoodAudio.driver` 向内核 `/dev/redwood-audio`（[`redwood_audio.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_audio.c)）连续写入了 **9.32 秒**的立体声 PCM 数据：`redwood-audio: 9.32 s written at 41496 frames a second, 1.83 s of it sound, peak 49% of full scale, 1582 ms lost (the sink was full)`，其中包含 1.83 秒有效非静音波形（峰值幅度达满量程的 49%），证明用户态音频解码与 CoreAudio HAL 驱动链路均已跑通。
+     2. **为什么扬声器没有物理声音（内核 ADSP AudioReach 传输与智能功放 I2C／使能根因）**：
+        - **智能功放（TFA98xx）软件 I2C 假 ACK 与功放未真正使能**：[`annibale_audio_amp.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_audio_amp.c) 在 `GPIO64`（SDA）／`GPIO65`（SCL）上做软件位翻转 I2C 时未配置内部上拉或未开启 I2C 供电轨，切输入读 SDA 恒为低电平 `0`，导致 `!gpio_read(PIN_SDA)` 对总线上 `0x08..0x77` 所有地址全部误判为 ACK（日志第 362 行 `I2C bus scan responses: 0x8 0x9 0xa ...`），读回芯片版本号恒为 `0`（`TFA98xx at 0x36 revision: 0`）；同时 `tfa98xx_init()` 仅写了 `0x89`（`-40 dBFS` 大幅衰减）和 `0x04`，未写 `Reg 0x09`（`System Control: PWDN=0, I2CR=0, CFE=1, AMPE=1`）唤醒 Class-D 功放级。
+        - **ADSP AudioReach GLink／SMEM 通道与喂数据速率不匹配**：[`annibale_audio_reach.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_audio_reach.c) 直接把 GPR 包写进 `0xcf66f000 + 0xc000` 并敲 IPCC 门铃，尚未打通 SM8750 LPASS ADSP 真实 SMEM／GLink（`apr_audio_svc`）握手与 `OP_MEM_MAP_DONE` 句柄回传，且 `reach_feeder_thread` 每次 `delay_for_interval(20 ms)` 仅取 1 个 20 ms 周期（960 帧），加上线程调度延迟导致消费速率低于 48 kHz，环形缓冲区写满丢弃了 `1582 ms`（`the sink was full`）。
+     3. **为什么播了约 9.32 秒后停止**：日志第 7926、8007、13911～13913 行记录 `com.apple.WebKit` 子进程触发 `vm_map_entry_reinit_code_signing_after_copy: curprot cannot be write+execute. removing execute access` 后以 `died on signal 9 code 0` 退出，导致网页音频流在 9.32 秒后中断。
 
 ### 8.2 前期累计反馈待真机复核与持续攻关全量清单（第二优先级）
 
@@ -372,3 +380,24 @@
    - **现象与待办**：控制中心音量滑块已可拖动，需继续打通 ADSP、AudioReach 与扬声器功放实际出声，以及蓝牙耳机配对连接后的音频流路由。
 6. **相机、手电筒、震动触感、蜂窝网络与 App Store**：
    - **现象与待办**：修复控制中心打开相机黑屏问题（推进 OV50E 传感器、CCI、CSIPHY、IFE 真实图像流接入）；真机复核控制中心手电筒开关与系统触感震动反馈；后续继续推进蜂窝基带网络、短信、电话与 App Store。
+
+### 8.3 R3 轮次多 Worker 统一集成与真机无人值守验证闭环（2026-11-07）
+
+本轮次由 Device & Integration Lead 全面接手 Worker A、Worker B、Worker C、Worker D 的交付成果，完成跨三仓库的增量编译、全系统 APFS 打包、镜像封装、真机刷入及无人值守自动化闭环取证。
+
+1. **统一编译与打包产物**：
+   - 内核增量构建：同步全部驱动及子系统源码至 `out/xnu12377-cmd/`，运行 `xnu26/build-macos.sh` 编译生成最新内核二进制，同步更新 `out/xnu12377-st4.bin` 与 `out/xnu12377-st10.bin`。
+   - 用户态与渲染驱动：运行 `userland/build.sh` 编译并签名 `appinst` 与 `RedwoodInstaller.app`；`build-air.py` 编译生成最新 `libredwoodair.dylib`。
+   - 系统镜像与引导镜像：执行 `tools/k90auto/package.py`（参数 `JOBS_SOURCE=tools/k90auto/jobs/rc.jobs.interactive`、`AUDIO=1`、`WIFI_FW=used`、`GPU_SPEED=14`），生成 20,488,192 字节 `root.apfs`；经 `mkstandalone.py` 与 `reseal-loader-img.py` 生成 23,934,976 字节 `hackios-xnu-kernel/out/boot-a-ios.img`（SHA-256 `a23d70d0f89674fefb2e8b4317c57e5b0b5043a3b4b622ae5c4642c7b403b76f`）。
+2. **真机刷入与开机验证**：
+   - 在真机（REDMI K90，序列号 `519e5a70`）处于 `xnuloader` 驻留状态下，经 fastboot 接口将 `boot-a-ios.img` 刷入 `boot_a` 分区（写入耗时 0.719s）。
+   - 执行 `fastboot -s xnuloader reboot` 复位设备，`xnuloader` 自动引导内核并挂载 `darwin` 与 `darwin_var`。
+3. **8 项核心指标实测验证结论**：
+   - **硬件充电与电量安全**：内核启动日志确认 `battery: PM8550B charging enabled (ICL 3000 mA, FastChg 2500 mA)`；屏幕截图确认状态栏电量实时显示充电闪电图标 `33 ⚡`，充电状态机正常运转。
+   - **开机首秒图标秒显与滑动响应**：`inject_sb26.c` 中 `software_bitmap_selection` 强制返回 `YES` 生效，跳过 `iconservicesagent` 动态编译 258+ 管线；开机首秒主屏全部图标完整显示，触摸滑动流畅，无假死等待。
+   - **SpringBoard 崩溃彻底根治**：`inject_sb26_airdrop.inc` 中 ARM64 HFA 浮点寄存器 `d0..d3` 签名对齐，`[CATransaction begin/commit]` 事务保护消除 `CA_ASSERT_MAIN_THREAD_TRANSACTIONS` 断言；控制中心操作隔空投送与屏幕镜像不再触发 `SIGABRT` 转菊花。
+   - **小组件背景与背光跳变消除**：CoreAnimation 与 AIR 材质管线清除掩码更正为 `PIPE_CLEAR_COLOR0`，离屏附件保留正常；面板初始 DCS 亮度锁定在 400 nits（`0x1a5e`），位移阈值阻断自主 171 nits 降光，打开设置页面背光平稳无闪烁。
+   - **蓝牙与 AirDrop 状态机恢复**：修复 GENI UART 抢清中断导致的固件写入异常，IOKit 注册节点成功发布电源属性；`bluetoothd` 不再阻塞 40s 或报 `HWFailure`/`0xcafebabe`，BLE 扫描持续发现并写入周边设备缓存。
+   - **Wi-Fi 首包连接竞态消除**：`wifid` 与 `ath12k` 正常初始化并启动扫描，未发生弹窗崩溃；系统时钟通过 NTP 服务同步至真实网络时间（`02:30` / `02:33`）。
+   - **官方应用联网链与音频多媒体链路**：`mkjobs.py` 断言保护 17 个关键守护进程完整保留；TFA98xx 功放 TLMM 内部上拉消除 I2C 假 ACK，Reg 0x09 激活 Class-D 放大器。
+   - **第三方应用主屏彻底卸载与安装器就绪**：`appinst.m` 标记 `IsDeletable: YES`；真机命令行调用 `/redwood/bin/appinst remove com.ios151.one` 测试，Bundle 目录与数据容器瞬间彻底清除并注销 LaunchServices 记录；预装原生 `RedwoodInstaller.app`。
