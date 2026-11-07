@@ -15,7 +15,7 @@
 | 范围 | 用户反馈或要求 | 当前可确认的状态 | 验收条件 |
 |---|---|---|---|
 | 系统卷与内存 | 整个系统镜像占用约 5 GiB 内存不可接受 | 新版已刷入 `boot_a` 并重启完成 UFS 切根，启动卷常驻 4 MiB，内存采样见[根文件系统](rootfs-strategy.md) | 当前启动路径已通过；后续构建继续核对产物身份与常驻长度 |
-| 完整系统文件 | 使用完整系统卷 | 原版三容器共约 14.002 GiB，当前 `darwin` 为 8 GiB；完整提取与迁移准备进行中 | 原版容器逐字节校验，完整系统服务文件可读取，启动与原生应用请求复核 |
+| 完整系统文件 | 使用完整系统卷 | 原版三容器共约 14.002 GiB，完整提取、配套用户态构建和候选启动镜像均通过；当前系统与数据备份已核验，分区迁移等待确认 | 原版容器逐字节校验，完整系统服务文件可读取，启动与原生应用请求复核 |
 | 数据持久化 | 文件直接落盘；输入法、Wi-Fi、语言和桌面位置跨重启保留 | 当前日志确认恢复 UFS 数据盘；挂载失败和检查点恢复已修正 | 写入与同步后正常重启读回文件及设置；单独检查异常复位恢复 |
 | 开机交互 | 图标约一分钟才出现，期间不能点击；卡在苹果 Logo | 曾出现多种回归，最后反馈未逐项复核 | 记录首帧、图标完整与首次响应时刻，检查关键进程启动、退出和主线程等待 |
 | 大组件与图形 | 天气、日历大组件黑底，滑动或控制中心切换后黑白变化；壁纸和玻璃效果曾消失 | 本轮新镜像仍复现两个组件黑底；图标、壁纸、Dock 与控制中心玻璃可见 | 对组件、锁屏、桌面与控制中心执行相同操作并连续截图；核对 GPU 完成与颜色附件，人工检查画面可读性 |
@@ -50,6 +50,15 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 
 离线测试直接调用生产清屏入口，检查附件颜色、Load 保留、Alpha、空绘制和参数边界；恢复共用首附件颜色后测试失败。本轮新镜像的主屏和控制中心往返截图仍复现 Weather/Calendar 大组件黑底，图标、壁纸、Dock 与控制中心玻璃可见。清屏修复尚未解决组件画面，继续检查实际 GPU 输出。
 
+后续像素探针确认五种格式的清屏、原生 `CARenderer`、`CASDFLayer` 填色，以及四附件和 blit 均通过。另有两处可复现的接口差异：
+
+- AIR 先把 viewport 限制到附件范围，再计算顶点变换，导致越界 viewport 的采样位置错误。修复保留调用方的原始矩形，由 framebuffer 和 scissor 限制光栅化范围；生产映射代码的 5 项主机检查通过，旧实现失败 4 项。
+- Metal texture view 构造固定传入空 IOSurface 和 plane 0，丢失原纹理身份。修复继承原纹理的 IOSurface 与 plane；实际方法的 6 项检查通过，旧方法全部失败。
+
+扩展后的运行测试在宿主原生 Metal 的默认、越界 viewport、IOSurface 及组合场景中通过。真机旧版本已复现上述两处差异，候选 AIR 和 Metal 库完成 arm64e 构建与签名，等待分别复核。SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，黑底原因仍需结合实际组件输出确认。
+
+原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。该项进入完整系统回归，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
+
 ### 3.3 音频与网络
 
 ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也可使用固定句柄继续执行。播放完成计数因此缺少真实 DSP 完成通知。本轮按 GPR/AudioReach 协议检查回复、数据包和失败传播，实际扬声器播放仍待验证。
@@ -66,7 +75,11 @@ ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也
 - GeoServices 裸配置 URL 返回 HTTP 400，WeatherKit 基址返回 HTTP 200；这些请求确认传输已完成，尚未覆盖地图瓦片或天气鉴权内容。
 - 原生 Weather 显示温度「--」，Maps 地图区空白。Weather/weatherd 查找 `fairplayd`、`locationd` 相关 Mach 服务失败，Weather/Maps 还记录 `kvsd` 查找失败；下一步核对实际 job cache、系统文件和服务启动结果。
 
-设备与主机输入均确认缺少 `/usr/libexec/locationd` 和 `/usr/sbin/fairplayd.H2`，helper 的 job cache 因实际文件缺失而未登记这些服务。后续按[完整原版部署](rootfs-strategy.md#7-完整原版系统卷部署)恢复完整系统文件，再生成匹配的启动任务并验证原生请求。
+设备与旧主机输入均确认缺少 `/usr/libexec/locationd` 和 `/usr/sbin/fairplayd.H2`，helper 的 job cache 因实际文件缺失而未登记这些服务。完整提取后两文件已恢复，候选 helper 已登记匹配的启动任务；`syncdefaultsd` 仍受现有任务排除规则限制。后续按[完整原版部署](rootfs-strategy.md#7-完整原版系统卷部署)检查真实服务启动和原生请求。
+
+`syncdefaultsd` 的排除依据来自 iOS 16.5 的 nil 路径异常。23G90 的 `changeTokenURLForStoreConfiguration:xpcConnection:error:` 先通过 `sandbox_container_path_for_audit_token` 查询客户端容器，失败后查询 MobileContainerManager 的 `com.apple.kvs` 容器，并处理空结果；需要在当前系统验证实际返回值。隔离候选保留原始服务 plist 的 mobile 身份与两个 Mach service，只比完整系统基线增加该项任务，缓存从 553 项变为 554 项；现有打包器的两个过滤层需同时处理，候选尚未部署。
+
+23G90 `fairplayd.H2` 导入 `IOConnectCallStructMethod`，现有探针只拦截 `IOConnectCallMethod`。后续需直接记录结构调用的 selector、长度和返回值，以及程序自身的 matching、Open 和 iterator 调用；记录范围限于接口信息。当前尚未解析实际服务名称、Open type 和 selector，旧版正常退出的记录不能确定本版的退出原因。
 
 ### 3.4 时间来源
 

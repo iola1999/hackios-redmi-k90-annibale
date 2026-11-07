@@ -870,23 +870,18 @@ def main():
     if SEED:
         seed_bytes = check_seed(SEED)
         shutil.copy2(SEED, dest / "etc/var.seed")
-    # A job whose program is not on the image spawns nothing, and the failure looks exactly like a
-    # service that does not answer: the image is assembled by path prefix and file size
-    # (ios26/select-system.py), so a program over the size limit for its directory is simply absent.
-    # bluetoothd, 12,151,072 bytes, is one of the 19 such programs found on 2026-10-28.
+    # /redwood programs must be present in the helper image before its jobs are packaged.
     for plist_path in sorted((dest / "LaunchDaemons").glob("*.plist")):
         plist_data = plistlib.loads(plist_path.read_bytes())
         program = (plist_data.get("ProgramArguments") or [plist_data.get("Program")])[0]
-        # Only our own image is checked here. Programs under /usr, /bin and /System come from the
-        # system volume (system26.apfs), which this packer does not open; the audit of those is
-        # tools/check-launchd-programs.py against that image.
+        # Programs under /usr, /bin and /System come from the system volume. mkjobs.py checks
+        # their source files while generating jobs; this loop checks the helper image's files.
         if not program or not program.startswith("/redwood/"):
             continue
         # this image is what mounts at /redwood, so /redwood/sbin/init is dest/sbin/init here
         relative = program[len("/redwood"):] if program.startswith("/redwood/") else program
         assert (dest / relative.lstrip("/")).exists(), (
-            f"{plist_path.name} runs {program}, which is not on this image; the extraction in "
-            f"ios26/select-system.py left it out, so this job can only fail to spawn")
+            f"{plist_path.name} runs {program}, which is missing from the helper image")
     if AIR_RECORD.is_file():
         record = json.loads(AIR_RECORD.read_text())
         got = hashlib.sha256(air.read_bytes()).hexdigest()

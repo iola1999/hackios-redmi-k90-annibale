@@ -39,6 +39,8 @@
 
 2026-11-05 文档清理时又发现两处：`docs/fastboot/getvar-all.txt` 含 bootloader 的 `token` 与 `cpuid`，两份旧手册里有两台设备的序列号。两处都已从当前文件删除；按用户决定不改写历史，旧提交里仍能读到。
 
+2026-11-08 检查本轮用户态差异，发现 `userland/mkjobs.py` 的上游历史注释包含两个实际内网地址，提交归属为上游导入 `89779df`。当前注释改为记录 IPv4 与 TCP DNS 的行为，本轮新增文件版本和提交说明重新检查通过；上游历史继续保留。
+
 同日公开 `hackios-mu-silicium` 前检查了 `k90-port` 相对上游导入的全部差异与提交说明，没有本机路径、主机名或设备序列号；三笔作者为本机用户名的提交改为项目的提交署名后再推送。
 
 已有其他 checkout 在继续推送前需要重新同步清理后的分支。旧 checkout 合并旧提交可能再次引入个人标识，推送前应检查所包含的历史。GitHub 的服务器备份及其他克隆副本无法通过仓库访问测试确认是否已清除，参见 [GitHub 历史清理说明](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository)。
