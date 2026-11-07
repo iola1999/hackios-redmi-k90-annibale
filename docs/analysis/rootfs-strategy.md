@@ -9,6 +9,7 @@
 - 内核 `9657ff3` 实现 `/private/var` 文件数据直写 `darwin_var`、按需读入数据页，以及双 32 MiB 元数据槽位；用户态 `fcaf0f5` 接入 UFS 系统卷切根并移除定时归档任务。这两笔提交已有落盘实现，但当时 standalone 和自动跑轮仍使用完整系统镜像的常驻内存路径。
 - 2026-11-08 的只读查询得到 `ramdisk-state: ready 160bc1000 160bc1000 300000000`：常驻镜像为 5,917,904,896 字节，约 5.51 GiB。这段内存位于交给 XNU 的窗口内，布局将其纳入 `topOfKernelData`，启动后占用内存。
 - 同次真机日志确认 XNU 正在运行，系统卷仍由 `rdfile` 全量载入；`/private/var` 已从 UFS 恢复。旧 loader 的 standalone 入口遗漏 `running` 状态更新，导致 `getvar result` 错报 `idle`；本轮将更新放到共同的内核运行入口。
+- 当前工作树的 `annibale` loader 已拒绝 `rdfile` 载荷；主机端 `make-payload.py` 和 `mkstandalone.py` 也禁止自动流程携带该入口。QEMU 仍保留 `rdfile` 以支持离线兼容测试。
 
 ## 2. 启动路径
 
@@ -39,7 +40,7 @@
 | iOS 26 内存窗口 | payload 使用 `memsize=300000000`，即 12 GiB；运行器核对 loader 实际分配的窗口 |
 | 系统卷 | 位于 `darwin`，容量和文件读取由 UFS/APFS 管理 |
 
-K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限，布局检查也覆盖 `rdimage`、`rdfile` 与 `rdres`。其他平台沿用内存窗口边界，QEMU 的完整系统镜像启动用例通过离线检查。
+K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限，并拒绝 `rdfile` 系统卷预读；布局检查仍覆盖 `rdimage` 与 `rdres`。其他平台沿用内存窗口边界，QEMU 的完整系统镜像启动用例通过离线检查。
 
 设备上现存的大镜像需要在保存现场并完成恢复条件检查后清理。旧 loader 的 `idle` 回答不足以确认内核已停止，必须核对运行日志与实际复位结果。
 
