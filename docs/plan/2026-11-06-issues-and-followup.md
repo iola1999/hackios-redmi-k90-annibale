@@ -483,6 +483,24 @@
 5. **MPSS 蜂窝基带、QRTR/QMI、IPA 网口与 PMIC GLink 充电（Worker D）**：新增 [`annibale_modem.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_modem.c)（1196 行）与 [`annibale_ipa.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_ipa.c)（698 行），配合 [`redwood_qrtr.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_qrtr.c)（499 行）与 [`redwood_qmi.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_qmi.c)（1192 行）实现 `remoteproc-mss@04080000` PAS 固件加载、多节点 QRTR 路由、QMI UIM／DMS／NAS／WDS／Voice／WMS 编解码（内置硬件标识脱敏）、`/dev/redwood-modem` 及 `pdp_ip0` 蜂窝网口；在 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c)（856 行）与 `annibale_adsp.c` 之间打通 `PMIC_RTR_ADSP_APPS`（`pmic_glink` owner `0x800a`）充电控制通道；在 [`mkjobs.py`](../../hackios-xnu-userland/userland/mkjobs.py)（377 行）、[`inject_app.c`](../../hackios-xnu-userland/userland/src/inject_app.c)（632 行）与 [`inject_cellular.inc`](../../hackios-xnu-userland/userland/src/inject_cellular.inc)（796 行）中保护 `CommCenter`／`SystemStatusServer` 并桥接 `CoreTelephony` 与状态栏蜂窝信号显示。
 6. **全量构建、封装与真机 LK 低压停手记录（Device Lead）**：扩展 [`09-bsd%kern%kern_exec.c.patch`](../../hackios-xnu-kernel/xnu26/patches/09-bsd%kern%kern_exec.c.patch) 中 `exec_inject_conf` 缓冲至 2048 字节；编译生成 XNU 内核 `out/xnu12377-st11.bin`（21,073,080 字节，SHA-256 `49370fd2`）与全部 arm64e 用户态二进制；打包生成 `root.apfs`（20,553,728 字节，SHA-256 `c9bba86d11fb4795ecbf677ba47473bffdef77afd03df684cd3e9052552f39e3`）、`standalone-payload.bin.lz4`（24,173,436 字节，SHA-256 `e03a8ee85842d9763fbd911236ad741178ff2fe7b431cab0a6ecb94e2122cf89`）及 `hackios-xnu-kernel/out/boot-a-ios.img`（24,023,040 字节，SHA-256 `bd320d986feeb2dbb0b23d9b8af1b8f6d779f7988bba92c34427b7740425cfb8`）。真机当前枚举为高通 LK `fastboot`（`product: annibale`，`current-slot: a`，`battery-voltage: 3676` mV，约 25% SOC，未枚举 `xnuloader`）；依据 [AGENTS.md](../../AGENTS.md) §5 硬约束立即停止设备写命令，等待补电并进入 `xnuloader` idle 状态后执行刷机与无人值守实测。
 
+### 9.4 R7 轮次：小米 MCA pmic_glink 硬件充电属性对齐、xnuloader 槽位与 GPT 保护、开机与滑动卡顿消除（2026-11-07）
+
+本轮次结合 Android 15 无线调试实时提取的充电遥测与 `boot_1236.log` 现场日志，完成充电属性映射、双槽位 GPT 保护与交互探针清理：
+
+1. **Android 15 电脑 USB 与原装 100W 快充实时参数对照取证**：
+   - 电脑 USB-C 端口（`real_type = 1`，USB SDP）：VBUS 为 `5.08 V`，ADSP 默认输入限流 `adsp_icl = 500 mA`（`ibus = 450～494 mA`，输入功率 `2.4 W`），低于 iOS 桌面运行功耗（`1.5～1.9 A`），导致净电流为 `-1.0～-1.4 A`；当通过 `pmic_glink` 下发 `MCA_PROP_INPUT_CURR`（`0x2008`）= `2000 mA` 与 `MCA_PROP_ICHG`（`0x2005`）= `2000 mA` 后，即使在 `chg_type = 1` 下 `adsp_icl` 亦升至 `2000 mA`，实测 `ibus` 升至 `1719～1990 mA`（约 `9.5 W`），电池电压从 `3694 mV` 升至 `3786 mV`。
+   - 原装小米 100W 充电器（`real_type = 12`，`PD_PPS`）：PMIC Buck 阶段协商 `9.0 V`（`adsp_icl = 1600 mA`，`ibus = 1.59 A`，`14.1 W`），随后 `mca_quick_charge` 激活 4:1 电荷泵（`VBUS = 17.51 V`，`IBUS = 4.43 A`，电池端充电电流 `6.3～9.8 A`）。
+2. **小米 MCA `qcom_subpmic`（`0x800a`）属性 ID 修正（[`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c)）**：
+   - 对齐 `qcom_subpmic.ko` 中 `buckchg_SubPmic_get_prop`／`set_prop` 映射表，将 `0x800a` 写入属性修正为 `0x2019`（`input_suspend = 0`）、`0x2003`（`chg_enable = 1`）、`0x2015`（`adc_enable = 1`）、`0x2008`（`input_current_limit = 2500 mA`）、`0x2005`（`charge_current = 3000 mA`）、`0x2009`（`input_volt_limit = 4500 mV`）与 `0x2007`（`term_volt = 4480 mV`），并在轮询中读取 `0x20002`（`vbus_uv`）、`0x20004`（`ibus_ua`）与 `0x2000c`（`usb_real_type`）。
+3. **`xnuloader` 槽位固定与 LUN 0／LUN 4 GPT 保护（[`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc)）**：
+   - 将 `loader_slot` 固定为 `'a'`（iOS）、`android_slot` 固定为 `'b'`（Android），`slot_flash_boot_image` 固定刷写 `boot_a`，消除在 `current-slot: b` 下临时启动 `xnuloader` 时误将 `loader_slot` 识别为 `'b'` 并覆盖 Android `boot_b` 的风险。
+   - 在 `gpt_swap_ab_type_guids` 中移除对 `LUN 0`（`super`）的遍历，并增加非活动槽位 `77036cd4-0356-42be-b6be-f173b2320d7a` 判定，仅交换 `LUN 4` 上原厂使用 `77036cd4` 的 23 对分区，保护其余 11 对双活动分区。
+4. **开机图标延迟与触摸滑动卡死修复（[`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py)、[`rc.jobs.interactive`](../../tools/k90auto/jobs/rc.jobs.interactive)、[`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c)、[`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m)）**：
+   - 在 `mkstandalone.py` 中默认设置 `touch_lat=0` 与 `gpu_log=0`，停用 `stall_watch`（每 50 毫秒挂起 `SpringBoard` 主线程采样）与 `redwood_freeze_check`（锁死 `SpringBoard` 与 `backboardd` 共 64 个线程并向串口输出 150 余行调用栈）。
+   - 在 `rc.jobs.interactive` 中移除后台每 20 秒全线程栈采样 `framewatch` 与 `lsprobe 60`；在 `inject_sb26.c` 中将首次解锁等待时间从 10 秒缩短至 4 秒；在 `appinst.m` 中跳过对只读 `/redwood/Applications/RedwoodInstaller.app` 的 `sign_all_machos` 重签名。
+5. **全量构建与无线刷写 `boot_a`**：编译生成最新 `hackios-xnu-kernel/out/boot-a-ios.img`（24,129,536 字节，SHA-256 `aec5905353ba8c41d6418ae9388a199cc689c9d6b6e00e382f8616a581b1022b`），并在 Android 无线调试下写入 `/dev/block/by-name/boot_a` 校验通过。
+
+
 
 
 

@@ -7,6 +7,4 @@
 # person's own. appinst installs each .ipa that Safari saves to the Downloads folder. A line whose
 # program is not in the image fails on its own and the rest still run.
 /redwood/bin/rwsh &
-/redwood/bin/lsprobe 60 &
-/redwood/bin/framewatch --every 20 --count 120 SpringBoard backboardd &
 /redwood/bin/appinst watch &
