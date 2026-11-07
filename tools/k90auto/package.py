@@ -127,79 +127,9 @@ WIFI_CONTROL_PLIST = plistlib.dumps({"ConfigureNewInterfaces": True})
 WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguration",
                       f"f\t644\t0\t0\t/private/var/preferences/SystemConfiguration/{WIFI_CONTROL}\t/fw/{WIFI_CONTROL}"]
 
-# Application data container and AppGroup directories (Calculator, MobileNotes, Reminders, MobileCal)
-CALCULATOR_CONTAINER_UUID = "28C5E77E-97C5-4927-A2B0-04987EBF4665"
-NOTES_CONTAINER_UUID = "39D6F88F-A8D6-4A38-B1F1-15A98FCA5776"
-NOTES_GROUP_UUID = "4AE7F99E-B7C5-4309-8C8F-1B2C3D4E5F60"
-REMINDERS_CONTAINER_UUID = "5BF8A0AF-C8E6-4B1A-9D2E-2C3D4E5F6A71"
-REMINDERS_GROUP_UUID = "6CF9B1BA-D9F7-4C2B-AE3F-3D4E5F6A7B82"
-MOBILECAL_CONTAINER_UUID = "7DFA02CB-E0A8-4D3C-BF40-4E5F6A7B8C93"
-
-APP_CONTAINER_LINES = [
-    "d\t755\t501\t501\t/private/var/mobile/Containers",
-    "d\t755\t501\t501\t/private/var/mobile/Containers/Data",
-    "d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application",
-    "d\t755\t501\t501\t/private/var/mobile/Containers/Shared",
-    "d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Documents",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Library",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Library/Preferences",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/Library/Caches",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/tmp",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Documents",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library/Preferences",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library/Caches",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/Library/Notes",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/tmp",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Documents",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Library",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Library/Preferences",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{NOTES_GROUP_UUID}/Library/Caches",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Documents",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Library",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Library/Preferences",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/Library/Caches",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/tmp",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Documents",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library/Preferences",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Shared/AppGroup/{REMINDERS_GROUP_UUID}/Library/Caches",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Documents",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Library",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Library/Preferences",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/Library/Caches",
-    f"d\t755\t501\t501\t/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/tmp",
-]
-
-DEFAULT_APP_ENV = {
-    "Calculator": [
-        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}",
-        f"HOME=/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}",
-        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{CALCULATOR_CONTAINER_UUID}/tmp",
-    ],
-    "MobileNotes": [
-        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}",
-        f"HOME=/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}",
-        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{NOTES_CONTAINER_UUID}/tmp",
-    ],
-    "Reminders": [
-        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
-        f"HOME=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}",
-        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{REMINDERS_CONTAINER_UUID}/tmp",
-    ],
-    "MobileCal": [
-        f"CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}",
-        f"HOME=/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}",
-        f"TMPDIR=/private/var/mobile/Containers/Data/Application/{MOBILECAL_CONTAINER_UUID}/tmp",
-    ],
-}
+# Application containers are created by MobileContainerManager from the bundle identifier.
+# The packer keeps only generic parent directories in userland/var.skel.extra and never assigns
+# a process-specific home, AppGroup UUID, or temporary directory.
 # userland/build.sh's staging directory; xpc/launchd.plist is there only when it ran with IOS=../ios26
 BASE = SRC_ROOT / "userland/root"
 TOOLS = WORKSPACE / "tools/apfs"
@@ -299,10 +229,6 @@ for item in os.environ.get("EXT_ENV", "").split():
     if not ext_name or "=" not in setting or setting.startswith("="):
         raise SystemExit(f"EXT_ENV item {item!r} is not NAME:KEY=VALUE")
     EXT_ENV.setdefault(ext_name, []).append(setting)
-
-for app_name, settings in DEFAULT_APP_ENV.items():
-    if app_name not in EXT_ENV:
-        EXT_ENV[app_name] = list(settings)
 
 # The wallpaper and the widgets are drawn by two services this boot does not start, and each
 # lookup for them fails: SpringBoard and iconservicesagent ask for
@@ -875,7 +801,7 @@ def main():
     # when it builds the skeleton, and this step appends whatever the base root is too old to have.
     skeleton = dest / "etc/var.skel"
     raw_wanted = [line for line in (WORKSPACE / "userland/var.skel.extra").read_text().splitlines()
-                  if line and not line.startswith("#")] + APP_CONTAINER_LINES + (WIFI_CONTROL_LINES if WIFI_FW else [])
+                  if line and not line.startswith("#")] + (WIFI_CONTROL_LINES if WIFI_FW else [])
     present = skeleton.read_text()
     template_dirs = {line.split("\t")[-1] for line in present.splitlines() if line.startswith("d\t")}
     seen_dirs = set()
@@ -895,7 +821,7 @@ def main():
     if appended:
         with skeleton.open("a") as out:
             out.write("".join(line + "\n" for line in appended))
-    stale = [line for line in appended if line not in WIFI_CONTROL_LINES and line not in APP_CONTAINER_LINES]
+    stale = [line for line in appended if line not in WIFI_CONTROL_LINES]
     if stale:
         print(f"etc/var.skel in the base root is older than userland/var.skel.extra: added "
               f"{len(stale)} line(s); rerun userland/build.sh to rebuild the base root")
