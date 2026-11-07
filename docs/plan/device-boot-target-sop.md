@@ -68,6 +68,7 @@ fastboot -s "${ANDROID_SERIAL}" reboot
    - 严禁将 `standalone-payload.bin.lz4` 直接传给 `reseal-loader-img.py`（头部为 `LZ4S`，非 `XNUP`），也严禁再用 `mkpayload.py` 把 `payload.lz4=` 二次包装进外层 `XNUP` 容器（`parse_payload()` 只解析顶层 `kernel` 与 `ramdisk` 条目，遇到 `payload.lz4` 条目会报 `no kernel in payload: entering Fastboot debug mode`）。
 10. `xnuloader` 空闲界面 120 秒超时切槽（`xnuloader/loader_06a_screen_ui.inc` 的 `boot_fallback_check()`）：旧逻辑在 loader 空闲界面连续 120 秒未收到主机 fastboot 命令时，会执行 `slot_set_active_other()` 切换活动槽位并重启进 Android；当第 9 条导致 `xnuloader` 未能自动启动 iOS 时，设备会在 120 秒后自动切回 B 槽重启进 Android。`boot_fallback_check()` 现已改为仅刷新 `host_last_cmd` 保持在当前槽位驻留。
 11. `tools/k90auto/package.py` 默认从 `hackios-xnu-kernel/userland/`（`SRC_ROOT = WORKSPACE`）读取用户态源码编译注入库，而用户态独立子模块位于 `hackios-xnu-userland/userland/`；修改 `hackios-xnu-userland/userland/src/` 后若未同步到 `hackios-xnu-kernel/userland/src/`，`package.py` 会把旧版源码编入 `root.apfs`。打包前必须校验两侧源码一致。
+12. `hackios-xnu-kernel/xnu26/build-macos.sh` 默认在 `$XNU26_ROOT/out/xnu12377-cmd` 目录编译内核，而仓库跟踪的内核增量源码位于 `$XNU26_ROOT/xnu/files/`。已在 `xnu26/build-macos.sh` 开头加入自动同步逻辑，将 `xnu/files/` 下变更的文件复制并更新时间戳到 `out/xnu12377-cmd/`，防止修改 `xnu/files/` 后编出旧版内核对象。
 
 ## 5. 三种复位的差别
 
