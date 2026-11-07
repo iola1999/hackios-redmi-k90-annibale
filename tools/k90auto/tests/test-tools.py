@@ -12,7 +12,7 @@ import tempfile
 import time
 import unittest
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("summary", HERE / "summary.py")
 summary = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(summary)

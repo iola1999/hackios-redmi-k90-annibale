@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 PROJECT_ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 

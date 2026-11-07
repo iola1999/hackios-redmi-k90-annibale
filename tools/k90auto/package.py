@@ -69,7 +69,7 @@ AIR_REQUIRED = [t for t in os.environ.get("PAYLOAD_AIR_STRINGS", "").split(":") 
 # whole boot -- and two icons on a desktop that may have had fifteen is exactly the difference between
 # "LaunchServices knows two applications" and "LaunchServices knows them all and none renders".
 PROBE = os.environ.get("PROBE") == "1"
-PROBE_SOURCES = ["userland/src/lsprobe.m"]
+PROBE_SOURCES = ["userland/src/apps/lsprobe.m"]
 PROBE_FLAGS = ["-Os", "-Wall", "-Wextra", "-framework", "Foundation"]
 # Two processes, not one with two offsets: the t=60 side has been observed to disappear before it
 # reaches its second offset, and the answers at t=300 do not depend on the earlier ones. Each is
@@ -400,25 +400,27 @@ REST_DIR = OUT / "rest-jobs"
 # volume keys moved the volume bar and Control Center's slider, audiomxd stayed near idle. AUDIO=0 leaves
 # it out.
 AUDIO = os.environ.get("AUDIO", "1") == "1"
-AUDIO_SOURCES = ["userland/src/audio_plugin.c"]
+AUDIO_SOURCES = ["userland/src/services/audio_plugin.c"]
 AUDIO_FLAGS = ["-Os", "-Wall", "-Wextra", "-bundle", "-framework", "CoreFoundation"]
 AUDIO_PLUGIN = "/lib/RedwoodAudio.driver/RedwoodAudio"
 # BLUETOOTH=1 (on by default when BT_FW carries the WCN7850 firmware, or when REST_ALLOW names bluetooth)
-# builds userland/src/bluetool.c into /bin/bluetool, points com.apple.BlueTool at it, lets the bluetooth
+# builds userland/src/services/bluetool.c into /bin/bluetool, points com.apple.BlueTool at it, lets the bluetooth
 # jobs through mkjobs.py's DENY, and sets KeepAlive and BT_HCI_TRANSPORT/BT_CHIP on com.apple.bluetoothd.
 BLUETOOTH = (os.environ.get("BLUETOOTH", "1" if BT_FW else "0") == "1"
              or "bluetooth" in os.environ.get("REST_ALLOW", "").split())
-BLUETOOL_SOURCES = ["userland/src/bluetool.c"]
+BLUETOOL_SOURCES = ["userland/src/services/bluetool.c"]
 BLUETOOL_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-fblocks"]
 REST_TRIAL = (os.environ.get("REST_ALLOW", "").split()
               + (["audio"] if AUDIO else [])
               + (["bluetooth"] if BLUETOOTH else []))
 REST_ALLOW = ["com.apple.dmd"] + REST_TRIAL
 REST_DENY = ["com.apple.PerfPowerServices", "com.apple.syncdefaultsd"]
-SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0"]
+SDK = ["/usr/bin/xcrun", "-sdk", "iphoneos", "clang", "-arch", "arm64e", "-miphoneos-version-min=26.0",
+       "-Iuserland/src/boot", "-Iuserland/src/inject", "-Iuserland/src/gfx",
+       "-Iuserland/src/services", "-Iuserland/src/apps", "-Iuserland/src/tests"]
 
 # SHIM_FLAGS are build.sh's flags for the same library.
-SHIM_SOURCES = ["userland/src/sb_metal_experiment.m"]
+SHIM_SOURCES = ["userland/src/inject/sb_metal_experiment.m"]
 SHIM_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation", "-framework", "Metal",
               "-framework", "UIKit", "-framework", "IOKit"]
 # The iOS 26 driver's sources live in the kernel checkout under tools/userland-driver/, not under
@@ -458,15 +460,15 @@ DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
 # from the current source and injects it; without it the iOS 26 lock screen stays up. The same
 # library is injected into PosterBoard, where only inject_posterboard.c's constructor acts: it logs
 # the errors behind the data store PosterBoard cannot create, which is why the wallpaper is empty.
-SB26_SOURCES = ["userland/src/inject_sb26.c", "userland/src/inject_sb26_layers.c",
-                "userland/src/inject_sb26_rate.c", "userland/src/inject_posterboard.c"]
+SB26_SOURCES = ["userland/src/inject/inject_sb26.c", "userland/src/inject/inject_sb26_layers.c",
+                "userland/src/inject/inject_sb26_rate.c", "userland/src/inject/inject_posterboard.c"]
 SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal",
               "-lMobileGestalt"]
-XPCWATCH_SOURCES = ["userland/src/xpcwatch.c"]
+XPCWATCH_SOURCES = ["userland/src/inject/xpcwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
-FPVOLUME_SOURCES = ["userland/src/inject_fpvolume.c"]
+FPVOLUME_SOURCES = ["userland/src/inject/inject_fpvolume.c"]
 FPVOLUME_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
-AX_SOURCES = ["userland/src/ax.m", "userland/src/statusbar26.m"]
+AX_SOURCES = ["userland/src/inject/ax.m", "userland/src/inject/statusbar26.m"]
 AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
             "-framework", "CoreGraphics"]
 
@@ -803,24 +805,24 @@ def main():
                             *(AX_SOURCES if AX_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
-                            "userland/src/sb_metal_registration_sequence.inc",
-                            "userland/src/sb_metal_compression_policy.inc",
-                            "userland/src/inject_media.c",
-                            "userland/src/camera_device.c",
-                            "userland/src/camera_device_stream.inc",
-                            "userland/src/camera_isp.c",
-                            "userland/src/input26_service.c",
-                            "userland/src/inject_app.c",
-                            "userland/src/inject_cellular.inc",
-                            "userland/src/torch_test.c",
-                            "userland/src/sound_test.c",
-                            "userland/src/record_test.c",
-                            "userland/src/installer_app.m",
-                            "userland/src/installer_app.plist",
-                            "userland/src/installer_app.entitlements",
-                            "userland/src/build_installer.sh",
-                            "userland/src/appinst.m",
-                            "userland/src/appinst.entitlements",
+                            "userland/src/inject/sb_metal_registration_sequence.inc",
+                            "userland/src/inject/sb_metal_compression_policy.inc",
+                            "userland/src/inject/inject_media.c",
+                            "userland/src/services/camera_device.c",
+                            "userland/src/services/camera_device_stream.inc",
+                            "userland/src/services/camera_isp.c",
+                            "userland/src/services/input26_service.c",
+                            "userland/src/inject/inject_app.c",
+                            "userland/src/inject/inject_cellular.inc",
+                            "userland/src/tests/torch_test.c",
+                            "userland/src/tests/sound_test.c",
+                            "userland/src/tests/record_test.c",
+                            "userland/src/apps/installer_app.m",
+                            "userland/src/apps/installer_app.plist",
+                            "userland/src/apps/installer_app.entitlements",
+                            "userland/src/apps/build_installer.sh",
+                            "userland/src/apps/appinst.m",
+                            "userland/src/apps/appinst.entitlements",
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
                             *(PROBE_SOURCES if PROBE else [])]}
     # The probe goes first, not last. init runs a job file one line at a time and waits for each, so a
@@ -1110,7 +1112,7 @@ def main():
         "driver_sha256": driver_sha, "air_sha256": air_sha, "shim_sha256": sha(shim),
         "air_source_sha256": air_source,
         "userland_sha256": sha(userland), "userland_bytes": userland.stat().st_size,
-        "inject_source_sha256": sha(SRC_ROOT / "userland/src/inject.c"),
+        "inject_source_sha256": sha(SRC_ROOT / "userland/src/inject/inject.c"),
         "air_sources": air_sources,
         # Every source this pack read, with its sha256: shim, driver, probe, AIR, and the kernel commit
         # is in `kernel` below. Without this section a round cannot be asked which code it ran.

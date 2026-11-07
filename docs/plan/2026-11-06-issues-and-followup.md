@@ -501,6 +501,39 @@
    - 在 `inject_sb26.c` 中改为仅在 `kern.bootargs` 含 `autounlock=1`（或收到 `com.redwood.unlock` 通知）时自动解锁，日常独立启动默认停留在锁屏界面供手动上滑解锁；在 `loader_05_layout_run_kernel.inc`／`loader_06_usb_entry.inc` 的 `oem run`（USB 无人值守启动）与 [`cycle.py`](../../tools/k90auto/cycle.py) 中自动附带 `autounlock=1`。
 5. **全量构建与无线刷写 `boot_a`**：编译生成最新 `hackios-xnu-kernel/out/boot-a-ios.img`（24,129,536 字节，SHA-256 `2ffe520f64b52cb6d2181a70bfffdd32427ee8e36d7df59bea206cc1f5522617`），并在 Android 无线调试下写入 `/dev/block/by-name/boot_a` 校验通过（电池电量已充至 85%）。
 
+### 9.5 16:40 用户真机交互实测 8 项问题汇总、根因定位与逐项修复队列（2026-11-07）
+
+用户在真机启动进入 iOS 26 锁屏界面后完成交互实测：日常启动默认停留在锁屏界面、手动上滑解锁流畅、控制中心亮度与音量滑块可拖动。针对实测发现的 8 项问题，结合实时内核／控制台日志（`/tmp/live_ios.log`）完成逐项定位并列入当前修复队列：
+
+1. **Safari 无法加载网页，天气与地图无法请求网络内容（Wi-Fi 已连上 `192.168.1.185` 且可 ping 通）**：
+   - **现象与关联**：此前为修复天气与地图所做的改动（提交 `4ed62d8` 与 `f500b7c`）直接把 Safari、天气和地图的网络请求链路修坏了。
+   - **根因 A（`mkjobs.py` 强制回退 `rootfs.slt` 注册了 17 个缺失二进制的守护进程，导致 XPC 同步调用永久挂起）**：提交 `4ed62d8` 在 [`mkjobs.py`](../../hackios-xnu-userland/userland/mkjobs.py) 中无条件将 `root_volume` 指向 `ios26/rootfs.slt`，绕过了 `present(program)` 对 `ios26/rootfs`（即 `system26.apfs` 实际包含文件）的存在性检查，导致 `akd`、`locationd`、`sharingd`、`identityservicesd`、`passd`、`fairplayd.H2`、`nearbyd` 等 17 个二进制并未打入 `system26.apfs` 的守护进程被写入 `xpc/launchd.plist`。当 `MobileSafari`、`com.apple.WebKit.Networking`、`Weather`、`weatherd`、`Maps` 或 `geod` 向这些 Mach 服务发起同步 XPC 请求时，`launchd` 将消息排入 Mach 端口却因 `ENOENT` 无法拉起对应二进制，调用方在端口上无限期等待回复（此前未注册这些服务时 XPC 立即返回 `CONNECTION_INVALID`，调用方直接走降级分支继续加载）。
+   - **根因 B（`minisandbox_container_path` 空路径返回 `0` 导致 `com.apple.Safari` 崩溃）**：在 [`kern_minimac.c`](../../hackios-xnu-kernel/xnu/files/bsd/kern/kern_minimac.c) 中，`minisandbox_container_path()` 在进程环境变量不含 `CFFIXED_USER_HOME=` 时仍返回 `0`（成功），保留调用方栈上未初始化的缓冲区，导致 `SafariCore`（`0x1bab11e34`）调用 `-[NSURL initFileURLWithPath:isDirectory:]` 时传入 `nil` 并抛异常退出（见 `/tmp/live_ios.log` 中 `com.apple.Safari[517]`／`[519]` 崩溃栈）。
+   - **根因 C（`f500b7c` 静态预置 `/private/var/run/resolv.conf` 与 `package.py` 漏注入 `libredwood-app.dylib`）**：`f500b7c` 在 `var.skel` 中静态创建了 `/private/var/run/resolv.conf` 干扰 `configd` DNS 配置更新；同时 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 的 `INJECT` 列表未将 `libredwood-app.dylib` 注入 `Weather`、`weatherd`、`Maps`、`geod`、`MobileSafari`、`com.apple.WebKit.Networking` 与 `nsurlsessiond`。
+   - **修复动作**：移除 `mkjobs.py` 中无条件读取 `rootfs.slt` 的逻辑（确保仅注册 `system26.apfs` 内实际存在可执行文件的守护进程）；修正 `kern_minimac.c` 中 `minisandbox_container_path()` 在未找到 `CFFIXED_USER_HOME=` 时返回 `ENOENT`；移除 `var.skel` 对 `/private/var/run/resolv.conf` 的静态预置；在 `package.py` 中编译并将 `libredwood-app.dylib` 注入上述网络与应用进程。
+2. **此前保存的设置（输入法、已存 Wi-Fi 等）丢失（`darwin_var` 从 48,022 节点回退为 6,108 节点）**：
+   - **根因**：此前 `appinst` 循环解包使 `darwin_var` 节点数涨至 `48,022`（`boot_1236.log`），元数据载荷超过 `16 MiB`。[`ramfs_disk.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 的 `ramfs_disk_read_slot()` 将 `rm_meta_cap` 设为非 2 幂次的精确对齐值，下次 `ramfs_disk_sync_impl()` 扩容时计算 `new_cap = old_cap * 2 > RDWFS_SLOT_MAX (32 MiB)` 直接报错 `ENOSPC` 退出；同时 `ramfs_disk_mount()` 在主槽位解包失败时未回退读取备用槽位，直接以空盘返回，触发 [`init_mount.inc`](../../hackios-xnu-userland/userland/src/init_mount.inc) 重新解包 `var.skel` 并置 `var_seed_done = 1`，随后 `gen == 1` 同步时同时覆盖了 `SLOT0` 与 `SLOT1`。
+   - **修复动作**：在 `ramfs_disk.inc` 中将 `old_cap < RDWFS_SLOT_MAX && new_cap > RDWFS_SLOT_MAX` 夹紧至 `RDWFS_SLOT_MAX`；主槽位 `ramfs_disk_unpack()` 失败时自动回退解析备用槽位；当磁盘上任一槽位已存在有效用户数据（`node_count >= 1000`）而本次挂载未能解包时，禁止用新建的 `var.skel` 空树覆盖磁盘双槽位。
+3. **前面会话的 R6 外设修复（相机、环境光／距离传感器、音频音量、视频硬解）是否已应用**：
+   - **现状说明**：前面排查 `boot_a` 0.1 秒重启进 Android 的故障时，为隔离 `39f0e46` 盲写合入引发的开机 0.1 秒 SError 崩溃，内核 `xnu/files/bsd/dev/` 临时回退到了 `aeeef63` 基线。因此当前手机上运行的内核尚未包含 R6 的相机（`annibale_camera.c`）、传感器（`annibale_sensors.c`）、功放音量（`annibale_audio_amp.c`）以及 R7 的 MCA 充电配置（`annibale_battery.c`）。
+   - **修复动作**：在剔除引发开机 SError 的未映射寄存器访问与 `slave == 0` SPMI 越界检查后，将 `annibale_battery.c`、`annibale_camera.c`、`annibale_sensors.c`、`annibale_audio_amp.c` 及视频硬解修复逐项合回当前工作内核并完成真机验证。
+4. **充电未充入（99% 降至 98%，电流 `-350 mA`～`-1494 mA`）且机身发热明显（`40.25 °C`）**：
+   - **根因**：第一，内核回退至 `aeeef63` 后缺少 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_battery.c) 的小米 MCA `pmic_glink`（`0x800a`）充电开启与限流配置，日志报 `PM8550B charging enable failed`；第二，[`xnuloader/build.sh`](../../hackios-xnu-kernel/xnuloader/build.sh) 编译产物为 `loader.efi`，而 `mkstandalone.py` 读取的是旧版 `loader-phone.efi`，导致 CPU 0 在后台持续空转轮询；第三，`backboardd` 因小组件 `IOSurface` 纹理分配失败与 `CLIoHidInterface` 属性重试持续刷屏消耗 CPU。
+   - **修复动作**：合回 `annibale_battery.c` 的 MCA `0x800a` 充电启用逻辑；同步更新 `loader-phone.efi` 消除 CPU 0 空转；修复 `backboardd` 的 `IOSurface` 纹理分配与 HID 属性重试。
+5. **桌面天气和日历小组件仍为黑色背景**：
+   - **根因**：`/tmp/live_ios.log` 中 `backboardd` 持续报错 `[Metal] Failed to allocate MTLTexture from IOSurface 0x137 / 0x13e / 0x155 / 0x163`。`package.py` 编译 `libredwoodmetal.dylib` 时使用的是 [`hackios-xnu-kernel/tools/userland-driver/redwooddrawable.m`](../../hackios-xnu-kernel/tools/userland-driver/redwooddrawable.m)，该文件第 391～398 行仍将小组件与材质背景使用的 10-bit XR 像素格式（`94` `l10r`、`550`～`555` `b3a8`/`w40a`/`w30r`）标记为 `substituted = 1` 并拒绝创建 `MTLTexture`（此前修复误改到了未参与打包的 `userland/src/redwooddrawable.m`）。
+   - **修复动作**：在 `hackios-xnu-kernel/tools/userland-driver/redwooddrawable.m` 中放行已由 `MiniIOSurface` 映射为 `BGRA8Unorm` 的 XR／替换格式（`94`、`550`～`555`），消除 `Failed to allocate MTLTexture from IOSurface`。
+6. **Wi-Fi 在设置页首次手动点击连接失败，仅能等自动连接**：
+   - **根因**：设置页手动点击连接时，`WiFiManager` 下发关联请求与后台自动扫描／自动重连状态机存在竞态，且 EAPOL 4-way 握手期间被扫描任务打断。
+   - **修复动作**：在 [`redwood_sta.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/redwood_sta.c) 与 [`annibale_wifi.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale_wifi.c) 中锁住手动关联与 EAPOL 握手窗口，关联期间挂起后台扫描并立即向 `WiFiManager` 回报关联成功状态。
+7. **设置页面进出不同子页面时偶发屏幕亮度加减波动**：
+   - **根因**：[`MiniAppleARMBacklight.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Drivers/MiniAppleARMBacklight/MiniAppleARMBacklight.cpp) 中 `IOMFBBrightnessLevel` 抖动过滤阈值与时间窗口仍放行了 `CoreBrightness` 在页面切换时下发的瞬态 `Factor`／`Brightness` 跳变。
+   - **修复动作**：收紧 `MiniAppleARMBacklight.cpp` 对非用户滑块触发的瞬态亮度跳变过滤，仅在控制中心或设置页亮度滑块主动拖动时更新 DSI0 DCS `0x51` 背光。
+8. **控制中心与设置中隔空投送（AirDrop）无法切换到「所有人」**：
+   - **根因**：[`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject_sb26_airdrop.inc) 拦截 `SFAirDropDiscoveryController` 状态设置时未同步持久化并广播 `discoverableMode = Everyone` 通知，导致 UI 选项回弹。
+   - **修复动作**：在 `inject_sb26_airdrop.inc` 与 `sharingd` 钩子中保存所选 `discoverableMode` 并触发 `SFAirDropDiscoveryController` 委托回调刷新 UI。
+
+
 
 
 

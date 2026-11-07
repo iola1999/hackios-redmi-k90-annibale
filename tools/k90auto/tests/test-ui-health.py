@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-spec = importlib.util.spec_from_file_location("ui_health", Path(__file__).with_name("ui-health.py"))
+spec = importlib.util.spec_from_file_location("ui_health", Path(__file__).resolve().parent.parent / "ui-health.py")
 health = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(health)
 

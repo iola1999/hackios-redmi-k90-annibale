@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 
 # Import visual-audit modules
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 import importlib.util
 

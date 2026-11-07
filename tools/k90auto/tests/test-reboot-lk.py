@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent.parent
 PAYLOAD = b"synthetic preparation payload"
 SHA256 = hashlib.sha256(PAYLOAD).hexdigest()
 GOOD_LOG = ("== XNULOADER run (usb) ==\n"
