@@ -25,7 +25,6 @@ import re
 import struct
 import subprocess
 import sys
-import time
 # The system image bounds live beside this script so the replay test exercises the same code.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import system_guard
@@ -100,7 +99,7 @@ identity = os.environ.get("IDENTITY", "")     # and the loader identity of that 
 # them launchd prints "Skipping boot-task" instead of "Using unsecure cache" and no extension record
 # ever reaches it. Every run before this harness carried them; the desktop of 2026-10-27 12:40 on the
 # same root image (15 icons, two named widgets, four Dock icons) is one of those runs.
-cmdline = (f"debug=0x10e rootdev=md0 launchd_unsecure_cache=1 {cpu_args} epoch={int(time.time())} adreno8={gpu_stage} adreno8_pause=0 adreno8_fine=0 adreno8_watch=0 "
+cmdline = (f"debug=0x10e rootdev=md0 launchd_unsecure_cache=1 {cpu_args} adreno8={gpu_stage} adreno8_pause=0 adreno8_fine=0 adreno8_watch=0 "
            f"adreno8_keep=1 adreno8_return=0 adreno8_speed={gpu_speed} adreno8_secure_preflight=4 touchscreen=2 buttons=1 battery=1 "
            f"{extra}").strip()
 # Fail here rather than discover it 400 seconds into a run: a payload that boots into a desktop with

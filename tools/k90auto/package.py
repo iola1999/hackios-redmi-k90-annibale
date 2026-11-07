@@ -471,6 +471,14 @@ FPVOLUME_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
 AX_SOURCES = ["userland/src/inject/ax.m", "userland/src/inject/statusbar26.m"]
 AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
             "-framework", "CoreGraphics"]
+USERLAND_SOURCES = ["userland/src/inject/inject.c"]
+USERLAND_FLAGS = ["-O1", "-framework", "CoreFoundation", "-framework", "IOKit"]
+MEDIA_SOURCES = ["userland/src/inject/inject_media.c", "userland/src/services/camera_device.c",
+                 "userland/src/services/camera_isp.c"]
+MEDIA_FLAGS = ["-O2", "-framework", "CoreFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo",
+               "-framework", "IOSurface"]
+APP_SOURCES = ["userland/src/inject/inject_app.c"]
+APP_FLAGS = ["-O1", "-fblocks"]
 
 # make-payload.py defaults this to 3 while nearly every comparable round used 1, so a forgotten
 # GPU_SPEED changes the GPU clock without changing the request. It is recorded here as well as in the
@@ -759,9 +767,9 @@ def main():
     driver = OUT / "libredwoodmetal.dylib"
     air = OUT / "libredwoodair.dylib"
     sb26 = OUT / "libredwood-sb26.dylib"
-    # build.sh's own product, checked by name below: the arm64e check and the hash in root.apfs.
-    userland = SRC_ROOT / "userland/root/lib/libredwood.dylib"
-    assert userland.is_file(), f"{userland} is userland/build.sh's product; run it before packing"
+    userland = OUT / "libredwood.dylib"
+    media = OUT / "libredwood-media.dylib"
+    app = OUT / "libredwood-app.dylib"
     assert air.is_file(), (f"{air} is missing; tools/k90auto/build-air.py writes it and signs it, "
                            "and ninja alone does not")
     # The ninja build leaves the library unsigned, and dyld refuses it: the image then boots,
@@ -776,8 +784,11 @@ def main():
     commands = {"shim": build(SHIM_SOURCES, "/redwood/lib/libredwood-sbmetal-experiment.dylib",
                               SHIM_FLAGS, shim),
                 "driver": build(DRIVER_SOURCES, "/redwood/lib/libredwoodmetal.dylib",
-                                 DRIVER_FLAGS, driver),
-                "sb26": build(SB26_SOURCES, "/redwood/lib/libredwood-sb26.dylib", SB26_FLAGS, sb26)}
+                                DRIVER_FLAGS, driver),
+                "sb26": build(SB26_SOURCES, "/redwood/lib/libredwood-sb26.dylib", SB26_FLAGS, sb26),
+                "userland": build(USERLAND_SOURCES, "/redwood/lib/libredwood.dylib", USERLAND_FLAGS, userland),
+                "media": build(MEDIA_SOURCES, "/redwood/lib/libredwood-media.dylib", MEDIA_FLAGS, media),
+                "app": build(APP_SOURCES, "/redwood/lib/libredwood-app.dylib", APP_FLAGS, app)}
     xpcwatch = OUT / "libredwood-xpcwatch.dylib"
     if XPCWATCH_PROCESSES:
         commands["xpcwatch"] = build(XPCWATCH_SOURCES, "/redwood/lib/libredwood-xpcwatch.dylib",
@@ -906,16 +917,17 @@ def main():
         shutil.copy2(bluetool, dest / "bin/bluetool")
         shutil.copy2(WORKSPACE / "ios26/rootfs/usr/sbin/bluetoothd", dest / "bin/bluetoothd")
     shutil.copy2(userland, dest / "lib/libredwood.dylib")
+    shutil.copy2(media, dest / "lib/libredwood-media.dylib")
+    shutil.copy2(app, dest / "lib/libredwood-app.dylib")
     assert sha(dest / "lib/libredwood.dylib") == sha(userland), \
-        "libredwood.dylib in the image is not the one build.sh produced"
-    # build.sh compiles this one with $DYN (-arch arm64, iOS 16.5 SDK) and every other library in
-    # this image with -arch arm64e: on 2026-10-29 the image carried an arm64 slice and backboardd
-    # ran with none of its work done, while dyld said nothing ("no load, no line"). The hash above
-    # cannot catch that -- the file really was the one build.sh made.
+        "libredwood.dylib in the image is not the one this pack built"
     assert cpusubtype(dest / "lib/libredwood.dylib") == ARM64E_WITH_LIB64, (
         f"libredwood.dylib is cpusubtype {cpusubtype(dest / 'lib/libredwood.dylib'):#x}, and this "
         "image's processes are arm64e: rebuild it with -arch arm64e and an iOS 26 SDK, as build.sh "
         "does for its other libraries, then sign it")
+    for dylib_file in sorted((dest / "lib").glob("*.dylib")):
+        sig = subprocess.run(["/usr/bin/codesign", "-dv", str(dylib_file)], capture_output=True, text=True)
+        assert "Signature=adhoc" in sig.stderr, f"{dylib_file} is not adhoc signed: {sig.stderr}"
     for program in EXTRA_PROGRAMS:
         assert program.is_file(), f"{program} is named in PAYLOAD_PROGRAMS and is not a file"
         shutil.copy2(program, dest / "bin" / program.name)
@@ -1038,6 +1050,7 @@ def main():
         changes[name] = {"sha256": [None, after[name]["sha256"]]}
     expected = {"/lib/libredwood-sbmetal-experiment.dylib", "/lib/libredwoodmetal.dylib",
                 "/lib/libredwoodair.dylib", "/lib/libredwood.dylib", "/lib/libredwood-sb26.dylib",
+                "/lib/libredwood-media.dylib", "/lib/libredwood-app.dylib",
                 *(["/lib", "/lib/libredwood-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
                 *(["/lib", "/lib/libredwood-fpvolume.dylib"] if FPVOLUME else []),
                 *(["/lib", "/lib/libredwood-ax.dylib"] if AX_PROCESSES else []),
