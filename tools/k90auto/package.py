@@ -236,7 +236,8 @@ INJECT = (
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n"
     "/redwood/lib/libredwood.dylib backboardd\n"
     "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences\n"
-    "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders MobileCal\n" +
+    "/redwood/lib/libredwood-media.dylib cameracaptured mediaserverd\n"
+    "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd\n" +
     ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
     ("/redwood/lib/libredwood-fpvolume.dylib fileproviderd\n" if FPVOLUME else "") +
@@ -804,6 +805,16 @@ def main():
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
                             "userland/src/sb_metal_registration_sequence.inc",
                             "userland/src/sb_metal_compression_policy.inc",
+                            "userland/src/inject_media.c",
+                            "userland/src/camera_device.c",
+                            "userland/src/camera_device_stream.inc",
+                            "userland/src/camera_isp.c",
+                            "userland/src/input26_service.c",
+                            "userland/src/inject_app.c",
+                            "userland/src/inject_cellular.inc",
+                            "userland/src/torch_test.c",
+                            "userland/src/sound_test.c",
+                            "userland/src/record_test.c",
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
                             *(PROBE_SOURCES if PROBE else [])]}
     # The probe goes first, not last. init runs a job file one line at a time and waits for each, so a
@@ -941,7 +952,7 @@ def main():
     assert not missing, f"the AIR library does not hold {missing}; check build-air.py --check"
     for name, present in record.get("holds", {}).items():
         assert present or name not in AIR_REQUIRED, f"build-air.py recorded {name} as absent"
-    assert len(INJECT.rstrip("\n ").encode()) < 511, f"etc/inject.conf is {len(INJECT)} bytes, over 510"
+    assert len(INJECT.rstrip("\n ").encode()) < 2047, f"etc/inject.conf is {len(INJECT)} bytes, over 2046"
     (dest / "etc/inject.conf").write_text(INJECT)
     for ext_name, settings in EXT_ENV.items():
         (dest / "etc/env").mkdir(exist_ok=True)
