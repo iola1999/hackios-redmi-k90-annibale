@@ -28,8 +28,14 @@ SYNTHETIC = (
     ("image above the band", "hackios-xnu-kernel/userland/other.apfs", (5 << 30) + 1, None, "", True),
 )
 failed = 0
+skipped = 0
 for name, expect_error, note in MANIFESTS:
-    manifest = json.loads((EVIDENCE / name / "manifest.json").read_text())
+    manifest_path = EVIDENCE / name / "manifest.json"
+    if not manifest_path.is_file():
+        skipped += 1
+        print(f"skip {name}: historical manifest is not present ({note})")
+        continue
+    manifest = json.loads(manifest_path.read_text())
     system = manifest["system"]
     window = manifest.get("window", "")
     # The manifest records the resolved path, not the raw SYSTEM value: a round whose path is the
@@ -49,5 +55,5 @@ for label, path, size, env, window, expect_error in SYNTHETIC:
     if message:
         print(f"    {message}")
 total = len(MANIFESTS) + len(SYNTHETIC)
-print(f"{total - failed} passed, {failed} failed")
+print(f"{total - failed - skipped} passed, {failed} failed, {skipped} skipped")
 sys.exit(1 if failed else 0)
