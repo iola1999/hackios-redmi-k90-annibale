@@ -46,6 +46,13 @@ PATH="$(brew --prefix llvm)/bin:$PATH" UEFI_TARGET=annibale FD_BASE=0xA7100000 F
 - 设 `PAYLOAD_CAP=0x03700000` 时编出 368 字节的严格版 shim，v17 起使用；`common/build.sh annibale` 从 `annibale.conf` 带上同一个值。不设时编出 176 字节的 shim，与 v6～v16 相同。
 - 2026-11-05 去掉 `PAYLOAD_CAP`、用 v16 的载荷和本地 `loader-v16` 状态的 FD 重建 v16，kernel 段（BootShim、FD、XNUP 容器）和 DTB 与 v16 逐字节相同，只有 gzip 压缩流和头部 id 不同。
 - 已经有一份 loader 镜像、只换 loader 时，用 `python3 tools/reseal-loader-img.py 参考镜像 新载荷 -o 新镜像`，它原样保留参考镜像的 shim、FD、DTB 和 ramdisk。
+- 若构建免连电脑独立启动的双系统引导镜像（`out/boot-a-ios.img`，内含已链接 `ath12k.o` 的内核与合并了 `out/fw-wifi` 固件的 `root.apfs`），先在顶层工作区执行 `python3 tools/k90auto/package.py`，再在 `hackios-xnu-kernel/` 下执行：
+
+```sh
+python3 xnuloader/mkstandalone.py -o out/standalone-payload.bin
+python3 xnuloader/mkpayload.py -o out/standalone-loader-payload.bin loader.efi=xnuloader/loader-phone.efi payload.lz4=out/standalone-payload.bin.lz4 --identity v57 --usb
+python3 tools/reseal-loader-img.py out/handoff-loader-v19.img out/standalone-loader-payload.bin -o out/boot-a-ios.img
+```
 
 装进手机的方法见[真机调试手册](../plan/device-test-playbook.md)。
 

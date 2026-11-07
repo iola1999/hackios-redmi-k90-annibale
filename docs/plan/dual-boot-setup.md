@@ -65,7 +65,7 @@ adb -s "$ANDROID_SERIAL" shell "dd if=/data/local/tmp/appos.dmg of=/dev/block/sd
 
 ## 4. 刷入双启动 loader 与切换系统
 
-REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。`xnuloader` 应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：
+REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。独立双系统引导镜像 `boot-a-ios.img`（由 [README.md](../../README.md) §3 合并已链接 `ath12k.o` 的内核、含 `out/fw-wifi` 固件的 `root.apfs` 与 `loader-phone.efi` 生成）应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：
 
 ```sh
 adb -s "$ANDROID_SERIAL" reboot bootloader
