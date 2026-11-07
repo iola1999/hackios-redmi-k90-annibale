@@ -64,7 +64,7 @@ BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/appinst/appinst"]
 # The boot-args every round has (CYCLE_FIXED_ARGS replaces all of them, for a round whose variable is
 # one of them: the kernel takes the first of two). Diagnostics stay out of here and go in --boot-args.
 FIXED_ARGS = " ".join([
-    "gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1",
+    "gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1 autounlock=1",
     # The 120 Hz path measured on 2026-11-02 (docs/analysis/2026-11-01-120hz-gesture-bottleneck.md): page
     # flips at the panel's refresh with no beat of the driver's own on top (fb_flip=2 fb_beat=0), 120 Hz
     # reported to CoreAnimation (fb_hz, fb_ca_hz) and UIKit's in-process animations left at the display's

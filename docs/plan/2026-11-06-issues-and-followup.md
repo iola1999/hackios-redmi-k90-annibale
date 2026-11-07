@@ -495,10 +495,11 @@
 3. **`xnuloader` 槽位固定与 LUN 0／LUN 4 GPT 保护（[`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc)）**：
    - 将 `loader_slot` 固定为 `'a'`（iOS）、`android_slot` 固定为 `'b'`（Android），`slot_flash_boot_image` 固定刷写 `boot_a`，消除在 `current-slot: b` 下临时启动 `xnuloader` 时误将 `loader_slot` 识别为 `'b'` 并覆盖 Android `boot_b` 的风险。
    - 在 `gpt_swap_ab_type_guids` 中移除对 `LUN 0`（`super`）的遍历，并增加非活动槽位 `77036cd4-0356-42be-b6be-f173b2320d7a` 判定，仅交换 `LUN 4` 上原厂使用 `77036cd4` 的 23 对分区，保护其余 11 对双活动分区。
-4. **开机图标延迟与触摸滑动卡死修复（[`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py)、[`rc.jobs.interactive`](../../tools/k90auto/jobs/rc.jobs.interactive)、[`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c)、[`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m)）**：
+4. **开机图标延迟、触摸滑动卡死修复与按模式解锁控制（[`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py)、[`rc.jobs.interactive`](../../tools/k90auto/jobs/rc.jobs.interactive)、[`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject_sb26.c)、[`loader_05_layout_run_kernel.inc`](../../hackios-xnu-kernel/xnuloader/loader_05_layout_run_kernel.inc)、[`appinst.m`](../../hackios-xnu-userland/userland/src/appinst.m)）**：
    - 在 `mkstandalone.py` 中默认设置 `touch_lat=0` 与 `gpu_log=0`，停用 `stall_watch`（每 50 毫秒挂起 `SpringBoard` 主线程采样）与 `redwood_freeze_check`（锁死 `SpringBoard` 与 `backboardd` 共 64 个线程并向串口输出 150 余行调用栈）。
-   - 在 `rc.jobs.interactive` 中移除后台每 20 秒全线程栈采样 `framewatch` 与 `lsprobe 60`；在 `inject_sb26.c` 中将首次解锁等待时间从 10 秒缩短至 4 秒；在 `appinst.m` 中跳过对只读 `/redwood/Applications/RedwoodInstaller.app` 的 `sign_all_machos` 重签名。
-5. **全量构建与无线刷写 `boot_a`**：编译生成最新 `hackios-xnu-kernel/out/boot-a-ios.img`（24,129,536 字节，SHA-256 `aec5905353ba8c41d6418ae9388a199cc689c9d6b6e00e382f8616a581b1022b`），并在 Android 无线调试下写入 `/dev/block/by-name/boot_a` 校验通过。
+   - 在 `rc.jobs.interactive` 中移除后台每 20 秒全线程栈采样 `framewatch` 与 `lsprobe 60`；在 `appinst.m` 中跳过对只读 `/redwood/Applications/RedwoodInstaller.app` 的 `sign_all_machos` 重签名。
+   - 在 `inject_sb26.c` 中改为仅在 `kern.bootargs` 含 `autounlock=1`（或收到 `com.redwood.unlock` 通知）时自动解锁，日常独立启动默认停留在锁屏界面供手动上滑解锁；在 `loader_05_layout_run_kernel.inc`／`loader_06_usb_entry.inc` 的 `oem run`（USB 无人值守启动）与 [`cycle.py`](../../tools/k90auto/cycle.py) 中自动附带 `autounlock=1`。
+5. **全量构建与无线刷写 `boot_a`**：编译生成最新 `hackios-xnu-kernel/out/boot-a-ios.img`（24,129,536 字节，SHA-256 `2ffe520f64b52cb6d2181a70bfffdd32427ee8e36d7df59bea206cc1f5522617`），并在 Android 无线调试下写入 `/dev/block/by-name/boot_a` 校验通过（电池电量已充至 85%）。
 
 
 
