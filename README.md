@@ -12,7 +12,7 @@
 | 屏幕亮度 | 控制中心与「设置 → 显示与亮度」滑块直接调节屏幕硬件背光 |
 | 触摸与按键 | 触摸、电源键、音量键可用；音量键和控制中心的滑块能调音量，还没有声音 |
 | Wi-Fi 与蓝牙 | 在「设置 → Wi-Fi」中加入网络后可用 Safari 上网；蓝牙支持扫描、发现与连接外设 |
-| 安装应用 | 支持安装并运行已解密的 `.ipa` 应用 |
+| 安装应用 | 预装「安装包管理器」（`RedwoodInstaller.app`，源码位于 `userland/src/installer_app.m` 与 `userland/src/appinst.m`），支持扫描、安装、启动与卸载已解密的 `.ipa` 应用 |
 | 电池与温控 | 显示电量与充电状态；处理器和 GPU 按负载调频，过热时逐档降频 |
 | 未完成 | 蓝牙音频、声音输出、摄像头、蜂窝网络、App Store；网页视频播放与天气数据请求正在排查修复；手电与振动在 iOS 26 上还不能用 |
 
@@ -123,7 +123,8 @@ python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
 
 安装第三方应用（需使用已解密的 `.ipa` 包，安装的应用与数据保存在 `darwin_var` 分区，重启后保留）：
 
-- 手机直接安装：在 Safari 中下载 `.ipa` 文件并在弹窗中点击「下载」，约 10 秒后应用图标出现在主屏。
+- 内置「安装包管理器」（`RedwoodInstaller.app`）：桌面预装「安装包管理器」应用（源码位于 `hackios-xnu-userland/userland/src/installer_app.m`，由 `build_installer.sh` 编译打包进 `/redwood/Applications/RedwoodInstaller.app`），打开后可查看、启动或卸载已安装的第三方应用，也可扫描下载目录中的 `.ipa` 文件点击安装。
+- 手机直接安装：在 Safari 中下载 `.ipa` 文件并在弹窗中点击「下载」，后台 `appinst watch`（`userland/src/appinst.m`）检测到完整包后自动完成安装，约 10 秒后应用图标出现在主屏。
 - 电脑通过 USB 安装（详见 [k90auto 说明](tools/k90auto/README.md)）：
 
   ```sh

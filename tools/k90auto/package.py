@@ -815,6 +815,12 @@ def main():
                             "userland/src/torch_test.c",
                             "userland/src/sound_test.c",
                             "userland/src/record_test.c",
+                            "userland/src/installer_app.m",
+                            "userland/src/installer_app.plist",
+                            "userland/src/installer_app.entitlements",
+                            "userland/src/build_installer.sh",
+                            "userland/src/appinst.m",
+                            "userland/src/appinst.entitlements",
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
                             *(PROBE_SOURCES if PROBE else [])]}
     # The probe goes first, not last. init runs a job file one line at a time and waits for each, so a
