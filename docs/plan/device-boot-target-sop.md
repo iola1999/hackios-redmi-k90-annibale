@@ -32,6 +32,8 @@
 - 从 loader 回 Android 要两跳：先 `reboot-lk.py` 进 LK，再 `set_active b` 加 `reboot`。loader 自己的 `reboot` 只会回到 A 槽。
 - `reboot-lk.py` 的前置条件、记录文件与往返模式见 [k90auto 说明 §5](../../tools/k90auto/README.md#5-软件进入-lk-fastboot)。
 
+表中的 `idle` 判据适用于等待主机载荷的调试镜像。内置 standalone 的日常镜像会自动启动 iOS，需要核对 `build-id`、`running 0 0`、启动卷实际长度和启动日志；2026-11-08 的镜像使用 4 MiB 启动卷。`run-auto.py` 和 `cycle.py` 只接受空闲且常驻区为空的 loader，更换正在运行的镜像按 §4 第 8 条先正常停止并保存日志。
+
 ## 3. 一次进 loader 的最短序列
 
 从 Android 出发，四条命令、约 30 秒：
@@ -61,8 +63,8 @@ fastboot -s "${ANDROID_SERIAL}" reboot
    - `avb_vbmeta_image_verify`（`0x44744`）在 `0x022b9000` 未读到 `"AVB0"`，返回 `2`（`AVB_VBMETA_VERIFY_RESULT_INVALID_VBMETA_HEADER`）；在跳转表 `0x44758` 中，返回码 `4`（哈希不匹配）与 `5`（签名不匹配）在解锁状态下按 `allow_verification_error` 放行，而返回码 `2` 直接跳转 `0x44998` 打印 `"boot_a: Data does not look like a vbmeta image.\n"` 并无条件返回 `6`（`AVB_SLOT_VERIFY_RESULT_ERROR_INVALID_METADATA`）。
    - `LoadImageAndAuthVB2`（`0x3af3c`）仅放行位掩码 `0x39`（返回码 `{0, 3, 4, 5}`），遇到返回码 `6` 立即跳转 `0x3aa3c` 调用 `HandleActiveSlotUnbootable(0)`（`0x1cd34`），在第 1 次尝试即将 `boot_a` 置为 `unbootable=1`（`attrs=0x00b2000000000000`，`retries=6`）并切回 B 槽启动 Android。
    - 此外，`LoadImageAndAuthVB2`（`0x3be58`）在无 AVB 属性时检查 `boot.img` 头部偏移 `0x2c` 的 `os_version`，若为 `0` 则报 `"Boot image header OS version == 0 \n"` 拒绝启动；`reseal-loader-img.py` 必须向 `mkbootimg.py` 传入 `--os_version 15.0.0 --os_patch_level 2026-02`（写入 `0x1e0001a2`），且 `boot_a` 偏移 `0x022b9000` 与 `0x05ffffc0` 必须保持有效 `AVB0`／`AVBf` 配对。
-8. 在 `xnuloader` 下运行自包含镜像期间需要重刷 `boot_a` 时，必须先执行 `fastboot -s xnuloader oem recovery && sleep 1`，确认 `fastboot -s xnuloader getvar result` 返回 `result: idle 0 0` 后再执行 `fastboot -s xnuloader flash boot_a`。自包含镜像自动调用 `run_kernel(0, 0)` 期间，`last_result` 保持初始值 `"idle"`（不带尾随数字），单纯 `oem stop` 仅置位 `live->stop = 1`，若不经 `oem recovery` 置位 `other_cpu_done = 1` 并触发 `boot_fallback_enter()` 释放 `kernel_resources_held`（此时 `getvar result` 变为 `"idle 0 0"`），直接下发 `flash boot_a` 会报 `FAILED (remote: 'a kernel is running (oem stop ends it)')`。
-9. 当前工作树的 standalone 将 4 MiB 启动卷嵌入 `rdimage`，由 `init` 挂载 UFS `darwin` 系统卷并切根；此路径尚未进行真机验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。封装自包含 `boot-a-ios.img` 必须使用 `mkstandalone.py` 生成的未压缩 `XNUP` 容器 `out/standalone-payload.bin`，直接传给 `reseal-loader-img.py`：
+8. 重刷运行中的 standalone 前，先执行一次 `fastboot -s xnuloader oem stop`，等待内核真实返回，并核对 `result`、次级核心停止与 UFS 控制器归还日志。2026-11-08 实测旧内核正常响应 stop，随后得到 `idle 0 0`、`cores_off` 和 `ufs: the kernel came back`；保存日志并清理常驻启动卷后，可用 prepare 载荷进入 LK。旧 loader 的 standalone 入口会在内核运行期间误报 `idle`，旧 `oem recovery` 还会强制修改资源状态，不能据其返回值执行刷写；新 loader 已修正状态更新和资源检查。`oem log` 会覆盖 staging，完整内核日志须先取回。
+9. standalone 将 4 MiB 启动卷嵌入 `rdimage`，由 `init` 挂载 UFS `darwin` 系统卷并切根；2026-11-08 临时启动已验证切根、Cryptex 挂载、数据盘恢复与锁屏显示，见[根文件系统说明](../analysis/rootfs-strategy.md)。封装自包含 `boot-a-ios.img` 必须使用 `mkstandalone.py` 生成的未压缩 `XNUP` 容器 `out/standalone-payload.bin`，直接传给 `reseal-loader-img.py`：
    - 第一步：`python3 hackios-xnu-kernel/xnuloader/mkstandalone.py -k hackios-xnu-kernel/out/xnu12377-st4.bin -r hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs --boot-image hackios-xnu-kernel/userland/flashboot.apfs -o hackios-xnu-kernel/out/standalone-payload.bin`（内部调用 `mkpayload.py` 将 `loader.efi`、`kernel`、`ramdisk`、`rdimage`、`cmdline` 打包为未压缩 `XNUP` 容器 `standalone-payload.bin`）。
    - 第二步：`python3 hackios-xnu-kernel/tools/reseal-loader-img.py hackios-xnu-kernel/out/handoff-loader-v19.img hackios-xnu-kernel/out/standalone-payload.bin -o hackios-xnu-kernel/out/boot-a-ios.img`（将 `BootShim + FD + standalone-payload.bin` 整体经 zlib level 9 压缩并封装为 `boot-a-ios.img`）。
    - 严禁将 `standalone-payload.bin.lz4` 直接传给 `reseal-loader-img.py`（头部为 `LZ4S`，非 `XNUP`），也严禁再用 `mkpayload.py` 把 `payload.lz4=` 二次包装进外层 `XNUP` 容器（`parse_payload()` 只解析顶层 `kernel` 与 `ramdisk` 条目，遇到 `payload.lz4` 条目会报 `no kernel in payload: entering Fastboot debug mode`）。
@@ -99,8 +101,8 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 
 `cycle.py` 已把起轮前后的检查做进脚本：
 
-- 起轮前要求 `fastboot devices` 里有 `xnuloader`、`result` 为 idle、`ramdisk-state` 为 `idle 0 0 0`，任一项不满足就停止。
-- 设备在 Android 时先调 `recover-loader.py` 经 LK 回到 loader。
+- 起轮前要求 `fastboot devices` 精确列出一个 `xnuloader`、`product` 为 `xnuloader`、`result` 完整回答为 `idle` 或 `idle 0 0`，且 `ramdisk-state` 为 `idle 0 0 <window>`。`window` 可以是尚未分配的 `0`；非零状态字段、重复回答或命令失败均停止。
+- loader 未枚举即写入本地 `cycle-stop.json` 并停止；设备恢复由独立操作执行。
 - 每 2 轮做一次检查点（§5.3），驻留 loader 的 build-id 不含 `a48c7fb`（v16、v17 的 loader）时也先做检查点。
 - 载荷、辅助盘、启动卷的身份由 `make-payload.py`、`run-auto.py` 按 `manifest.json` 的 SHA-256 核对，不符就拒跑。实际载荷参数固定包含 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。上传顺序为 payload、`oem ramdisk`、启动卷；运行前核对接收长度与内存窗口。
 - 轮次结束后再核一次 loader 状态，不满足就以非零退出。

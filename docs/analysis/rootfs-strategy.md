@@ -1,6 +1,6 @@
 # 根文件系统：从 UFS 挂载系统卷
 
-系统卷放在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。启动阶段的 `md0` 只放小型 `flashboot.apfs` 引导卷中的 `stage0` 与挂载目录，辅助盘 `md1` 放本项目的程序、驱动与固件。系统镜像不再整体读入 loader 常驻区，`/private/var` 由内核直接写入 UFS `darwin_var`。本文描述工作树的启动路径，真机切根与内存回收效果尚待验证。
+系统卷放在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。启动阶段的 `md0` 只放小型 `flashboot.apfs` 引导卷中的 `stage0` 与挂载目录，辅助盘 `md1` 放本项目的程序、驱动与固件。系统镜像不再整体读入 loader 常驻区，`/private/var` 由内核直接写入 UFS `darwin_var`。2026-11-08 临时启动和刷入 `boot_a` 后重启均已完成真机切根，启动卷常驻长度为 4 MiB。
 
 ## 1. 近期提交与审查结论
 
@@ -42,7 +42,7 @@
 
 K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限，并拒绝 `rdfile` 系统卷预读；布局检查仍覆盖 `rdimage` 与 `rdres`。其他平台沿用内存窗口边界，QEMU 的完整系统镜像启动用例通过离线检查。
 
-设备上现存的大镜像需要在保存现场并完成恢复条件检查后清理。旧 loader 的 `idle` 回答不足以确认内核已停止，必须核对运行日志与实际复位结果。
+本轮已在旧内核正常返回后清理完整系统镜像，再从 LK 临时启动新镜像。旧 loader 的 `idle` 回答不足以确认内核已停止，必须核对运行日志与实际复位结果，操作条件见[引导 SOP](../plan/device-boot-target-sop.md#4-陷阱均为实测)。
 
 ## 5. 数据盘挂载与恢复
 
@@ -54,11 +54,39 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 ## 6. 验证结果与待办
 
-本轮离线验证已通过：主机工具 22 项测试，standalone 与启动安全 11 项测试，loader 接收与布局 887 项检查及 7 项故障注入，原有 loader 生命周期测试，以及切根、数据盘挂载和 RDWFS 恢复测试。RDWFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
+本轮离线验证已通过：主机工具 26 项测试、起轮状态 5 项测试、standalone 与启动安全 11 项测试、loader 接收与布局 887 项检查及 7 项故障注入、原有 loader 生命周期测试，以及切根、数据盘挂载和 RDWFS 恢复测试。RDWFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
 
-内核、loader、用户态和辅助盘构建通过。APFS 读取工具确认启动卷包含一个 `stage0` 文件及七个目录。Linux `apfsck` 在本机 macOS 缺少所需头文件，完整文件系统检查未执行；独立引导产物尚未上机。
+内核、loader、用户态、AIR 与辅助盘构建通过。APFS 读取工具确认启动卷包含一个 `stage0` 文件及七个目录。Linux `apfsck` 在本机 macOS 缺少所需头文件，完整文件系统检查未执行。最终启动镜像为 24,031,232 字节，SHA-256 为 `8a187c03a7a723a1c3d921e425bf157a019a76b02ed381918f083312f116ee17`；解压后的完整 XNUP、内核、辅助盘与启动卷均已逐项核对。
+
+本轮启动与刷写的真机结果：
+
+- loader `build-id` 为 `b935d2e5` 对应的完整提交号，运行状态为 `running 0 0`。
+- `ramdisk-state` 为 `ready 400000 400000 300000000`：启动卷 4 MiB，XNU 内存窗口 12 GiB。辅助盘为 20,533,248 字节；窗口大小与系统当前可用内存分别记录。
+- 日志依次确认 `BSD root: md0`、`/dev/ufs_darwin` 只读挂载、`vfs_switch_root error 0`、OS/App Cryptex 与 `/redwood` 绑定成功。
+- 内核完成原生 UFS transfer list 切换和 TEST UNIT READY，LUN 0～5 的 GPT 与原读取结果一致；系统分区由内核 UFS 驱动读取，`darwin_var` 注册了硬件块写入范围。
+- `/private/var` 从槽位 1、代数 75024 恢复 21446 个节点与 73261 页，SpringBoard 和 backboardd 启动，锁屏截图已保存。
+- 临时启动停止前，`hw.memsize` 为 12 GiB，页大小为 16384 字节；空闲页 457628 页，约 6.98 GiB，wired 页 77614 页，约 1.18 GiB。完整系统镜像的 5.51 GiB 常驻分配已清除。
+- 同一镜像写入 `boot_a`，发送和写入均成功；重启后 USB 断开并重新枚举，新 loader 身份、4 MiB 启动卷、UFS 切根和 Cryptex 挂载再次确认。
+- 在新系统中只读 `/dev/rufs_boot_a` 的前 24,031,232 字节，SHA-256 与构建镜像完全一致；结果保存于 `boot-readback.log`。
+- 持久启动从槽位 1、代数 77738 恢复 21621 个节点与 73923 页。该结果确认正常重启读取了更新后的检查点；指定测试文件、设置和异常复位恢复仍需分别验证。
+- 持久启动中创建测试文件并执行 `fsync`、`F_FULLFSYNC` 与 `sync`，前两项均返回 0；`marker-create.log` 记录本轮写入，文件内容在下一批重启后读回。
+
+设备日志与截图保存在本地忽略目录 `docs/progress/evidence/storage-boot-device-1108/phase2/`，分别为 `temporary-ended.log`、`persistent-boot.log` 与 `temporary-screen.png`。源码对应内核 `990b6fcc`、loader `b935d2e5` 和辅助盘用户态 `5a37569`；后续 `net_test` 提交 `6ff56cb` 未包含在该辅助盘中。
 
 - 离线：验证真实 XNUP 条目、启动参数、完整容器大小、常驻区上限，以及上传顺序；尺寸或状态不符应在内核运行前失败。
 - 产物：用 APFS 检查工具读取启动卷，核对 `/sbin/launchd` 与挂载目录；构建 loader、辅助盘及 standalone，记录各自产物哈希。
 - 真机：日志应先出现 `BSD root: md0`，随后确认 `/dev/ufs_darwin` 挂载与根目录切换成功、launchd 缓存绑定成功；记录常驻镜像长度、实际内存窗口与可用内存。
 - 持久化：写文件、修改设置、执行同步，再正常重启并读回；另行检查异常复位恢复结果。仅修改启动卷不能完成持久化验收。
+
+## 7. 完整原版系统卷部署
+
+后续设备部署使用原版 `os.dmg`、`systemos.dmg` 与 `appos.dmg` 三个 APFS 容器，按 4096 字节边界顺序写入 `darwin`。内核继续按需读取系统文件，启动卷与辅助盘提供移植所需的引导、驱动和运行时挂载。完整提取目录用于生成启动任务和分析，设备镜像保留原版 APFS 压缩、文件与元数据。
+
+| 原版容器 | 字节数 | 用途 |
+|---|---:|---|
+| `os.dmg` | 9,758,048,256 | 系统根卷 |
+| `systemos.dmg` | 5,261,754,368 | OS Cryptex |
+| `appos.dmg` | 14,680,064 | App Cryptex |
+| 合计 | 15,034,482,688 | 约 14.002 GiB |
+
+本轮实际查询的 `darwin` 容量为 8 GiB，完整输入需要扩大系统分区。16 GiB 可容纳上述三个容器，并剩余 2,145,386,496 字节。分区调整前准备现有 GPT 和 `darwin_var` 数据的备份，核对迁移后的所有块引用及容量，迁移后逐项读回校验；当前设备继续运行第 6 节已验证的镜像。

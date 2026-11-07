@@ -202,24 +202,25 @@ def call(args, cap=10, check=True):
 
 
 def state():
-    """The loader's own word for what it holds: idle, running, returned, hung-held, fault. A read
-    that does not answer gives "unknown", so the teardown keeps going instead of dying on it."""
-    return variable("result", check=False)
+    """Return the loader state; an unanswered or ambiguous query stops teardown without reset."""
+    return variable("result", check=False).split()[0]
 
 
 def fresh_loader():
     """Idle over an empty RAM disk: the state a run starts from, and the state a reset ends in."""
-    output = call(["getvar", "ramdisk-state"], 8, False)["output"]
-    return re.fullmatch(r"idle(?: 0 0)?", state()) is not None and re.search(r"ramdisk-state:\s*idle 0 0 ", output) is not None
+    return (variable("product", check=False) == "xnuloader" and
+            re.fullmatch(r"idle(?: 0 0)?", variable("result", check=False)) is not None and
+            re.fullmatch(r"idle 0 0 [0-9a-fA-F]+", variable("ramdisk-state", check=False)) is not None)
 
 
 def variable(key, check=True):
     """One getvar's value. fastboot prints the bootloader's answer among its own progress lines,
     sometimes with a "(bootloader) " prefix, so the value is what follows the key on its line."""
-    output = call(["getvar", key], 8, check)["output"]
-    match = re.search(r"^(?:\(bootloader\)[ \t]*)?" + re.escape(key) + r":[ \t]*(\S*)", output, re.M)
-    if match:
-        return match.group(1)
+    reply = call(["getvar", key], 8, check)
+    output = reply["output"]
+    values = re.findall(r"^(?:\(bootloader\)[ \t]*)?" + re.escape(key) + r":[ \t]*([^\r\n]*?)[ \t\r]*$", output, re.M)
+    if reply["rc"] == 0 and "FAILED" not in output and len(values) == 1 and values[0]:
+        return values[0]
     assert not check, f"loader did not report {key}: {output}"
     return "unknown"
 
@@ -406,6 +407,8 @@ def teardown():
     stopped = False
     for _ in range(3):
         name = state()
+        if name == "unknown":
+            return name, False
         if name == "idle":
             return name, False
         if name == "running":
@@ -477,9 +480,8 @@ if frozen is not None:
     summary["frozen"] = frozen
 summary["logs"] = {path.name: path.stat().st_size
                    for path in sorted(run.glob("*.log"))}
+summary["ready_for_next_run"] = mode == "loader" and fresh_loader()
 (run / "reboot.json").write_text(json.dumps(summary, indent=2) + "\n")
 print("REBOOT_END", summary, flush=True)
-if failed is not None or mode not in ("loader", "android"):
-    sys.exit(1)
-if mode == "loader" and "result: idle" not in (summary["status"] or ""):
+if failed is not None or not summary["ready_for_next_run"]:
     sys.exit(1)

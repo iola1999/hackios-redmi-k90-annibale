@@ -45,7 +45,10 @@ if args == ["devices"]:
     say("" if (not os.environ.get("FB_NO_GAP") and seen == 0) else "xnuloader\tfastboot")
 elif args[:1] == ["getvar"]:
     key = args[1]
-    if key == "result":
+    if key == "product":
+        product_key = "FB_PRODUCT_AFTER_STOP" if state_path.with_name("stopped").exists() else "FB_PRODUCT"
+        say("product: " + os.environ.get(product_key, "xnuloader"))
+    elif key == "result":
         pending = state_path.with_name("stop-reads")
         if state == "running" and pending.exists():
             left = int(pending.read_text()) - 1
@@ -75,6 +78,9 @@ elif args[:1] == ["getvar"]:
 elif args[:2] == ["oem", "run"]:
     state_path.write_text("running")
 elif args[:2] == ["oem", "stop"]:
+    state_path.with_name("stopped").touch()
+    if "FB_AFTER_STOP_RAMDISK" in os.environ:
+        pathlib.Path(os.environ["FB_RAMDISK"]).write_text(os.environ["FB_AFTER_STOP_RAMDISK"])
     # The loader only asks the kernel to stop. One that held the GPU stops answering, and the loader
     # reports hung-held after its own silence window, which FB_STOP_AFTER_READS stands in for.
     delay = int(os.environ.get("FB_STOP_AFTER_READS", "0"))
@@ -255,7 +261,7 @@ class RunAutoTests(unittest.TestCase):
         return root / "run-dir"
 
     def invoke(self, root, base, **extra):
-        (root / "state").write_text("idle")
+        (root / "state").write_text(extra.pop("FB_INITIAL_STATE", "idle"))
         (root / "ramdisk").write_text(extra.pop("FB_INITIAL_RAMDISK", "idle 0 0 0"))
         env = dict(os.environ, PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                    FB_LOG=str(root / "fastboot.jsonl"), FB_STATE=str(root / "state"),
@@ -314,10 +320,31 @@ class RunAutoTests(unittest.TestCase):
 
     def test_an_idle_loader_is_left_alone(self):
         result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="idle")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual([summary["left"], summary["mode"], summary["off_seen"]], ["idle", "loader", False])
+        self.assertFalse(summary["ready_for_next_run"])
         self.assertNotIn(["reboot"], sent)
         self.assertIn("result: idle", summary["status"])
+
+    def test_final_idle_requires_complete_state_and_product(self):
+        for config in ({"FB_AFTER_STOP": "idle 1 0"},
+                       {"FB_AFTER_STOP": "idle 0 1"},
+                       {"FB_AFTER_STOP": "idle 0 0 extra"},
+                       {"FB_AFTER_STOP": "idle", "FB_PRODUCT_AFTER_STOP": "annibale"}):
+            with self.subTest(config=config):
+                result, summary, sent, files = self.teardown_case(
+                    FB_AFTER_STOP_RAMDISK="idle 0 0 0", **config)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertFalse(summary["ready_for_next_run"])
+                self.assertNotIn(["reboot"], sent)
+
+    def test_unknown_stop_state_is_preserved_without_reset(self):
+        result, summary, sent, files = self.teardown_case(
+            FB_AFTER_STOP="idle\nresult: running 0 0")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(summary["left"], "unknown")
+        self.assertFalse(summary["ready_for_next_run"])
+        self.assertNotIn(["reboot"], sent)
 
     def test_hung_held_appears_only_after_the_loaders_silence_window(self):
         """What the device did: three `oem stop` acknowledgements, still running, and hung-held only
@@ -358,7 +385,7 @@ class RunAutoTests(unittest.TestCase):
             env = dict(os.environ, PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                        FB_LOG=str(root / "fastboot.jsonl"), FB_STATE=str(root / "state"),
                        FB_RAMDISK=str(root / "ramdisk"), FB_DEVICES=str(root / "devices"),
-                       FB_STAGE_LOG=str(root / "stage.log"), FB_AFTER_STOP="idle", K90_STOP_WAIT="6",
+                       FB_STAGE_LOG=str(root / "stage.log"), FB_AFTER_STOP="returned", K90_STOP_WAIT="6",
                        K90_FREEZE_OFF="1")
             runner = subprocess.Popen([sys.executable, str(root / "tools/k90auto/run-auto.py"), str(base), "8"],
                                       env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=root)
@@ -382,7 +409,7 @@ class RunAutoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             base = self.prepare(root, boot_bytes=20 * 1024 * 1024)
-            result = self.invoke(root, base, FB_AFTER_STOP="idle")
+            result = self.invoke(root, base, FB_AFTER_STOP="returned")
             sent = self.sent(root)
             staged_path, staged_bytes = (root / "stage.log").read_text().split()
             summary = json.loads((base / "run/reboot.json").read_text())
@@ -418,6 +445,26 @@ class RunAutoTests(unittest.TestCase):
         self.assertIn("empty RAM disk", result.stderr)
         self.assertFalse(any(args[:1] in (["stage"], ["reboot"]) or args[:2] == ["oem", "ramdisk"]
                              for args in sent))
+
+    def test_full_loader_state_and_identity_are_checked_before_stage(self):
+        for config in ({"FB_INITIAL_STATE": "idle 1 0"},
+                       {"FB_INITIAL_STATE": "idle 0 1"},
+                       {"FB_INITIAL_STATE": "idle 0 0 0"},
+                       {"FB_INITIAL_STATE": "idle\nresult: running 0 0"},
+                       {"FB_INITIAL_RAMDISK": "idle 0 0 0 extra"},
+                       {"FB_PRODUCT": "annibale"}):
+            with self.subTest(config=config), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                result = self.invoke(root, self.prepare(root), **config)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(any(call[0] in ("stage", "reboot", "oem") for call in self.sent(root)))
+
+    def test_idle_zero_fields_are_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self.invoke(root, self.prepare(root), FB_INITIAL_STATE="idle 0 0",
+                                 FB_AFTER_STOP="idle 0 0", FB_AFTER_STOP_RAMDISK="idle 0 0 0")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_legacy_rdfile_payload_is_refused_before_device_commands(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -30,6 +30,7 @@ AGENTS.md section 5 hold: nothing here reboots a device that is not an enumerate
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -102,22 +103,31 @@ def fastboot(*args, serial="xnuloader", timeout=20):
 
 
 def loader_ready():
-    devices = subprocess.run(["fastboot", "devices"], capture_output=True, text=True, timeout=5).stdout
-    if "xnuloader" not in devices:
+    try:
+        devices = subprocess.run(["fastboot", "devices"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return "fastboot enumeration failed"
+    found = [line.split() for line in devices.stdout.splitlines()]
+    if devices.returncode or found.count(["xnuloader", "fastboot"]) != 1:
         return "no xnuloader in fastboot devices"
-    if "result: idle" not in fastboot("getvar", "result"):
+    def value(key):
+        try:
+            reply = subprocess.run(["fastboot", "-s", "xnuloader", "getvar", key],
+                                   capture_output=True, text=True, timeout=8)
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        output = reply.stdout + reply.stderr
+        values = re.findall(r"^(?:\(bootloader\)[ \t]*)?" + re.escape(key) +
+                            r":[ \t]*([^\r\n]*?)[ \t\r]*$", output, re.M)
+        return values[0] if reply.returncode == 0 and "FAILED" not in output and len(values) == 1 else ""
+
+    if value("product") != "xnuloader":
+        return "loader product is not xnuloader"
+    if re.fullmatch(r"idle(?: 0 0)?", value("result")) is None:
         return "loader result is not idle"
-    if "ramdisk-state: idle 0 0 " not in fastboot("getvar", "ramdisk-state"):
+    if re.fullmatch(r"idle 0 0 [0-9a-fA-F]+", value("ramdisk-state")) is None:
         return "loader RAM disk is not empty"
     return None
-
-
-def android_present():
-    serial = os.environ.get("ANDROID_SERIAL")
-    if not serial:
-        return False
-    state = subprocess.run(["adb", "-s", serial, "get-state"], capture_output=True, text=True, timeout=10)
-    return state.stdout.strip() == "device"
 
 
 def checkpoint():
@@ -172,16 +182,9 @@ def main():
         args.boot_args = " ".join([args.boot_args, "ufs_write=1"]).strip()
 
     problem = loader_ready()
-    if problem == "no xnuloader in fastboot devices" and android_present():
-        # the loader's watchdog resets the phone once the host has been silent for 180 s, and after
-        # slot A's retries the phone is back in Android: from there set_active a starts a fresh count
-        print("the phone is in Android; back to the loader through LK", flush=True)
-        recovered = run([sys.executable, HERE / "recover-loader.py", EVIDENCE / f"recover-{int(time.time())}"],
-                        capture_output=True, text=True)
-        problem = loader_ready() if recovered.returncode == 0 else f"recover-loader.py failed: {recovered.stdout[-300:]}"
-        if problem is None:
-            STATE.write_text(json.dumps({"rounds_since_checkpoint": 0}) + "\n")
     if problem:
+        EVIDENCE.mkdir(parents=True, exist_ok=True)
+        (EVIDENCE / "cycle-stop.json").write_text(json.dumps({"reason": problem}) + "\n")
         print(f"STOP: {problem}")
         return 1
     state = json.loads(STATE.read_text()) if STATE.exists() else {"rounds_since_checkpoint": 0}
@@ -259,6 +262,7 @@ def main():
     print(f"report: {round_dir / 'render-report.txt'}  sheet: {round_dir / 'run/tour-sheet.png'}")
     problem = loader_ready()
     if problem:
+        (EVIDENCE / "cycle-stop.json").write_text(json.dumps({"reason": problem}) + "\n")
         print(f"STOP after the round: {problem}")
         return 1
     return 0 if rounder.returncode == 0 else 1
