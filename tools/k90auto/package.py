@@ -235,7 +235,7 @@ INJECT = (
     (" iconservicesagent" if os.environ.get("ICON_METAL", "1") == "1" else "") +
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n"
     "/redwood/lib/libredwood.dylib backboardd\n"
-    "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences\n"
+    "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences lsd wifid\n"
     "/redwood/lib/libredwood-media.dylib cameracaptured mediaserverd\n"
     "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
     ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
@@ -746,6 +746,13 @@ def add_extra_jobs(root):
 
 
 def main():
+    userland_sub = REPO / "hackios-xnu-userland/userland/src"
+    kernel_userland = SRC_ROOT / "userland/src"
+    if userland_sub.is_dir() and kernel_userland.is_dir():
+        diff_res = subprocess.run(["diff", "-rq", str(userland_sub), str(kernel_userland)],
+                                  capture_output=True, text=True)
+        assert diff_res.returncode == 0, (
+            f"userland/src out of sync between hackios-xnu-userland and hackios-xnu-kernel:\n{diff_res.stdout}")
     dirty = dirty_sources()
     if dirty:
         print("工作树有未提交的改动，打包照常进行。改动清单写进 pack 记录的 worktree_status，"
@@ -816,6 +823,9 @@ def main():
                             *(AX_SOURCES if AX_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
+                            "userland/src/inject/inject_sb26_airdrop.inc",
+                            "userland/src/inject/inject_sb26_uninstall.inc",
+                            "userland/src/inject/inject_sb26_loc.inc",
                             "userland/src/inject/sb_metal_registration_sequence.inc",
                             "userland/src/inject/sb_metal_compression_policy.inc",
                             "userland/src/inject/inject_media.c",

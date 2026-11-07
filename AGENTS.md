@@ -52,11 +52,11 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再起下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。
 - **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。
-- **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编（`hackios-xnu-kernel/tools/dsc/dsc.py` 或 `idalib-mcp`）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
+- **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需使用 `idalib-mcp` 的 `idb_open`／`decompile`／`analyze_function`）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
 
 ## 6. 根因定位与原生对齐约定（必须遵守）
 
-- **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编（`hackios-xnu-kernel/tools/dsc/dsc.py` 或 `idalib-mcp`）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
+- **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需调用 `idalib-mcp` 做伪代码反编译、交叉引用与调用流分析）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
 - **明确禁止的做法。** 不得用方法交换（swizzling）强改 UI 视图背景色或伪造通知／权限授权返回值；不得在渲染管线编译失败时回退为固定纯色管线掩盖着色器错误；不得针对单个应用硬编码环境变量绕过通用容器目录初始化；不得用用户态定时轮询打包脚本代替内核块设备直写持久化。
 - **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区（[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)）：`darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex（支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`），`darwin_var`（`/dev/ufs_darwin_var`）由内核直写块持久化层（`RDWFS001`，`ramfs_disk.inc`）直接读写物理块并以双 32 MiB 乒乓元数据槽位实时落盘。内核 `IOKit`（`disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`）、`devfs`（`/dev/disk*`）与 `statfs`（`/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`，总容量按 128 GB 容器十进制口径计算并扣除系统卷、Cryptex 与 `/private/var` 实际已用空间）与 iPhone 真机保持一致。
 - **子 Agent 与团队成员模型选择。** 派发复杂排查、反汇编分析、内核／驱动编码或 Teamwork 成员任务时，指定使用高能力模型（`inherit`／Gemini 4 Argon 或 `pro`）。
@@ -75,7 +75,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - GPU：A830 的启动阶段、成功判据与关键修复见[A830 命令执行](docs/analysis/2026-10-24-a830-command-startup.md)，GPU 桌面、LPAC 路由与 Mesa CCHE 失效见 [GPU 桌面记录](docs/progress/2026-10-26-gpu-desktop-acceleration.md)。
 - iOS 26 桌面：解锁、着色器编译与 GPU 挂起的修复见[可用桌面记录](docs/progress/2026-10-30-ios26-usable-desktop.md)；开机次序与处理器占用见[开机次序与性能](docs/progress/2026-10-31-boot-order-and-performance.md)；近期开机后视觉、亮度、通知权限、Wi-Fi、充电、关机与持久化问题见[11-06 问题与跟进清单](docs/plan/2026-11-06-issues-and-followup.md)。
 - 帧率与 120 Hz：手势帧率的卡点见 [120 Hz 手势瓶颈](docs/analysis/2026-11-01-120hz-gesture-bottleneck.md) 与 [GPU 升频之后的长帧](docs/analysis/2026-11-02-120hz-after-gpu-clock.md)。
-- 反汇编与逆向分析：查 iOS 26 `dyld_shared_cache` 框架反汇编与虚表槽位用 `hackios-xnu-kernel/tools/dsc/dsc.py`（用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)）；独立二进制、引导程序（如 `LinuxLoader.efi`）与固件模块的反编译分析可结合 `idalib-mcp` 使用。
+- 反汇编与反编译分析：查 iOS 26 `dyld_shared_cache` 框架反汇编与虚表槽位用 `hackios-xnu-kernel/tools/dsc/dsc.py`（用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)）；需要查看 Hex-Rays 伪代码、函数级数据流或分析系统守护进程（如 `wifid`、`lsd`、`backboardd`、`coreaudiod`）、`dyld_shared_cache` 分片、引导程序（如 `LinuxLoader.efi`）与固件模块时，按需使用 `idalib-mcp`（先 `idb_list`／`idb_open` 打开目标二进制，再用 `decompile`、`analyze_function`、`xrefs_to`、`lookup_funcs` 做反编译分析）。
 - 经验文档优先记录排查方法、底层原理、判断依据和验收边界；已由代码或工具链解决的问题简短提及，具体命令集中在当前操作手册。
 - 从会话整理经验的可复用指令见 [经验整理 Prompt](docs/plan/experience-review-prompt.md)，整理方式调整后同步更新该文档。
 - 原始日志、截图、转储和本轮产物清单保存在 `.gitignore` 覆盖的本地调试目录，文字结论与必要的日志摘录写进 Markdown；提交前检查父仓库及各子模块的变更归属。
