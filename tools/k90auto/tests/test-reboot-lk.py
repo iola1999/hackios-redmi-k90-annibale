@@ -137,7 +137,7 @@ class RebootTests(unittest.TestCase):
         self.assertEqual(self.refusal(digest="0" * 64, before_stage=True), [])
 
     def test_unusable_loader_states_stop_before_stage(self):
-        for state in ("running 0 0", "returned-held 20 0", "hung-held 20 0", "firmware-fault", "reset-failed 1 0", "checkpoint 1 0"):
+        for state in ("running 0 0", "returned-held 20 0", "hung-held 20 0", "firmware-fault", "reset-failed 1 0", "checkpoint 1 0", "idle 1 0", "idle 0 1", "idle 0 0 0"):
             with self.subTest(state=state):
                 self.refusal({"state": state}, before_stage=True)
 
@@ -175,7 +175,7 @@ class RebootTests(unittest.TestCase):
         self.refusal({"final_state": "returned-held 23070 0"})
 
     def test_success_stops_at_identified_lk(self):
-        for state in ("idle", "returned 23312 0"):
+        for state in ("idle", "idle 0 0", "returned 23312 0"):
             with self.subTest(state=state):
                 process, result, commands = self.invoke({"state": state}, explicit_serial=True)
                 self.assertEqual(process.returncode, 0, process.stderr)
@@ -206,7 +206,8 @@ class RebootTests(unittest.TestCase):
         self.assertFalse(result["lk_entered"])
 
     def test_roundtrip_restores_exhausted_a_and_verifies_fresh_loader(self):
-        for config in ({}, {"slot": "b", "reboot_lost_reply": True}, {"return_lost_reply": True}):
+        for config in ({}, {"slot": "b", "reboot_lost_reply": True}, {"return_lost_reply": True},
+                       {"state": "idle 0 0", "return_state": "idle 0 0"}):
             with self.subTest(config=config):
                 process, result, commands = self.invoke(config, return_loader=True)
                 self.assertEqual(process.returncode, 0, process.stderr)

@@ -10,7 +10,7 @@
 - loader 用 `hackios-xnu-kernel/out/handoff-loader-v17.img`（`cycle.py` 的 `LOADER`），构建见 [annibale UEFI 与 loader 镜像构建](../../docs/analysis/annibale-uefi-build.md)，刷写见[真机调试手册 §3](../../docs/plan/device-test-playbook.md#3-安装驻留-loader)。
 - 主机需要 Python 3.12 或更新版本、`adb`、`fastboot`；截图转换需要 `ffmpeg`，截图统计需要 NumPy。
 - 输出目录默认是 `docs/progress/evidence/k90auto`（Git 忽略），可用 `K90_EVIDENCE` 改。一轮的目录是 `kernel-<内核名>-<标签>/`，含 `manifest.json` 和 `run/`（`s###.log` 日志快照、截图、`commands.jsonl`、`reboot.json`、`tour.json`）。
-- `run-auto.py` 按 `manifest.json` 校验载荷、辅助盘与启动卷的大小和 SHA-256，核对载荷实际启动参数；要求 loader 报告 `ramdisk-protocol: 1` 且常驻区为空。`EXPECT_PAYLOAD_SHA256`、`EXPECT_ROOT_SHA256`、`EXPECT_BOOT_SHA256` 可再指定期望值，build-id 记入 `reboot.json`。
+- `run-auto.py` 按 `manifest.json` 校验载荷、辅助盘与启动卷的大小和 SHA-256，核对载荷实际启动参数；要求 loader 报告 `ramdisk-protocol: 1` 且常驻区为空。这里的常驻启动区只接收不超过 64 MiB 的 `flashboot.apfs` 引导卷，系统卷和可变数据都不放入该区域。`EXPECT_PAYLOAD_SHA256`、`EXPECT_ROOT_SHA256`、`EXPECT_BOOT_SHA256` 可再指定期望值，build-id 记入 `reboot.json`。
 
 各产物的来源：
 
@@ -59,7 +59,7 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 
 `run-auto.py` 的其余行为与开关：
 
-- 启动卷：先上传 payload，使 loader 按本轮 `memsize` 分配窗口；再通过 `oem ramdisk` 上传启动卷，核对 loader 报告的实际长度与窗口。系统卷由内核从 `darwin` 分区按需读取。
+- 启动卷：先上传 payload，使 loader 按本轮 `memsize` 分配窗口；再通过 `oem ramdisk` 上传小型 `flashboot.apfs` 启动卷，核对 loader 报告的实际长度与窗口。该卷只提供 `stage0` 和挂载目录，系统卷由内核从 `darwin` 分区按需读取，`/private/var` 由 `darwin_var` 直接持久化。
 - 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 按固定时长跑。
 - `run/shot-request` 出现时拍一张（`shot-now.py` 写这个文件，`SHOT_ON_ACTION=0` 忽略）；`run/stop-request` 出现时提前收尾。
 - `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 字符）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `rwsh`，输出从日志取回；内建命令见 `hackios-xnu-kernel/userland/src/rwsh.c`。

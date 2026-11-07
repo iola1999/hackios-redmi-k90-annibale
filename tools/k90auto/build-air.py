@@ -36,7 +36,7 @@ TARGET = "src/gallium/drivers/freedreno/libredwoodair.dylib"
 # Copied into the build tree and recorded by digest. air_to_nir.c is here because a change to it is
 # what fixes the refused fragment pipeline: any file the build reads from this directory that is not
 # listed would be copied by hand and silently left out of the library.
-FILES = ["air_metal.c", "air_metal.h", "air_to_nir.c", "air_private.h", "air_metal_copy.inc",
+FILES = ["air_metal.c", "air_metal.h", "air_clear_plan.h", "air_metal_clear.inc", "air_to_nir.c", "air_private.h", "air_metal_copy.inc",
          "air_metal_compute.inc", "air_intrinsics.c", "air_metal_lowering.inc",
          "air_metal_resource_private.h", "air_link.inc", "nir_air.h", "air_call.inc",
          "air_metal_texture.inc", "air_metal_texels.inc", "air_metal_fence.inc", "air_metal_state.inc",

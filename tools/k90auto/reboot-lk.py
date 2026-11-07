@@ -93,7 +93,7 @@ def workflow(args, base, result):
 
     def loader_ready(only_returned=False):
         state = getvar("xnuloader", "result")
-        allowed = re.fullmatch(r"returned [0-9a-f]+ [0-9a-f]+", state) or (not only_returned and state == "idle")
+        allowed = re.fullmatch(r"returned [0-9a-f]+ [0-9a-f]+", state) or (not only_returned and re.fullmatch(r"idle(?: 0 0)?", state))
         require(allowed, f"Loader state {state!r} is not reusable. Preserve logs and follow {PLAYBOOK} for cold-reset recovery.")
         ramdisk = getvar("xnuloader", "ramdisk-state")
         require(re.fullmatch(r"idle 0 0 [0-9a-f]+", ramdisk),
@@ -128,7 +128,7 @@ def workflow(args, base, result):
                 build_id = getvar("xnuloader", "build-id")
                 require(build_id == result["loader_build_id"], "Returned loader build-id changed")
                 require(getvar("xnuloader", "ramdisk-protocol") == "1", "Returned loader RAM protocol changed")
-                require(loader_ready() == "idle", "Returned loader is not fresh idle")
+                require(re.fullmatch(r"idle(?: 0 0)?", loader_ready()), "Returned loader is not fresh idle")
                 require(getvar("xnuloader", "max-download-size") == "0x03700000",
                         "Returned loader download target is not its payload buffer")
                 result.update(loader_returned=True, returned_loader_build_id=build_id)

@@ -210,7 +210,7 @@ def state():
 def fresh_loader():
     """Idle over an empty RAM disk: the state a run starts from, and the state a reset ends in."""
     output = call(["getvar", "ramdisk-state"], 8, False)["output"]
-    return state() == "idle" and re.search(r"ramdisk-state:\s*idle 0 0 ", output) is not None
+    return re.fullmatch(r"idle(?: 0 0)?", state()) is not None and re.search(r"ramdisk-state:\s*idle 0 0 ", output) is not None
 
 
 def variable(key, check=True):

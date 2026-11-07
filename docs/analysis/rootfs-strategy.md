@@ -1,6 +1,6 @@
 # 根文件系统：从 UFS 挂载系统卷
 
-系统卷放在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。启动阶段的 `md0` 放 `stage0` 与挂载目录，辅助盘 `md1` 放本项目的程序、驱动与固件。本文描述工作树的启动路径，真机切根与内存回收效果尚待验证。
+系统卷放在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。启动阶段的 `md0` 只放小型 `flashboot.apfs` 引导卷中的 `stage0` 与挂载目录，辅助盘 `md1` 放本项目的程序、驱动与固件。系统镜像不再整体读入 loader 常驻区，`/private/var` 由内核直接写入 UFS `darwin_var`。本文描述工作树的启动路径，真机切根与内存回收效果尚待验证。
 
 ## 1. 近期提交与审查结论
 
@@ -12,7 +12,7 @@
 
 ## 2. 启动路径
 
-1. loader 把小型启动卷发布为 `RAMDisk`，内核创建 `/dev/md0`。参数为 `rd=md0 rootdev=md0`。
+1. loader 把小型启动卷发布为 `RAMDisk`，内核创建 `/dev/md0`。参数为 `rd=md0 rootdev=md0`。这个内存盘只包含启动卷，不包含系统镜像和用户数据。
 2. loader 把辅助盘发布为 `RAMDisk1`。`stage0` 将 `/dev/md1` 挂载到 `/redwood`，执行 `/redwood/sbin/init`。
 3. `root_apfs=ufs_darwin ufs=2 ufs_native=1` 使 `init` 从 `/dev/ufs_darwin` 只读挂载 APFS 系统卷，准备启动任务与驱动挂载点，再通过 `kern.redwood_switch_root` 切换根目录。
 4. 原版三容器部署从 `darwin` 的后续容器挂载 OS/App Cryptex；合成 `system26.apfs` 使用卷内已有的 `/System/Cryptexes/OS` 与 `/System/Cryptexes/App`。
