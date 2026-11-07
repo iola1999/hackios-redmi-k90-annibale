@@ -11,15 +11,17 @@
 
 ## 2. 载荷记录：这一轮跑的是什么
 
-- `make-payload.py` 在 `docs/progress/evidence/k90auto/kernel-<NAME>-<LABEL>/manifest.json` 写下 payload、根盘、系统盘的字节数与 SHA-256，把打包记录抄进 `pack` 段，并断言 `root_sha256` 等于根盘哈希、`gpu_speed` 与 cmdline 的 `adreno8_speed` 一致。manifest 不手改。
+- `make-payload.py` 在 `docs/progress/evidence/k90auto/kernel-<NAME>-<LABEL>/manifest.json` 写下 payload、辅助盘、启动卷的字节数与 SHA-256，把打包记录抄进 `pack` 段，并断言 `root_sha256` 等于根盘哈希、`gpu_speed` 与 cmdline 的 `adreno8_speed` 一致。manifest 不手改。
 - `pack` 回答这一轮的六项构成：内核 `kernel`、驱动 `driver_sha256`、AIR 库 `air_sha256` 与 `air_sources`、作业 `jobs_effective` 与 `jobs_dropped`、手势脚本 `jobs_source`、探针 `probe_sources`。作业集合只读 `jobs_effective`（从 launchd 缓存读回）；`JOBS_DROP` 只用于一轮内临时排除。
 - 工作树状态只记录、不阻止打包：`package.py` 查 `common/ugit status --short` 和顶层 `tools/k90auto`，写进 `worktree_status`。两个库每次从工作树重编，未提交改动会进驱动；`touch` 不改内容，`status` 看不出来。
 - manifest 记的是应该跑什么，从 apfs 解出的文件是实际跑了什么，不一致以 apfs 为准。内核以 `kernel` 段哈希为准，HEAD 号只说明从哪份源码起编。
 - AIR 库记源码摘要（`air-build-record.json` 的 `source_sha256:<文件>`、`tree_sha256:<文件>`）和库的 sha256。同一棵树重链得到的库 sha 可复现，库 sha 不同说明构建输入有摘要没覆盖的差异。
 - 配方对账两层：pack 字段与本轮配方逐项对，不设的开关写出依据（`package.py` 漏设开关不报错，只让镜像多或少一个文件）；`changes` 里每个 `null→sha` 新增条目归到 `EXTRA_JOBS`／`PROBE`／`PAYLOAD_PROGRAMS` 之一，归不到的就是缺口。
 - 载荷构成变了，用 `image-diff.py` 把新镜像与上一轮实际跑过的镜像逐条目比较。`package.py` 的断言以基础镜像为参照，查不出本来就不在基础镜像里的文件消失：round F 漏设 `PAYLOAD_PROGRAMS`，镜像缺 `framewatch`，断言全过，整轮采样为零。
-- `run-auto.py` 起轮前按 manifest 重算哈希，不一致拒跑，日志第一行是 `GUARD payload=<前 16 位> root=<前 16 位> dir=<目录名>`；`run/` 非空也拒跑。打包每次重建 `root.apfs`，旧轮次目录不能重跑，要重建载荷。
+- `run-auto.py` 起轮前按 manifest 重算哈希并核对实际 XNUP 启动参数，不一致拒跑，日志第一行是 `GUARD payload=<前 16 位> root=<前 16 位> dir=<目录名>`；`run/` 非空也拒跑。打包每次重建 `root.apfs`，旧轮次目录不能重跑，要重建载荷。
 - `build-air.py` 不带 `--check` 会就地覆盖 `bbmetal-device/libredwoodair.dylib`，三个同名库与构建路径见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
+
+当前工作树使用本轮构建为 4 MiB 的 `flashboot.apfs` 作为 `md0`，`root.apfs` 作为辅助盘 `md1`；系统卷位于 UFS `darwin`。`make-payload.py` 固定 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。`run-auto.py` 确认 loader idle 且常驻区为空后，依次上传 payload、执行 `oem ramdisk`、上传启动卷，核对实际接收长度与窗口后才运行内核。独立启动由 `mkstandalone.py` 嵌入 `rdimage`。该路径尚未进行真机验证，详见[根文件系统说明](../analysis/rootfs-strategy.md)。
 
 ## 3. 改了但没生效
 
@@ -105,7 +107,7 @@
 收尾、失联与 panic：
 
 - 任何 panic 交还 loader 时，`adreno8_quiesce()` 在需要复位或内存仍被保留时进入 `wfe` 循环，所以 panic 后设备停在 `hung-held`、要主机冷复位。loader 在内核静默满 50 秒后才报 `hung-held`，`run-auto.py` 在 `oem stop` 后按秒轮询（`K90_STOP_WAIT` 默认 70 秒），保存日志再复位。
-- 起轮断言只看 `result` 是否 idle，`fresh_loader()` 还要求 `ramdisk-state` 匹配 `idle 0 0 `，收尾验证按后者。
+- 起轮与收尾均通过 `fresh_loader()` 检查 `result` 为 idle，且 `ramdisk-state` 匹配 `idle 0 0 `。
 - 中途失联先拉取日志环再发 stop，环可能被覆盖或随 stop 丢失。`liveness-watch.sh` 查 `commands.jsonl` 的 mtime，停滞 150 秒写 `LIVENESS-ALERT`。中途结束一轮要确认 python 子进程已退出（round F 曾在结束队列后子进程又运行约 4 分钟），再收尾到 fresh idle。
 - `EXC_GUARD`（namespace 23）的 flavor `0x43`（`RESTRICT_OOL_PORT_ARRAYS`）可用 boot-arg `ool_port_array_enforced=0` 关闭；`0x7`、`0x9`、`0xa`、`0x42` 只能改 `ipc_policy.c` 的策略表。
 - 自己加的检查阻止了一轮真机测试，就用放行开关或删掉它，在该轮说明里记一行（阻止了什么、怎么放行、原本要查什么），不停下来等。

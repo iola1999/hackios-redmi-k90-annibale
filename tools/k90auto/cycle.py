@@ -42,18 +42,12 @@ STATE = EVIDENCE / "cycle-state.json"
 CHECKPOINT_EVERY = 2
 UNLOCK_LINE = "sb26: boot unlock done"
 GPU_STOP = "submissions closed"   # after this the compositor draws in software, so the tour is cut short
-UNLOCK_WAIT = 420           # upload (about 120 s) plus boot to the home screen
-# The loader every round runs: v18 is v17's firmware with the loader of ba6f0d0, which lists the end of
-# the DSU slot as dsu_store for keeping /private/var (docs/analysis/2026-11-05-persistence-feasibility.md);
-# v19 adds 45d97a8, which takes a DSU file of up to 1024 extents (a fresh install had 166, over the old 64).
-# Until it is flashed in boot_a, every round starts it through LK, the check below.
+UNLOCK_WAIT = 420           # boot to the home screen
+# Firmware reference for the loader checkpoint. LOADER_IMAGE can select a rebuilt image.
 LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v19.img"
 LOADER_BUILD = "45d97a8"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
-# The kernel every round boots unless --kernel names another: the newest one checked on the phone.
-# 12377-st4 is rate10 with the /private/var flash store on dsu_store, the panel brightness control
-# (DCS 0x51/0x52, DCS_DEFAULT = 4), the GPU temperature sensor at 0x0c22a000, and the WCN7850 Bluetooth
-# Skywalk channel and RedwoodBT service (kernel-12377-st4-r1).
+# Kernel record used unless --kernel selects another build.
 KERNEL = "12377-st5"
 # The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
 # SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
@@ -77,10 +71,8 @@ FIXED_ARGS = " ".join([
     # administered one of ours; the card's firmware carries none. package.py puts the firmware in.
     "pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1",
     "pcie_rddm=1 wifi_mlo=1 wifi_mac=02:4b:39:30:00:01 wifi_station=1",
-    # /private/var kept across boots in the last 4 GiB of the DSU slot (dsu_store), saved at teardown
-    # (docs/analysis/2026-11-05-persistence-feasibility.md), and Bluetooth on SE14 UART / WCN7850 (bt=4,
-    # docs/analysis/2026-11-02-bluetooth-bringup.md).
-    "ufs=2 ufs_write=1 var_store=1 var_save_ms=60000 bt=4",
+    # RDWFS001 writes /private/var to darwin_var; bt=4 selects SE14 UART / WCN7850.
+    "ufs_write=1 bt=4",
 ])
 TOUR = [
     "home@3*2",
@@ -176,9 +168,8 @@ def main():
     if args.seed:
         os.environ["SEED"] = args.seed
         args.boot_args = " ".join([args.boot_args, "var_store=1"]).strip()
-    for default_arg in ("ufs=2", "ufs_write=1", "var_store=1"):
-        if default_arg not in FIXED_ARGS and default_arg not in args.boot_args:
-            args.boot_args = " ".join([args.boot_args, default_arg]).strip()
+    if "ufs_write=1" not in FIXED_ARGS and "ufs_write=1" not in args.boot_args:
+        args.boot_args = " ".join([args.boot_args, "ufs_write=1"]).strip()
 
     problem = loader_ready()
     if problem == "no xnuloader in fastboot devices" and android_present():
@@ -226,7 +217,7 @@ def main():
     # set its own fbwidth=, fbheight= and fbpitch=.
     payload_env = dict(os.environ, GPU_SPEED=gpu_speed,
                        CPU_ARGS=os.environ.get("CYCLE_CPU_ARGS", "cpus=4 bootcpu=7 small_cores_after=0"),
-                       SYSTEM="hackios-xnu-kernel/userland/system26.apfs", SYSTEM_WINDOW="0x300000000",
+                       BOOT_IMAGE="hackios-xnu-kernel/userland/flashboot.apfs",
                        MEMSIZE="300000000", IDENTITY="v57")
     made = run([sys.executable, HERE / "make-payload.py", args.kernel, args.label,
                 "out/ios26-resume/bbmetal-device/root.apfs",

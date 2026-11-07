@@ -1,57 +1,63 @@
-# 根文件系统：系统盘怎样进内核
+# 根文件系统：从 UFS 挂载系统卷
 
-本文记录内核挂载根文件系统的约定、loader 常驻区的布局，以及把系统盘装进常驻区的几条路径。现在的做法是从双系统 `darwin` 分区、Android DSU 或经 USB 读入系统盘，操作见 [README](../../README.md) §4、§5。「路线 D」是 loader 从 GPT 分区预读系统盘的做法，loader 代码里的 `rdfile` 条目仍按它工作，定义见 §4。
+系统卷放在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。启动阶段的 `md0` 放 `stage0` 与挂载目录，辅助盘 `md1` 放本项目的程序、驱动与固件。本文描述工作树的启动路径，真机切根与内存回收效果尚待验证。
 
-## 1. 内核侧：两块 RAM 盘
+## 1. 近期提交与审查结论
 
-- 根文件系统是 RAM 盘 `md0`。loader 在设备树 `chosen/memory-map` 写入 `RAMDisk = <pa, size>`，内核的 `IOFindBSDRoot()` 据此 `mdevadd()` 出 `/dev/md0`。boot-arg `rd=md0` 只是设备名。
-- payload 里的小根盘（`root.apfs`，iOS 26 为 `root26.apfs`）由 `RAMDisk1` 发布为 `/dev/md1`，挂到 `/redwood`，装本项目的程序、库与启动任务，不作根目录。完整启动两块盘都要给。
-- APFS 用 fork 自带的驱动（`xnu/files/bsd/miscfs/apfs/`，Apple OSS 不含 APFS），读为主，支持透明压缩、多卷与 root mount。`memdev.c` 的盘大小改成 64 位，4 GB 以上的盘不溢出；`rd=md*` 时等待 BSD root 的超时从 30 s 缩到 0.1 s。
-- 26 线内核用同一套约定：`xnu26/patches/` 同样修改 `memdev.c`、`vfs_conf.c`（注册 `apfs`）和 `IOKitBSDInit.cpp`（`RAMDisk1`）。
-- 内核里没有 IOStorageFamily（没有 IOBlockStorageDriver、IOMediaBSDClient），存储都走 BSD cdevsw 加自研 APFS。
+- 内核 `e8b499c` 与顶层 `bc20def` 加入 DSU 系统镜像读取：loader 把整个镜像读入常驻内存。
+- 内核 `08170b1` 把独立启动镜像接到 `darwin` 分区，`rdfile` 仍把整个系统镜像读入内存。
+- 内核 `9657ff3` 实现 `/private/var` 文件数据直写 `darwin_var`、按需读入数据页，以及双 32 MiB 元数据槽位；用户态 `fcaf0f5` 接入 UFS 系统卷切根并移除定时归档任务。这两笔提交已有落盘实现，但当时 standalone 和自动跑轮仍使用完整系统镜像的常驻内存路径。
+- 2026-11-08 的只读查询得到 `ramdisk-state: ready 160bc1000 160bc1000 300000000`：常驻镜像为 5,917,904,896 字节，约 5.51 GiB。这段内存位于交给 XNU 的窗口内，布局将其纳入 `topOfKernelData`，启动后占用内存。
+- 同次真机日志确认 XNU 正在运行，系统卷仍由 `rdfile` 全量载入；`/private/var` 已从 UFS 恢复。旧 loader 的 standalone 入口遗漏 `running` 状态更新，导致 `getvar result` 错报 `idle`；本轮将更新放到共同的内核运行入口。
 
-成功判据：loader 日志有 `resident image at pa … size …: it is the root (md0), the payload ramdisk is md1`，内核日志有 `BSD root: md0, major 1, minor 0`。重启后日志缺少 resident image 一行时，先恢复完整输入，再查根盘挂载。
+## 2. 启动路径
 
-## 2. loader 常驻区
+1. loader 把小型启动卷发布为 `RAMDisk`，内核创建 `/dev/md0`。参数为 `rd=md0 rootdev=md0`。
+2. loader 把辅助盘发布为 `RAMDisk1`。`stage0` 将 `/dev/md1` 挂载到 `/redwood`，执行 `/redwood/sbin/init`。
+3. `root_apfs=ufs_darwin ufs=2 ufs_native=1` 使 `init` 从 `/dev/ufs_darwin` 只读挂载 APFS 系统卷，准备启动任务与驱动挂载点，再通过 `kern.redwood_switch_root` 切换根目录。
+4. 原版三容器部署从 `darwin` 的后续容器挂载 OS/App Cryptex；合成 `system26.apfs` 使用卷内已有的 `/System/Cryptexes/OS` 与 `/System/Cryptexes/App`。
+5. `/private/var` 使用内核 `RDWFS001` 持久化层，数据保存在 `darwin_var`。块写入、同步和断电恢复的验收与系统卷读取分别执行。
 
-- 内核窗口：`choose_window()` 取 UEFI 内存图里最大的空闲块。默认上限 `MAX_MEM_SIZE` 为 6 GB（bootstrap 页表覆盖 8 GB），payload 的 `memsize` 可放大到 `MAX_MEM_SIZE_LIMIT` 14 GB；iOS 26 用 `MEMSIZE=300000000`（12 GiB）。
-- 常驻系统盘放在 `win_base + RESIDENT_RD_OFFSET`（`0x08000000`，128 MiB）。可用大小为 `win_size − 128 MiB − RESIDENT_RD_RESERVE`，`RESIDENT_RD_RESERVE` 为 768 MiB，留给内核自己。窗口要先选定，再往常驻区写数据。
-- 内核与 payload 的小根盘放在常驻区之前的 128 MiB 里，`tools/k90auto/make-payload.py` 打包时检查小根盘放得下。2026-11-05 的 `12377-rate7` 内核与常驻系统盘之间只剩 40.9 MB，56.1 MB 的根盘没能启动，见 [11-05 记录](../progress/2026-11-05-defaults-and-charging.md)。
-- 内核运行时不写常驻区（根只读）。同一个 loader 生命周期里，一次装入可以启动多次内核；整机复位后要重新装入。
+初始根盘保留 `md0` 的原因是初始化顺序：`IOFindBSDRoot()` 查找初始根设备早于 devfs 挂载后的 `redwood_ufs_init()`，后者才创建 `/dev/ufs_darwin`。现有用户态切根路径可在这些设备节点创建后使用它们。
 
-## 3. 装入常驻区的路径
+`ufs_native=1` 请求原生 UFS 读取。内核仍会检查控制器、LUN 与 GPT；原生接管失败可能使用 loader 的块服务。真机验收需要记录实际选中的读取方式。
 
-| 路径 | 做法 | 用途 |
-|---|---|---|
-| QEMU | `qemu/run-ios.sh` 用 `memory-backend-file` 把系统盘映进 guest RAM 的常驻地址，payload 条目 `rdres=<字节数，十六进制>` 告诉 loader 大小 | QEMU 回归 |
-| USB | `hackios-xnu-kernel/tools/stage-system.sh` 上传：较小的镜像 `oem ramdisk` 后一次上传；超过 0xffffffff 字节的镜像要求 `ramdisk-protocol: 1`，用 `oem ramdisk begin TOTAL WINDOW` 加按 256 MiB 分块的协议，窗口（`SYSTEM_WINDOW`）按 32 MiB 对齐，细节见[真机调试手册](../plan/device-test-playbook.md) | 没装 DSU 时的默认路径，每次约 2 分钟 |
-| Android DSU | 系统盘作为 DSU 镜像存在 userdata 里（pinned file）；loader 从 `/metadata/gsi/dsu/<slot>/lp_metadata` 找到 `system_gsi` 的区段，`oem dsu load TOTAL WINDOW` 经 EDK2 BlockIo 读入，`oem dsu crc` 供主机逐 GiB 比对 CRC，不写存储 | 推荐，约 1.4 秒 |
-| 路线 D（`rdfile`） | 见 §4 | `mkpayload.py` 与 loader 支持，当前流程不用 |
+## 3. 构建与装载
 
-- QEMU 的 `RD_ADDR=0xFC000000` 是结果：那次 QEMU 选出的窗口基址是 0xF4000000，加 128 MiB 正好落在这里。窗口变化时摆放地址要跟着变。
-- 系统盘的磁盘分区部署见 [README](../../README.md) §4 与[双系统分区与持久化部署手册](../plan/dual-boot-setup.md)，读入与回退 USB 的逻辑在 `tools/k90auto/run-auto.py`（[k90auto 说明](../../tools/k90auto/README.md) §3），loader 侧在 `xnuloader/loader_dsu.inc`。
+在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，只编译 `stage0` 并生成 `userland/flashboot.apfs`。该卷有一个文件与七个目录，本轮构建为 4 MiB；驱动固件由辅助盘或 `modem_a` 提供。
 
-## 4. 路线 D：loader 从 GPT 分区预读
+- 自动跑轮：`make-payload.py` 记录启动卷的路径、大小和 SHA-256。`run-auto.py` 先校验载荷实际启动参数与 manifest，再确认 loader idle 且常驻区为空；随后先上传 payload，使 loader 按本轮参数分配窗口，再上传启动卷。实际接收长度与窗口均匹配才启动内核。
+- 独立启动：`mkstandalone.py --boot-image ...` 将启动卷放入 `rdimage` 条目；loader 校验内存布局后复制它。系统卷的部署按[双系统手册](../plan/dual-boot-setup.md)执行。
 
-定义：loader 在启动内核之前，用 EDK2 BlockIo 把写在某个 GPT 分区里的系统盘镜像顺序读进常驻区，设好 `resident_rd_size`。内核看到的布局与 QEMU 的 `rdres` 相同，不需要内核存储驱动，boot.img 大小不变。
+## 4. 内存与载荷限制
 
-- payload 条目：`rdfile=<分区>:<字节数>[:<偏移>|tail]`（`xnuloader/loader_04_fault_payload_nvram.inc`），`tail` 表示镜像对齐到分区末尾。读入在 `rdfile_load()`（`xnuloader/loader_01_base_log_dt.inc`），每次最多读 256 KiB。
-- 依据：K90 上 EDK2 BlockIo 读可用；写不落地，对 boot_a、misc、metadata、logfs、xbl_sc_logs 五个分区块 0 的写探针回 Android 用 dd 核对都保持原内容。路线 D 只读，不受写的问题影响。
-- 镜像要先在 Android 侧 dd 进分区。直接写已挂载的 userdata 尾部不安全：那段区间可能已被文件系统分配，写入后 Android 出现过 SystemUI 问题（因果未确认），见[系统界面修复记录](2026-10-23-android-systemui-recovery.md) §3。
-- DSU 解决了镜像放在哪里的问题：镜像同样在 userdata 里，但由 Android 的 libfiemap 分配并固定，loader 只读。
+| 对象 | 限制与位置 |
+|---|---|
+| 启动卷 | 主机工具与 loader 限制为 64 MiB，位于 `win_base + 128 MiB` |
+| 内核与辅助盘 | 位于常驻区之前，打包前检查二者合计的内存布局 |
+| XNUP 完整容器 | `0x03700000` 字节，即 55 MiB；`mkpayload.py` 在写文件前检查，压缩后的大小不改变该限制 |
+| iOS 26 内存窗口 | payload 使用 `memsize=300000000`，即 12 GiB；运行器核对 loader 实际分配的窗口 |
+| 系统卷 | 位于 `darwin`，容量和文件读取由 UFS/APFS 管理 |
 
-## 5. 容量约束
+K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限，布局检查也覆盖 `rdimage`、`rdfile` 与 `rdres`。其他平台沿用内存窗口边界，QEMU 的完整系统镜像启动用例通过离线检查。
 
-| 对象 | 大小 | 结论 |
-|---|---|---|
-| 系统盘 `system26.apfs` | 约 5.3 GB | 只能放常驻区 |
-| boot_a／boot_b 分区 | 100,663,296 B（96 MiB，`annibale-backup/20261022-2355/partitions.txt`） | 装不下系统盘 |
-| payload 容器 | ≤ 0x04000000 − 4 KiB（64 MiB，`mkxnuimg.py`） | 只装内核、小根盘与参数 |
-| LK `fastboot boot` 镜像 | 上限约 2 MiB（超限报 Load Error；2,236,416 B 的 `handoff-loader-v16.img` 能启动） | 只用来启动 loader |
-| 常驻区 | `win_size − 128 MiB − 768 MiB` | 5 GB 以上的系统盘要用 `memsize` 放大窗口 |
+设备上现存的大镜像需要在保存现场并完成恢复条件检查后清理。旧 loader 的 `idle` 回答不足以确认内核已停止，必须核对运行日志与实际复位结果。
 
-## 6. 没有做的方向
+## 5. 数据盘挂载与恢复
 
-- 持久化：系统和运行数据都在内存里，`/private/var` 每次开机新建，见[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md)。
-- 闪存作根：fork 已有 loader 代读 UFS 的中转（`xnu/files/bsd/dev/redwood_ufs.c`，boot-arg `ufs=2` 时 loader 发布共享页，内核出 `/dev/ufs_<GPT 名>`），以及 `root_apfs=` 加 `kern.redwood_switch_root` 的切根，upstream 在 POCO X5 Pro 上用它跑到完整 iOS。K90 上没跑过，annibale 的 loader 设 `skip_ufs_arbitration`，不做 UFS 交接。中转是单深度同步请求，原评估是开机到锁屏要分钟级（未实测）；BlockIo 写不落地，写路径要另找办法。
-- 内核原生 UFSHCI 驱动：现有 `xnu/files/bsd/dev/redwood_ufshc.c` 借用 UEFI 已初始化的控制器，只读，没有复位、PHY、UIC 与时钟初始化。SM8750 的 UFSHC 基址 `0x1d84000` 与 redwood 相同，但它是 UFSHCI 4.0 加 MCQ，redwood 的做法需要真机验证。
+只有 `/private/var` 尝试绑定 `darwin_var`。`root_apfs=ufs_darwin` 启动要求该后端可用；设备缺失、内存分配或 I/O 失败都会返回挂载错误，`init` 随即停止初始化与 launchd 启动。
+
+恢复过程校验元数据头、CRC、长度、根节点与记录结构。较新检查点损坏后可以尝试较旧的有效槽；两个槽均无法恢复时停止挂载。首次初始化要求两个完整的 32 MiB 元数据槽全零，这项检查不覆盖后续文件数据区；非零旧格式需要单独迁移。
+
+同步写入实际恢复槽的另一槽，成功后才更新内存中的代数与槽位；写入失败保留待同步状态。有效检查点可以只有根节点。数据文件经内核直接读写 UFS；目录树和块表通过 `fsync`、`F_FULLFSYNC`、`sync` 或当前源码的 1.5 秒延迟任务同步。文件数据原地写入的断电一致性还需单独验证。
+
+## 6. 验证结果与待办
+
+本轮离线验证已通过：主机工具 22 项测试，standalone 与启动安全 11 项测试，loader 接收与布局 887 项检查及 7 项故障注入，原有 loader 生命周期测试，以及切根、数据盘挂载和 RDWFS 恢复测试。RDWFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
+
+内核、loader、用户态和辅助盘构建通过。APFS 读取工具确认启动卷包含一个 `stage0` 文件及七个目录。Linux `apfsck` 在本机 macOS 缺少所需头文件，完整文件系统检查未执行；独立引导产物尚未上机。
+
+- 离线：验证真实 XNUP 条目、启动参数、完整容器大小、常驻区上限，以及上传顺序；尺寸或状态不符应在内核运行前失败。
+- 产物：用 APFS 检查工具读取启动卷，核对 `/sbin/launchd` 与挂载目录；构建 loader、辅助盘及 standalone，记录各自产物哈希。
+- 真机：日志应先出现 `BSD root: md0`，随后确认 `/dev/ufs_darwin` 挂载与根目录切换成功、launchd 缓存绑定成功；记录常驻镜像长度、实际内存窗口与可用内存。
+- 持久化：写文件、修改设置、执行同步，再正常重启并读回；另行检查异常复位恢复结果。仅修改启动卷不能完成持久化验收。

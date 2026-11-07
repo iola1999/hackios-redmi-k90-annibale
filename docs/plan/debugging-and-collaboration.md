@@ -81,7 +81,7 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 ### 缓冲和镜像都有生命周期
 
 - `oem log`、`oem screenshot` 准备数据，`get_staged` 读最近一次准备的内容，要成对、串行执行。内核正常返回后先取 `result` 再读已合并日志，额外调 `oem log` 会重新生成内容。
-- RAM 系统盘在同一 loader 生命周期内可复用，整机重启后重新上传或从 DSU 读入。系统盘是 `md0`，`root.apfs` 是 `md1` 并挂到 `/redwood`，见[根文件系统说明](../analysis/rootfs-strategy.md)。
+- 启动卷 `flashboot.apfs` 作为 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 作为 `md1` 挂到 `/redwood`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径尚未进行真机验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
 - 主机超时后设备端 USB DMA 请求可能还没结束，只有匹配的终止通知才能解除缓冲归属，见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。
 - 电源票值先分清是本方请求、聚合状态还是实际供给（ARC 读数只描述 DRV2 的请求）；读完只清理本轮新增的控制位。
 
@@ -98,7 +98,7 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 
 - `boot_a` 用于实验，B 槽保留 Android，两槽共用 userdata。原始块写入绕过文件系统分配，剩余容量、尾部全零或 Android 能开机都不能确认某段空间可写；写入前核对区段所有权、逻辑块大小、起始偏移和长度。
 - 备份只覆盖采集时刻和指定范围：既有分区备份不含 `super`、`userdata`。备份数据说明在本地的 `annibale-backup/`。
-- 系统盘经 USB 传入 RAM，或由 loader 从 Android DSU 读入（见 [README](../../README.md)）。`oem logwrite` 在缺少日志分区时会覆盖 `boot_a` 开头，诊断入口与常规读操作分别审阅。
+- 系统卷位于 UFS `darwin` 分区，`root_apfs=ufs_darwin ufs=2 ufs_native=1` 请求内核按需读取；部署前核对分区与镜像，见[根文件系统说明](../analysis/rootfs-strategy.md)。`oem logwrite` 在缺少日志分区时会覆盖 `boot_a` 开头，诊断入口与常规读操作分别审阅。
 
 ## 7. 各子系统复用同一套判断方法
 

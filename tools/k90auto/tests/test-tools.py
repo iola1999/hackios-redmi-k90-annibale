@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -81,8 +82,17 @@ elif args[:2] == ["oem", "stop"]:
         state_path.with_name("stop-reads").write_text(str(delay))
     else:
         state_path.write_text(os.environ["FB_AFTER_STOP"])
-elif args[:2] == ["oem", "ramdisk"] and len(args) == 5:
-    pathlib.Path(os.environ["FB_RAMDISK"]).write_text("ready %s %s" % (args[3], args[4]))
+elif args == ["oem", "ramdisk"]:
+    pathlib.Path(os.environ["FB_RAMDISK"]).write_text("staging 0 0 0")
+elif args[:1] == ["stage"]:
+    image = pathlib.Path(args[1])
+    ramdisk_path = pathlib.Path(os.environ["FB_RAMDISK"])
+    if ramdisk_path.read_text().startswith("staging "):
+        size = image.stat().st_size
+        pathlib.Path(os.environ["FB_STAGE_LOG"]).write_text(f"{image} {size}\n")
+        reported = size + int(os.environ.get("FB_STAGE_SIZE_DELTA", "0"))
+        window = os.environ.get("FB_WINDOW", "180000000")
+        ramdisk_path.write_text(f"ready {reported:x} {reported:x} {window}")
 elif args[:1] == ["reboot"]:
     state_path.write_text(os.environ.get("FB_AFTER_REBOOT", "idle"))
     pathlib.Path(os.environ["FB_RAMDISK"]).write_text("idle 0 0 0")
@@ -103,15 +113,6 @@ elif args[:1] == ["get_staged"]:
 else:
     say("OKAY")
 '''
-
-FAKE_STAGE = r'''#!/usr/bin/env bash
-set -euo pipefail
-: "${STAGE_SYSTEM_IMAGE:?}" "${STAGE_SYSTEM_WINDOW:?}"
-echo "$STAGE_SYSTEM_IMAGE $STAGE_SYSTEM_WINDOW" >> "$FB_STAGE_LOG"
-size=$(stat -f %z "$STAGE_SYSTEM_IMAGE")
-fastboot -s xnuloader oem ramdisk begin "$(printf %x "$size")" "$STAGE_SYSTEM_WINDOW"
-'''
-
 
 def digest(path):
     result = hashlib.sha256()
@@ -210,38 +211,52 @@ class ToolsTests(unittest.TestCase):
 class RunAutoTests(unittest.TestCase):
     """run-auto.py against a loader stand-in: what the teardown leaves behind, and what it stages."""
 
-    GIG = 0x100000000           # one byte over the largest single-shot download
+    MAX_BOOT_IMAGE = 64 * 1024 * 1024
+    CMDLINE = "rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1"
 
-    def prepare(self, root, system_bytes, window, system_sha256=None):
+    def prepare(self, root, boot_bytes=4096, payload_entry=None, legacy=False, boot_sha256=None,
+                cmdline=None, manifest_cmdline=None, memsize=None):
+        cmdline = self.CMDLINE if cmdline is None else cmdline
+        manifest_cmdline = cmdline if manifest_cmdline is None else manifest_cmdline
         for path in ("tools/k90auto", "bin", "hackios-xnu-kernel/tools", "hackios-xnu-kernel/out",
                      "hackios-xnu-kernel/userland", "run-dir"):
             (root / path).mkdir(parents=True, exist_ok=True)
         shutil.copy(HERE / "run-auto.py", root / "tools/k90auto/run-auto.py")
-        (root / "hackios-xnu-kernel/tools/stage-system.sh").write_text(FAKE_STAGE)
         for name, body in (("fastboot", FAKE_FASTBOOT), ("adb", "#!/bin/bash\nexit 0\n")):
             (root / "bin" / name).write_text(body)
             (root / "bin" / name).chmod(0o755)
         payload = root / "hackios-xnu-kernel/out/payload.bin"
-        payload.write_bytes(b"XNUP" + bytes(60))
         ramdisk = root / "hackios-xnu-kernel/out/ramdisk.img"
         ramdisk.write_bytes(b"XNUR" + bytes(60))
-        image = root / "hackios-xnu-kernel/userland/system.apfs"
-        with image.open("wb") as stream:
-            stream.truncate(system_bytes)         # sparse: a 4 GiB image costs no disk
-        # The manifest carries three files: the payload, the packed root RAM disk it boots with, and
-        # the system image that gets staged over the disk. run-auto checks all three.
+        entries = [("kernel", b"kernel"), ("ramdisk", ramdisk.read_bytes()),
+                   ("cmdline", cmdline.encode() + b"\0")]
+        if memsize is not None:
+            entries.append(("memsize", memsize.encode() + b"\0"))
+        if payload_entry:
+            entries.append((payload_entry, b"legacy resident image"))
+        body = b"".join(struct.pack("<16sII", name.encode(), len(data), 0) + data +
+                        bytes(-len(data) % 16) for name, data in entries) + bytes(24)
+        payload.write_bytes(struct.pack("<II", 0x50554E58, len(body)) + body)
+        boot_image = root / "hackios-xnu-kernel/userland/flashboot.apfs"
+        with boot_image.open("wb") as stream:
+            stream.truncate(boot_bytes)
         record = {"payload": {"path": "hackios-xnu-kernel/out/payload.bin", "sha256": digest(payload)},
                   "ramdisk": {"path": "hackios-xnu-kernel/out/ramdisk.img", "sha256": digest(ramdisk)},
-                  "system": {"path": "hackios-xnu-kernel/userland/system.apfs", "bytes": system_bytes,
-                             "sha256": system_sha256 or digest(image)}}
-        if window:
-            record["window"] = window
+                  "cmdline": manifest_cmdline}
+        if not legacy:
+            record["root_apfs"] = "ufs_darwin"
+            record["resident_boot"] = {
+                "path": "hackios-xnu-kernel/userland/flashboot.apfs", "bytes": boot_bytes,
+                "sha256": boot_sha256 or digest(boot_image)}
+        else:
+            record["system"] = {"path": "hackios-xnu-kernel/userland/system.apfs", "bytes": boot_bytes,
+                                 "sha256": "0" * 64}
         (root / "run-dir/manifest.json").write_text(json.dumps(record, indent=2) + "\n")
         return root / "run-dir"
 
     def invoke(self, root, base, **extra):
         (root / "state").write_text("idle")
-        (root / "ramdisk").write_text("idle 0 0 0")
+        (root / "ramdisk").write_text(extra.pop("FB_INITIAL_RAMDISK", "idle 0 0 0"))
         env = dict(os.environ, PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
                    FB_LOG=str(root / "fastboot.jsonl"), FB_STATE=str(root / "state"),
                    FB_RAMDISK=str(root / "ramdisk"), FB_DEVICES=str(root / "devices"),
@@ -257,7 +272,7 @@ class RunAutoTests(unittest.TestCase):
     def teardown_case(self, **extra):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            base = self.prepare(root, 4096, None)
+            base = self.prepare(root)
             result = self.invoke(root, base, **extra)
             summary = json.loads((base / "run/reboot.json").read_text())
             return result, summary, self.sent(root), sorted(p.name for p in (base / "run").iterdir())
@@ -336,7 +351,7 @@ class RunAutoTests(unittest.TestCase):
         cmd-SEQ.log, and rsh.py prints the output lines of that number."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            base = self.prepare(root, 4096, None)
+            base = self.prepare(root)
             shutil.copy(HERE / "rsh.py", root / "tools/k90auto/rsh.py")
             (root / "state").write_text("idle")
             (root / "ramdisk").write_text("idle 0 0 0")
@@ -363,30 +378,110 @@ class RunAutoTests(unittest.TestCase):
         self.assertIn("cmd-1.log", files)
         self.assertFalse([name for name in files if name.startswith("cmd-request-")])
 
-    def test_a_big_image_without_a_window_is_refused_before_anything_is_read(self):
+    def test_small_boot_volume_is_the_only_resident_image_staged(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            # The hash is wrong on purpose: refusing on the window proves the image was never read.
-            base = self.prepare(root, self.GIG, None, system_sha256="0" * 64)
+            base = self.prepare(root, boot_bytes=20 * 1024 * 1024)
+            result = self.invoke(root, base, FB_AFTER_STOP="idle")
+            sent = self.sent(root)
+            staged_path, staged_bytes = (root / "stage.log").read_text().split()
+            summary = json.loads((base / "run/reboot.json").read_text())
+            boot_sha = digest(Path(staged_path))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(Path(staged_path).name, "flashboot.apfs")
+        self.assertEqual(int(staged_bytes), 20 * 1024 * 1024)
+        self.assertIn(["oem", "ramdisk"], sent)
+        self.assertIn(["stage", staged_path], sent)
+        self.assertIn(["stage", str(root.resolve() / "hackios-xnu-kernel/out/payload.bin")], sent)
+        self.assertLess(sent.index(["stage", str(root.resolve() / "hackios-xnu-kernel/out/payload.bin")]),
+                        sent.index(["oem", "ramdisk"]))
+        self.assertFalse(any("system.apfs" in arg or "dsu" in arg for call in sent for arg in call))
+        self.assertEqual(summary["resident_boot_sha256"], boot_sha)
+
+    def test_old_system_image_manifest_is_refused_before_device_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root, legacy=True)
             result = self.invoke(root, base)
             sent = self.sent(root)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("needs the window recorded", result.stderr)
+        self.assertIn("old resident system-image format", result.stderr)
         self.assertEqual(sent, [])
 
-    def test_a_big_image_goes_by_the_chunked_protocol(self):
+    def test_nonempty_resident_area_is_read_only_and_refused(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            base = self.prepare(root, self.GIG, "0x180000000")
-            result = self.invoke(root, base, FB_AFTER_STOP="idle")
-            staged = (root / "stage.log").read_text().split()
+            base = self.prepare(root)
+            result = self.invoke(root, base, FB_INITIAL_RAMDISK="ready 160bc1000 160bc1000 300000000")
             sent = self.sent(root)
-            summary = json.loads((base / "run/reboot.json").read_text())
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(staged[1], "0x180000000")
-        self.assertIn(["oem", "ramdisk", "begin", "100000000", "0x180000000"], sent)
-        self.assertNotIn(["oem", "ramdisk"], sent)
-        self.assertEqual(summary["window"], "0x180000000")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("empty RAM disk", result.stderr)
+        self.assertFalse(any(args[:1] in (["stage"], ["reboot"]) or args[:2] == ["oem", "ramdisk"]
+                             for args in sent))
+
+    def test_legacy_rdfile_payload_is_refused_before_device_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root, payload_entry="rdfile")
+            result = self.invoke(root, base)
+            sent = self.sent(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("resident-image entry", result.stderr)
+        self.assertEqual(sent, [])
+
+    def test_resident_boot_over_limit_is_refused_before_hashing_or_device_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root, boot_bytes=self.MAX_BOOT_IMAGE + 1, boot_sha256="0" * 64)
+            result = self.invoke(root, base)
+            sent = self.sent(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("resident boot image is", result.stderr)
+        self.assertEqual(sent, [])
+
+    def test_loader_size_mismatch_stops_before_kernel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root)
+            result = self.invoke(root, base, FB_STAGE_SIZE_DELTA="1")
+            sent = self.sent(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ramdisk-state: ready", result.stderr)
+        self.assertNotIn(["oem", "run"], sent)
+
+    def test_payload_cmdline_mismatch_is_refused_before_device_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root, cmdline=self.CMDLINE.replace("ufs_native=1", "ufs_native=0"),
+                                manifest_cmdline=self.CMDLINE)
+            result = self.invoke(root, base)
+            sent = self.sent(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("payload cmdline differs from its manifest", result.stderr)
+        self.assertEqual(sent, [])
+
+    def test_duplicate_root_apfs_is_refused_before_device_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root, cmdline=self.CMDLINE + " root_apfs=ufs_darwin")
+            result = self.invoke(root, base)
+            sent = self.sent(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("root_apfs", result.stderr)
+        self.assertEqual(sent, [])
+
+    def test_loader_window_mismatch_stops_before_kernel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root, memsize="300000000")
+            result = self.invoke(root, base, FB_WINDOW="180000000")
+            sent = self.sent(root)
+            staged_path, staged_bytes = (root / "stage.log").read_text().split()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ramdisk-state: ready", result.stderr)
+        self.assertEqual(Path(staged_path).name, "flashboot.apfs")
+        self.assertEqual(int(staged_bytes), 4096)
+        self.assertNotIn(["oem", "run"], sent)
 
 
 if __name__ == "__main__":

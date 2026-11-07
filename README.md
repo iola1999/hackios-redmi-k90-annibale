@@ -54,7 +54,7 @@ USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k
   - **Wi-Fi 固件（WCN7850）**：按[分区备份与恢复](docs/backup/README.md)从手机读出 `modem_a` 分区，执行 `python3 hackios-xnu-kernel/tools/mk-fw-wifi.py extract modem_a.img.gz hackios-xnu-kernel/out/fw-wifi`，从分区镜像的 `image/kiwi/` 提取固件到 `hackios-xnu-kernel/out/fw-wifi/`（后续执行 `package.py` 时会将 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 4 个文件合并进根盘 `/redwood/fw/`）。
   - **蓝牙固件（WCN7850，可选）**：从手机读出 `bluetooth_a` 分区，执行 `python3 hackios-xnu-kernel/tools/mk-fw-bt.py extract bluetooth_a.img.gz hackios-xnu-kernel/out/fw-bt`，提取 `hmtbtfw20.tlv`、`hmtbtfw20.ver`、`hmtnv20.bin` 到 `hackios-xnu-kernel/out/fw-bt/`。
 - **2. 编译 Wi-Fi 驱动并链接进内核**：按[内核仓库说明](hackios-xnu-kernel/README.md) §2 构建内核。注意在执行 `xnu26/build-macos.sh` 前**必须先运行 `hackios-xnu-kernel/tools/mk-ath12k.sh`**，编译生成 `hackios-xnu-kernel/xnu-deps/build/ath12k/out/ath12k.o`；`xnu26/build-macos.sh` 检测到该目标文件存在时才会将 WCN7850 `ath12k` 驱动与 FreeBSD LinuxKPI 层合并链接进内核（若缺失该文件则编出的内核不含 Wi-Fi 驱动）。内核编好后在工作区根目录执行 `python3 tools/k90auto/register-kernel.py 12377-local` 登记。
-- **3. 构建基线目录与系统盘**：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 的下载见下文），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`（若双系统直接使用原版 DMG 则加 `COMPILE_ONLY=1`），生成 `userland/root/` 基线目录与约 5.9 GB 的 `system26.apfs`。注：`userland/build.sh` 输出 `absent: wifi` 是针对旧机型 `redwood`（`wpss.mdt`）的检查，K90 的 WCN7850 Wi-Fi 固件在下一步由 `package.py` 合并。
+- **3. 构建基线目录与系统盘**：`hackios-xnu-kernel/ios26/fetch.sh` 从 iPhone 17 的 iOS 26.6.2 IPSW 取出文件（IPSW 的下载见下文），再在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`（若双系统直接使用原版 DMG 则加 `COMPILE_ONLY=1`），生成 `userland/root/` 基线目录与约 5.9 GB 的 `system26.apfs`。随后执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh`，生成只含 `stage0` 与挂载目录的 `flashboot.apfs`。系统卷部署到 UFS `darwin`，启动过程见[根文件系统说明](docs/analysis/rootfs-strategy.md)。`absent: wifi` 是针对旧机型 `redwood`（`wpss.mdt`）的检查，K90 的 WCN7850 固件由下一步合并。
 - **4. 合并 Wi-Fi／蓝牙固件、AIR 库与 Metal 驱动生成根盘（`root.apfs`）**：先按 [arm64e 用户态构建 §6](docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建) 运行 `python3 tools/k90auto/setup-mesa-arm64e.py` 与 `python3 tools/k90auto/build-air.py` 编译签名 `libredwoodair.dylib`，再在工作区根目录执行 `python3 tools/k90auto/package.py`（详见 [k90auto 说明](tools/k90auto/README.md) §7）。`package.py` 会基于 `userland/root/` 编译注入 `libredwoodmetal.dylib`、`libredwood-sb26.dylib`，并将 `hackios-xnu-kernel/out/fw-wifi/` 中的 4 个 Wi-Fi 固件与 `out/fw-bt/` 中的 3 个蓝牙固件一并打包进 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs`。
 - **5. 封装 loader 与独立双系统引导镜像（`boot-a-ios.img`）**：见下文「构建 loader 与双系统引导镜像」。
 - **开机种子（可选）**：一份开机稳定后的 `/private/var` 归档，用于首次初始化 `darwin_var` 分区。取法见[每次开机都是首次开机](docs/analysis/2026-10-31-every-boot-is-first-boot.md) §5。
@@ -77,29 +77,23 @@ hackios-xnu-kernel/ios26/fetch.sh
 
 1. 取 UEFI 源码：loader 镜像里的 UEFI 用 Project Silicium 的 [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) 构建，K90 的修改在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium)。把它的 `k90-port` 分支连同子模块克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
 2. 构建 UEFI：用 `docker/build.sh` 生成开发容器镜像，`docker/dev.sh` 进入容器；建符号链接 `Binaries/annibale` → `dodge`，运行 `tools/fixup-mu-nasm.sh` 和 `python3 build_uefi.py -d annibale`，得到 `SILICIUM_UEFI.fd`。
-3. 合并内核、根盘（含 Wi-Fi 固件）与 loader 装配镜像：在工作区根目录执行以下命令，先用 `mkstandalone.py` 将已链接 `ath12k.o` 的内核与 `package.py` 生成的 `root.apfs`（含 `/redwood/fw/` 下的 Wi-Fi 固件）打包压缩为 `standalone-payload.bin.lz4`，再与 `loader-phone.efi`、UEFI FD 及设备树合并封装为可直接刷入 `boot_a` 的 `boot-a-ios.img`：
+3. 合并内核、辅助盘、启动卷与 loader：`mkstandalone.py` 将这些文件放入未压缩 `standalone-payload.bin`，`reseal-loader-img.py` 再与 UEFI 等内容一起压缩封装。启动卷通过 `rdimage` 条目交给 loader，内核启动后从 UFS 挂载系统卷。这条启动路径的真机验收尚待完成，见[根文件系统说明](docs/analysis/rootfs-strategy.md)。
 
 ```sh
 # 1. 编译 xnuloader
 (cd hackios-xnu-kernel && EXTRA_CFLAGS=-DDIRECT_PHONE_PLAT xnuloader/build.sh)
 
-# 2. 将内核与含 Wi-Fi 固件的 root.apfs 合并压缩为独立启动载荷
+# 2. 合并内核、辅助盘和启动卷
 python3 hackios-xnu-kernel/xnuloader/mkstandalone.py \
   --kernel hackios-xnu-kernel/out/xnu12377-local.bin \
   --ramdisk hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs \
+  --boot-image hackios-xnu-kernel/userland/flashboot.apfs \
   -o hackios-xnu-kernel/out/standalone-payload.bin
 
-# 3. 封装 loader.efi 与 LZ4 载荷并生成 Android boot 格式的 boot-a-ios.img
-python3 hackios-xnu-kernel/xnuloader/mkpayload.py \
-  -o hackios-xnu-kernel/out/standalone-loader-payload.bin \
-  loader.efi=hackios-xnu-kernel/xnuloader/loader-phone.efi \
-  payload.lz4=hackios-xnu-kernel/out/standalone-payload.bin.lz4 \
-  --identity v57 --usb
-
-# 若已有参考 loader 镜像（如 handoff-loader-v19.img），直接替换载荷生成 boot-a-ios.img：
+# 3. 用参考 loader 镜像封装 boot-a-ios.img
 python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
   hackios-xnu-kernel/out/handoff-loader-v19.img \
-  hackios-xnu-kernel/out/standalone-loader-payload.bin \
+  hackios-xnu-kernel/out/standalone-payload.bin \
   -o hackios-xnu-kernel/out/boot-a-ios.img
 ```
 

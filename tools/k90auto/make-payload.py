@@ -11,9 +11,8 @@ the workspace.
 
 env: K90_EVIDENCE (default docs/progress/evidence/k90auto), CPU_ARGS (default
 "cpus=2 bootcpu=7 small_cores_after=0"), GPU_SPEED (adreno8_speed, default 3: up to 342 MHz with load;
-kernels before 34209c1 need 1), GPU_STAGE (adreno8, default 23; 0 boots without the GPU), SYSTEM (workspace-relative system image the loader keeps resident,
-default hackios-xnu-kernel/userland/system.apfs), SYSTEM_WINDOW (hex window bytes; required for an
-image over 0xffffffff bytes, which run-auto.py then transfers by the chunked protocol),
+kernels before 34209c1 need 1), GPU_STAGE (adreno8, default 23; 0 boots without the GPU),
+BOOT_IMAGE (workspace-relative flashboot APFS image, default hackios-xnu-kernel/userland/flashboot.apfs),
 MEMSIZE and IDENTITY (passed to mkpayload.py as --memsize and --identity; iOS 26 needs
 300000000 and v57, and 16.5 leaves both to mkpayload.py's defaults).
 """
@@ -25,9 +24,6 @@ import re
 import struct
 import subprocess
 import sys
-# The system image bounds live beside this script so the replay test exercises the same code.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import system_guard
 
 name, label, ramdisk_arg, extra = sys.argv[1:5]
 assert re.fullmatch(r"[a-z0-9-]+", label) and re.fullmatch(r"[A-Za-z0-9_=.,: -]*", extra)
@@ -43,7 +39,7 @@ kernel = Path(record["kernel"]["path"])
 ramdisk = root / ramdisk_arg
 payload = root / f"out/handoff-{name}-{label}.bin"
 def digest(path):
-    """Chunked: the system image is gigabytes and does not fit in memory."""
+    """Hash build inputs without keeping the whole file in memory."""
     result = hashlib.sha256()
     with Path(path).open("rb") as source:
         for chunk in iter(lambda: source.read(1 << 20), b""):
@@ -70,22 +66,18 @@ def kernel_top(path):
     return top
 
 
-# The loader puts the root image right after the kernel, and both have to end below the resident
-# system image at 128 MB (xnuloader: RESIDENT_RD_OFFSET); past that it refuses the run with "kernel
-# and ramdisk overlap the resident image" after the system image is already uploaded.
+# The loader places the helper root immediately after the kernel. Both must end below the resident
+# boot image at 128 MiB (xnuloader: RESIDENT_RD_OFFSET).
 page = 0x4000
 room = 0x08000000 - (kernel_top(kernel) + page - 1) // page * page
 assert (ramdisk.stat().st_size + page - 1) // page * page <= room, (
     f"{ramdisk} is {ramdisk.stat().st_size} bytes and only {room} fit between the kernel and the resident image")
-system_image = Path(os.environ.get("SYSTEM", system_guard.DEFAULT_SYSTEM))
-window = os.environ.get("SYSTEM_WINDOW", "")
-assert system_image.is_file(), system_image
-if window:
-    assert re.fullmatch(r"0x[0-9a-fA-F]+", window) and int(window, 16) % (32 << 20) == 0, window
-system_bytes = system_image.stat().st_size
-system_error = system_guard.identity_error(system_image, system_bytes,
-                                           os.environ.get("SYSTEM"), window)
-assert system_error is None, system_error
+boot_image = Path(os.environ.get("BOOT_IMAGE", "hackios-xnu-kernel/userland/flashboot.apfs"))
+assert boot_image.is_file(), f"{boot_image} is missing; build with FLASHBOOT=1 CRYPTEXES=flash"
+boot_bytes = boot_image.stat().st_size
+MAX_BOOT_IMAGE_BYTES = 64 * 1024 * 1024
+assert 0 < boot_bytes <= MAX_BOOT_IMAGE_BYTES, (
+    f"{boot_image} is {boot_bytes} bytes; the resident boot image limit is {MAX_BOOT_IMAGE_BYTES}")
 cpu_args = os.environ.get("CPU_ARGS", "cpus=2 bootcpu=7 small_cores_after=0")
 gpu_speed = int(os.environ.get("GPU_SPEED", "3"))
 # GPU_STAGE=0 boots without the GPU: the kernel can then return to the loader (with the GPU it waits
@@ -93,25 +85,30 @@ gpu_speed = int(os.environ.get("GPU_SPEED", "3"))
 gpu_stage = int(os.environ.get("GPU_STAGE", "23"))
 memsize = os.environ.get("MEMSIZE", "")       # iOS 26 needs the RAM it is staged into: 300000000
 identity = os.environ.get("IDENTITY", "")     # and the loader identity of that iOS: v57
-# rootdev=md0 and launchd_unsecure_cache=1 belong to the fixed set: iOS 26's launchd takes its jobs
+# rd=md0 and rootdev=md0 keep the initial root on the boot volume. root_apfs=ufs_darwin makes init mount
+# the iOS APFS volume from UFS and switch to it. launchd_unsecure_cache=1 lets iOS 26's launchd take its jobs
 # and its 733 AppExtensions records from /System/Library/xpc/launchd.plist, and launchd_cache_loader
 # hands that cache over only with this boot-arg (it otherwise has to verify Apple's signature). Without
 # them launchd prints "Skipping boot-task" instead of "Using unsecure cache" and no extension record
 # ever reaches it. Every run before this harness carried them; the desktop of 2026-10-27 12:40 on the
 # same root image (15 icons, two named widgets, four Dock icons) is one of those runs.
-cmdline = (f"debug=0x10e rootdev=md0 launchd_unsecure_cache=1 {cpu_args} adreno8={gpu_stage} adreno8_pause=0 adreno8_fine=0 adreno8_watch=0 "
+cmdline = (f"debug=0x10e rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1 launchd_unsecure_cache=1 {cpu_args} adreno8={gpu_stage} adreno8_pause=0 adreno8_fine=0 adreno8_watch=0 "
            f"adreno8_keep=1 adreno8_return=0 adreno8_speed={gpu_speed} adreno8_secure_preflight=4 touchscreen=2 buttons=1 battery=1 "
            f"{extra}").strip()
 # Fail here rather than discover it 400 seconds into a run: a payload that boots into a desktop with
 # two icons looks exactly like a registration problem, and it took two days to see that the cache
 # never arrived. REQUIRED is recorded in the manifest so a later diff shows whether a run had them.
-REQUIRED = ("rootdev=md0", "launchd_unsecure_cache=1", f"adreno8_speed={gpu_speed}")
+REQUIRED = ("rd=md0", "rootdev=md0", "root_apfs=ufs_darwin", "launchd_unsecure_cache=1",
+            f"adreno8_speed={gpu_speed}")
 absent = [arg for arg in REQUIRED if arg not in cmdline.split()]
 assert not absent, f"boot-args lost {absent}: iOS 26's launchd will run with no cache and no AppExtensions"
+for key in ("rd", "rootdev", "root_apfs", "ufs", "ufs_native"):
+    assert sum(arg.split("=", 1)[0] == key for arg in cmdline.split()) == 1, f"duplicate {key} boot-arg"
 argv = ["python3", "xnuloader/mkpayload.py", "-o", str(payload.relative_to(root)),
         "kernel=" + str(kernel.relative_to(root)), "ramdisk=" + str(ramdisk.relative_to(root)),
         "--cmdline", cmdline, "--exact-cmd", cmdline, "--require", "kernel=" + digest(kernel),
-        "--require", "ramdisk=" + digest(ramdisk), "--forbid-cmd", "loader_return_after"]
+        "--require", "ramdisk=" + digest(ramdisk), "--forbid-cmd", "loader_return_after",
+        "--forbid-entry", "rdimage", "--forbid-entry", "rdfile", "--forbid-entry", "rdres"]
 if memsize:
     assert re.fullmatch(r"[0-9a-fA-F]+", memsize), memsize      # mkpayload.py reads hex bytes
     argv += ["--memsize", memsize]
@@ -150,12 +147,11 @@ record.update({"ramdisk": {"path": str(ramdisk), "bytes": ramdisk.stat().st_size
                "cmdline": cmdline, "boot_cmdline": cmdline, "gpu_speed": gpu_speed,
                "cpu_args": cpu_args, "extra_boot_args": extra, "argv": argv,
                "required_cmdline": list(REQUIRED),
-               "system": {"path": str(system_image), "bytes": system_bytes,
-                          "sha256": digest(system_image)},
+               "root_apfs": "ufs_darwin",
+               "resident_boot": {"path": str(boot_image), "bytes": boot_bytes,
+                                 "sha256": digest(boot_image)},
                "payload": {"path": str(payload), "bytes": payload.stat().st_size, "sha256": digest(payload)},
                "pack": pack, "patch_rejects": patch_rejects})
-if window:
-    record["window"] = window
 base.mkdir()
 (base / "manifest.json").write_text(json.dumps(record, indent=2) + "\n")
 print(base)

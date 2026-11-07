@@ -3,9 +3,8 @@
 
 usage: tools/k90auto/run-auto.py RUN_DIR [SECONDS] [SHOT_EVERY,SHOT_FROM,LOG_EVERY]
 
-RUN_DIR is what make-payload.py printed. Its manifest.json names the payload and the system image
-the loader keeps resident; an image over 0xffffffff bytes also needs the window recorded there, and
-is transferred by hackios-xnu-kernel/tools/stage-system.sh one 256 MiB block at a time.
+RUN_DIR is what make-payload.py printed. Its manifest.json names the payload, helper root and small
+resident boot image. The iOS system APFS volume stays on UFS and is mounted by init.
 
 The third argument defaults to 0,100,20: no periodic screenshots, log snapshots every 20 seconds.
 A periodic screenshot costs the USB channel a 11.6 MB transfer, and the log is what a round is read
@@ -31,11 +30,11 @@ reaches hung-held, which keeps every page until a cold reset, so the teardown sa
 loader holds and reboots instead of leaving that state for the operator.
 """
 import hashlib
-import zlib
 import json
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 import time
@@ -47,6 +46,61 @@ def digest(path):
         for chunk in iter(lambda: source.read(1 << 20), b""):
             result.update(chunk)
     return result.hexdigest()
+
+
+def payload_entries(path):
+    """Read XNUP entry names and hashes without loading the whole payload into memory."""
+    entries = {}
+    total = path.stat().st_size
+    with path.open("rb") as source:
+        header = source.read(8)
+        if len(header) != 8:
+            raise SystemExit(f"refusing to run: {path} has no complete XNUP header")
+        magic, body_size = struct.unpack("<II", header)
+        if magic != 0x50554E58 or body_size != total - 8:
+            raise SystemExit(f"refusing to run: {path} has an invalid XNUP size or signature")
+        offset, ended = 8, False
+        while offset < total:
+            raw = source.read(24)
+            if len(raw) != 24:
+                break
+            offset += 24
+            if not any(raw):
+                ended = offset == total
+                break
+            name_raw, size, _reserved = struct.unpack("<16sII", raw)
+            try:
+                name = name_raw.split(b"\0", 1)[0].decode("ascii")
+            except UnicodeDecodeError as error:
+                raise SystemExit(f"refusing to run: {path} has a non-ASCII entry name") from error
+            if not name or name in entries or b"\0" not in name_raw:
+                raise SystemExit(f"refusing to run: {path} has an invalid or duplicate entry name")
+            hasher = hashlib.sha256()
+            value = bytearray() if name in ("cmdline", "memsize") else None
+            if value is not None and size > 4096:
+                raise SystemExit(f"refusing to run: oversized {name} entry")
+            remaining = size
+            while remaining:
+                chunk = source.read(min(1 << 20, remaining))
+                if not chunk:
+                    raise SystemExit(f"refusing to run: {path} ends inside entry {name}")
+                hasher.update(chunk)
+                if value is not None:
+                    value.extend(chunk)
+                remaining -= len(chunk)
+            offset += size
+            padding = (-size) % 16
+            if len(source.read(padding)) != padding:
+                raise SystemExit(f"refusing to run: {path} ends inside entry padding")
+            offset += padding
+            entries[name] = {"bytes": size, "sha256": hasher.hexdigest()}
+            if value is not None:
+                if not value.endswith(b"\0") or b"\0" in value[:-1]:
+                    raise SystemExit(f"refusing to run: invalid {name} terminator")
+                entries[name]["text"] = value[:-1].decode("ascii")
+    if not ended:
+        raise SystemExit(f"refusing to run: {path} has no final XNUP terminator")
+    return entries
 
 
 base = Path(sys.argv[1])
@@ -70,8 +124,22 @@ manifest = json.loads((base / "manifest.json").read_text())
 # payload a round actually booted without asking anyone.
 payload_path = WORKSPACE / manifest["payload"]["path"]
 ramdisk_path = WORKSPACE / manifest["ramdisk"]["path"]
+resident_boot = manifest.get("resident_boot")
+if (manifest.get("root_apfs") != "ufs_darwin" or not isinstance(resident_boot, dict)
+        or not {"path", "bytes", "sha256"} <= resident_boot.keys()
+        or type(resident_boot.get("bytes")) is not int):
+    raise SystemExit(f"refusing to run: {base}/manifest.json uses the old resident system-image format")
+boot_image = WORKSPACE / resident_boot["path"]
+if not 0 < resident_boot["bytes"] <= 64 * 1024 * 1024:
+    raise SystemExit(f"refusing to run: resident boot image is {resident_boot['bytes']} bytes; limit is 67108864")
+if not boot_image.is_file():
+    raise SystemExit(f"refusing to run: the resident boot image {boot_image} named by {base}/manifest.json is gone")
+if boot_image.stat().st_size != resident_boot["bytes"]:
+    raise SystemExit(f"refusing to run: resident boot image size is {boot_image.stat().st_size}, "
+                     f"manifest records {resident_boot['bytes']}")
 for what, path, stated in (("payload", payload_path, manifest["payload"]["sha256"]),
-                           ("packed root", ramdisk_path, manifest["ramdisk"]["sha256"])):
+                           ("packed root", ramdisk_path, manifest["ramdisk"]["sha256"]),
+                           ("resident boot image", boot_image, resident_boot["sha256"])):
     if not path.is_file():
         raise SystemExit(f"refusing to run: the {what} {path} named by {base}/manifest.json is gone")
     actual = digest(path)
@@ -79,11 +147,30 @@ for what, path, stated in (("payload", payload_path, manifest["payload"]["sha256
         raise SystemExit(f"refusing to run: the {what} {path} hashes to {actual[:16]} but its manifest "
                          f"recorded {stated[:16]}; this directory does not describe the file in it")
 expected = {"payload": manifest["payload"]["sha256"], "root": manifest["ramdisk"]["sha256"]}
-for name, key in (("payload", "EXPECT_PAYLOAD_SHA256"), ("root", "EXPECT_ROOT_SHA256")):
+for name, key in (("payload", "EXPECT_PAYLOAD_SHA256"), ("root", "EXPECT_ROOT_SHA256"),
+                  ("boot", "EXPECT_BOOT_SHA256")):
     wanted = os.environ.get(key)
-    if wanted and wanted != expected[name]:
+    actual = resident_boot["sha256"] if name == "boot" else expected[name]
+    if wanted and wanted != actual:
         raise SystemExit(f"refusing to run: {key}={wanted[:16]} but this payload's {name} is "
-                         f"{expected[name][:16]}; the pack that was meant to produce it did not")
+                         f"{actual[:16]}; the pack that was meant to produce it did not")
+entries = payload_entries(payload_path)
+if {"kernel", "ramdisk", "cmdline"} - entries.keys():
+    raise SystemExit(f"refusing to run: payload entries are incomplete: {sorted(entries)}")
+if {"rdimage", "rdfile", "rdres"} & entries.keys():
+    raise SystemExit("refusing to run: unattended payload contains a resident-image entry")
+if entries["ramdisk"] != {"bytes": ramdisk_path.stat().st_size, "sha256": manifest["ramdisk"]["sha256"]}:
+    raise SystemExit("refusing to run: payload helper root does not match its manifest")
+cmdline = entries["cmdline"]["text"]
+if cmdline != manifest.get("cmdline"):
+    raise SystemExit("refusing to run: payload cmdline differs from its manifest")
+for key, value in (("rd", "md0"), ("rootdev", "md0"), ("root_apfs", "ufs_darwin"),
+                   ("ufs", "2"), ("ufs_native", "1")):
+    if [arg for arg in cmdline.split() if arg.split("=", 1)[0] == key] != [f"{key}={value}"]:
+        raise SystemExit(f"refusing to run: payload requires exactly one {key}={value}")
+window_bytes = int(entries.get("memsize", {}).get("text", "180000000"), 16)
+if window_bytes <= 0 or window_bytes % 0x2000000 or window_bytes > 0x380000000:
+    raise SystemExit("refusing to run: invalid payload memory window")
 print(f"GUARD payload={expected['payload'][:16]} root={expected['root'][:16]} dir={base.name}")
 run = base / "run"
 # A run directory is one run's record: files left by an earlier attempt would be read as this one's.
@@ -91,13 +178,6 @@ assert not run.exists() or not any(run.iterdir()), f"{run} is not empty"
 run.mkdir(exist_ok=True)
 shot_request = run / "shot-request"
 
-# Runs recorded before make-payload.py wrote the system image carry the 16.5 one this tool checked.
-system = manifest.get("system") or {"path": "hackios-xnu-kernel/userland/system.apfs",
-                                    "sha256": "a3ab9dce59e527b65feb4ef161680f094087da26e79aabdddfa6e9ac9ee10b71",
-                                    "bytes": 2492227584}
-window = manifest.get("window")
-system_image = WORKSPACE / system["path"]
-CHUNKED_LIMIT = 0xffffffff
 # The loader calls a kernel that stopped answering hung-held once it has been silent for its own
 # SILENCE_SECONDS (50 in loader_02_platform_cpu_ufs_survey.inc); a stop is only answered before that.
 # K90_STOP_WAIT shortens the wait, which the offline tests use.
@@ -144,79 +224,19 @@ def variable(key, check=True):
     return "unknown"
 
 
-payload = WORKSPACE / manifest["payload"]["path"]
-# The cheap checks first: a loader that is not fresh idle, or an image whose window was never
-# recorded, is worth refusing before two gigabytes are read to confirm a hash.
-assert system_image.is_file() and system_image.stat().st_size == system["bytes"], system
-if system["bytes"] > CHUNKED_LIMIT:
-    assert window, "an image over 0xffffffff bytes needs the window recorded in manifest.json"
+payload = payload_path
 # The loader's build-id says which build is resident; a build without the RAM disk protocol would
 # silently mis-stage, so the capability is what this checks and the identity is what it records.
 loader_build_id = variable("build-id")
 assert variable("ramdisk-protocol") == "1", "the loader does not offer the RAM disk protocol"
-assert variable("result") == "idle", "the loader is not fresh idle"
-assert digest(payload) == manifest["payload"]["sha256"], "payload does not match its manifest"
-assert digest(system_image) == system["sha256"], "system image does not match its manifest"
-
-DSU_RECORD = WORKSPACE / "docs/progress/evidence/k90auto/dsu/system.json"
-DSU_PIECE = 1 << 30
-
-
-def from_dsu():
-    """The system image read from the phone's own storage (tools/k90auto/dsu.py installed it there)
-    instead of sent over USB, when the DSU holds this very image and the loader offers "oem dsu".
-    The resident copy is checked piece by piece against the image here before a kernel may use it;
-    any doubt drops it, and the USB upload follows as before. K90_DSU=0 skips this."""
-    if os.environ.get("K90_DSU", "1") == "0" or not DSU_RECORD.exists() or not window:
-        return False
-    record = json.loads(DSU_RECORD.read_text())
-    if (record.get("sha256"), record.get("bytes")) != (system["sha256"], system["bytes"]):
-        print("dsu: the phone holds another system image; uploading over USB", flush=True)
-        return False
-    began = time.monotonic()
-    loaded = call(["oem", "dsu", "load", f'{system["bytes"]:x}', f"{int(window, 16):x}"], 120, False)
-    ready = call(["getvar", "ramdisk-state"], 8, False)["output"]
-    if loaded["rc"] or "FAILED" in loaded["output"] or not re.search(rf'ready {system["bytes"]:x} ', ready):
-        print(f"dsu: not loaded ({loaded['output'].strip()[-160:]}); uploading over USB", flush=True)
-        call(["oem", "ramdisk", "none"], 8, False)
-        return False
-    read_at = time.monotonic()
-    pieces = []
-    with system_image.open("rb") as source:
-        for offset in range(0, system["bytes"], DSU_PIECE):
-            length = min(DSU_PIECE, system["bytes"] - offset)
-            want = zlib.crc32(source.read(length)) & 0xffffffff
-            # fastboot prints no text of an oem command's OKAY, so the loader keeps the CRC for a getvar
-            call(["oem", "dsu", "crc", f"{offset:x}", f"{length:x}"], 60, False)
-            got = variable("dsu-crc", check=False)
-            pieces.append({"offset": offset, "length": length, "want": f"{want:08x}", "got": got})
-            if not re.fullmatch(r"[0-9a-f]{8}", got) or int(got, 16) != want:
-                print(f"dsu: piece at {offset:#x} differs ({pieces[-1]}); uploading over USB", flush=True)
-                call(["oem", "ramdisk", "none"], 8, False)
-                (run / "system-dsu.json").write_text(json.dumps({"pieces": pieces, "used": False}, indent=1) + "\n")
-                return False
-    timing = {"load_seconds": read_at - began, "check_seconds": time.monotonic() - read_at}
-    (run / "system-dsu.json").write_text(json.dumps({"pieces": pieces, "used": True, **timing}, indent=1) + "\n")
-    print(f"dsu: system image read from storage in {timing['load_seconds']:.1f} s, "
-          f"checked in {timing['check_seconds']:.1f} s", flush=True)
-    return True
-
-
-if system["bytes"] > CHUNKED_LIMIT and from_dsu():
-    pass
-elif system["bytes"] > CHUNKED_LIMIT:
-    stage = WORKSPACE / "hackios-xnu-kernel/tools/stage-system.sh"
-    with (run / "system-upload.log").open("w") as log:
-        subprocess.run(["bash", str(stage)], check=True,
-                       env=dict(os.environ, STAGE_SYSTEM_IMAGE=str(system_image),
-                                STAGE_SYSTEM_WINDOW=window),
-                       stdout=log, stderr=subprocess.STDOUT, timeout=1800)
-    ready = call(["getvar", "ramdisk-state"])["output"]
-    assert "ready" in ready and f'{system["bytes"]:x}' in ready.lower(), ready
-else:
-    call(["oem", "ramdisk"])
-    call(["stage", system_image], 300)
+assert fresh_loader(), "loader is not idle over an empty RAM disk; refusing to overwrite resident data"
 call(["stage", payload], 25)
+call(["oem", "ramdisk"])
+call(["stage", boot_image], 120)
+ready = call(["getvar", "ramdisk-state"])["output"]
+match = re.search(r"ramdisk-state:\s*ready\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)", ready)
+assert match and int(match.group(1), 16) == resident_boot["bytes"] and \
+    int(match.group(2), 16) == resident_boot["bytes"] and int(match.group(3), 16) == window_bytes, ready
 start = time.monotonic()
 call(["oem", "run"])
 print("RUN_STARTED", flush=True)
@@ -443,8 +463,9 @@ elif reset:
         time.sleep(1)
     seconds = time.monotonic() - watch
 summary = {"off_seen": off_seen, "mode": mode, "seconds": seconds, "left": left, "reset": reset,
-           "failed": failed, "samples": index, "loader_build_id": loader_build_id, "window": window,
-           "payload_sha256": manifest["payload"]["sha256"], "system_sha256": system["sha256"],
+           "failed": failed, "samples": index, "loader_build_id": loader_build_id,
+           "payload_sha256": manifest["payload"]["sha256"],
+           "resident_boot_sha256": resident_boot["sha256"],
            "status": call(["getvar", "result"], 8, False)["output"] if mode == "loader" else None,
            # the daily evidence for "the device never stays somewhere only a person can leave it":
            # after every round the loader must still identify as xnuloader and answer idle.

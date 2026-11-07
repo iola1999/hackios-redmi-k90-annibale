@@ -1,6 +1,6 @@
 # annibale 真机调试手册
 
-本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见 [README §5](../../README.md#5-启动并使用-ios-26) 与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。
+本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见 [README §5](../../README.md#5-启动并使用-ios-26) 与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。本文已按 UFS 系统卷与 4 MiB 启动卷更新；该启动路径尚未进行真机验证，验收边界见[根文件系统说明](../analysis/rootfs-strategy.md)。
 
 ## 1. 槽位假设与当前启动方式
 
@@ -10,14 +10,14 @@
 
 - loader：`hackios-xnu-kernel/out/handoff-loader-v17.img`（`LOADER`），2026-11-05 起刷在 `boot_a`。Wi-Fi 需要 v16 起的 loader，它在 4 GB 以下给 Wi-Fi 卡留 128 MB 内存；v17 沿用 v16 的 loader，换了 UEFI。`cycle.py` 按 `getvar build-id` 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的 loader；不含时经 LK 用 `fastboot boot` 起 v17，不刷写分区。
 - 内核：`12377-rate10`（`KERNEL`），由 `make-payload.py` 和根盘打包成载荷，构建方法见 k90auto 说明。
-- 系统盘：`hackios-xnu-kernel/userland/system26.apfs`，超过 `0xffffffff` 字节，由双系统 `darwin` 分区或 Android DSU 读入（见 [README §4](../../README.md#4-划分磁盘分区并安装引导) 与[双系统分区与持久化部署手册](dual-boot-setup.md)），或按第 9 节的分块协议经 USB 上传。
+- 系统卷：部署在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。`userland/flashboot.apfs` 是本轮构建为 4 MiB 的启动卷，作为 `md0`；`root.apfs` 是辅助盘 `md1`，挂载到 `/redwood`。部署见[双系统分区与持久化部署手册](dual-boot-setup.md)。
 - 启动参数：`make-payload.py` 的固定一组加 `cycle.py` 的 `FIXED_ARGS`，见第 8 节与 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。
 
 每轮收尾的 PSCI 复位会重新启动 `boot_a` 里刷着的 loader。`boot_a` 里 loader 的 build-id 不含 `a48c7fb` 时，每一轮都要多走一次 LK 检查点，所以建议按第 3 节把 v17 刷进 `boot_a`。
 
 ## 2. 操作前检查
 
-1. 确认本轮内核、loader、载荷和系统盘的文件大小与 SHA-256；修改源码后重新构建对应产物。`cycle.py`／`run-auto.py` 按 `manifest.json` 自动核对，手工运行时自己核对。
+1. 确认本轮内核、loader、载荷、辅助盘和启动卷的文件大小与 SHA-256；修改源码后重新构建对应产物。`cycle.py`／`run-auto.py` 按 `manifest.json` 自动核对，手工运行时自己核对。
 2. 先看 `adb devices -l` 和 `fastboot devices`，把目标 Android／LK 序列号设为环境变量 `ANDROID_SERIAL`；驻留 loader 使用 `xnuloader`。每次切换后重新确认身份，判别方法见 [SOP §1](device-boot-target-sop.md#1-先判当前身份)。
 3. 确认当前槽位和 A 槽重试次数。写启动镜像只用 `boot_a`。连续实验会耗尽 A 槽重试次数，LK 随后回退到 B 槽 Android；这时经 ADB 回到 LK 执行 `set_active a` 即可恢复已有 loader，无需重写镜像，见 [SOP §4](device-boot-target-sop.md#4-陷阱均为实测) 第 4 条。
 4. 无人值守跑轮遵守 [AGENTS.md](../../AGENTS.md) 第 5 节。
@@ -48,13 +48,16 @@ fastboot -s xnuloader getvar screen
 `cycle.py` 会完成打包、上传和运行；下面是手工调试时的等价步骤，在 `hackios-xnu-kernel/` 目录下执行。载荷由 `tools/k90auto/make-payload.py` 生成，路径为 `out/handoff-<内核名>-<标签>.bin`。
 
 ```sh
-STAGE_SYSTEM_IMAGE=userland/system26.apfs STAGE_SYSTEM_WINDOW=0x300000000 bash tools/stage-system.sh
 fastboot -s xnuloader stage out/handoff-<内核名>-<标签>.bin
+fastboot -s xnuloader oem ramdisk
+fastboot -s xnuloader stage userland/flashboot.apfs
+fastboot -s xnuloader getvar ramdisk-state
+# 核对长度与窗口后再运行
 fastboot -s xnuloader oem run
 fastboot -s xnuloader getvar result
 ```
 
-- `stage-system.sh` 会切到 `hackios-xnu-kernel/`，`STAGE_SYSTEM_IMAGE` 按这个目录写相对路径或用绝对路径。系统盘只需在本次 loader 生命周期首次运行或更换镜像时上传；loader 复位后要重新上传。
+- 先上传 payload，再执行 `oem ramdisk` 并上传启动卷，使 loader 按本轮 payload 分配内存窗口。运行前核对 `ramdisk-state` 的已接收长度、总长度与启动卷大小一致，窗口与 payload 的 `memsize` 一致；本轮 4 MiB 启动卷和 12 GiB 窗口对应 `ready 400000 400000 300000000`。任一项不符就停止。
 - `bootcpu=7` 让内核从 MPIDR `0x10100` 的核启动，loader 留在当前 CPU 上处理 USB。
 - 结束运行用 `fastboot -s xnuloader oem stop`，再查询 `result`。带 GPU 的载荷（`make-payload.py` 默认 `adreno8=23 adreno8_keep=1 adreno8_return=0`）停止后不返回 loader，约 50 秒后 loader 报 `hung-held`，按第 5、6 节保存日志后复位，过程见[无人值守收尾](../analysis/2026-10-28-unattended-teardown.md)。`GPU_STAGE=0` 打包的载荷不起 GPU，内核可以返回 loader。
 - `loader_return_after=N` 让内核限时返回，取消不了 GPU 资源保留；`make-payload.py` 生成的载荷禁止带这个参数。
@@ -81,11 +84,11 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 ## 6. 故障定位与恢复
 
 - `result: running`：内核仍在运行，读取 USB 日志判断进度。
-- `result: returned ...` 或 `checkpoint ...`：确认没有 held／fault 状态，再取日志、上传下一份内核载荷；同一 loader 生命周期中的 RAM 系统盘可以继续使用。
+- `result: returned ...` 或 `checkpoint ...`：确认没有 held／fault 状态，再取日志、上传下一份内核载荷；小型启动卷仍驻留在本次 loader 的内存窗口中；自动流程要求重新进入常驻区为空的 idle 状态。
 - `result: hung ...`：先保存可读日志，核对资源保留状态，再复位。
-- `result: hung-held ...`、`returned-held ...` 或带 fault：设备可能仍在访问原内核的内存和映射。loader 拒绝 `oem ramdisk`、`download:`、`oem run` 等会改写资源的命令（完整列表见 `xnuloader/loader_01_base_log_dt.inc` 的 `lc_blocked_cmd`），查询、日志、截图和 `reboot` 保留；没有运行中的内核可通知时，`oem stop` 返回 `FAIL`。先按第 5 节保存日志，再 `reboot`，确认 USB 断开、重新枚举和 `result: idle`，随后重新上传系统盘。
+- `result: hung-held ...`、`returned-held ...` 或带 fault：设备可能仍在访问原内核的内存和映射。loader 拒绝 `oem ramdisk`、`download:`、`oem run` 等会改写资源的命令（完整列表见 `xnuloader/loader_01_base_log_dt.inc` 的 `lc_blocked_cmd`），查询、日志、截图和 `reboot` 保留；没有运行中的内核可通知时，`oem stop` 返回 `FAIL`。先按第 5 节保存日志，再 `reboot`，确认 USB 断开、重新枚举和 `result: idle`，随后按第 4 节重新上传载荷与启动卷。
 - 带 GPU 的内核在普通退出与 panic 返回时都检查 `adreno8_reset_required` 和 `adreno8_memory_retained()`，ACK 成功、失败或分配中途失败都可能要求保留资源；需要保留时内核停在 `adreno8_quiesce()` 不返回，只能复位后再上传下一份内核，源码链见[无人值守收尾 §2](../analysis/2026-10-28-unattended-teardown.md#2-判断依据源码链)。
-- 复位后重新枚举且 `result: idle`：loader 已重新启动，先前的 RAM 系统盘需要重新上传。
+- 复位后重新枚举且 `result: idle`：loader 已重新启动，按第 4 节重新上传载荷与启动卷。
 - `result: reset-failed`：PSCI 复位调用返回，直接读取日志中的返回值；loader 保留 USB 命令循环。
 - `result: no-such-core ...`：先保存 loader 原始日志，核对目标 MPIDR 和 PSCI 返回值。屏幕上的旧画面不能用来评估本轮。
 - USB 有枚举记录但命令无响应：可能是内核占用 loader 的 CPU、USB 传输等待或固件异常。记录命令、耗时、USB 枚举与画面，按 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)分别排查；设备从 USB 整个消失时的处置也在该文档第 4 节。
@@ -101,14 +104,14 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 |---|---|
 | loader 已运行 | `getvar product` 返回 `xnuloader`，可读取 loader 日志 |
 | 内核已运行 | 内核检查点返回或 USB 日志中出现内核初始化输出 |
-| 系统盘已挂载 | 日志出现 `BSD root: md0` 和 APFS System 卷挂载结果 |
+| 系统卷已挂载并切根 | 日志先出现 `BSD root: md0`，随后确认 `/dev/ufs_darwin` 挂载、根目录切换和 launchd 缓存绑定成功 |
 | SpringBoard 已显示 | SpringBoard 进程日志、帧缓冲截图和手机实际画面相互确认 |
 
 图形交互验收同时检查 SpringBoard、backboardd、前台应用的 `userabort`／`usertrap` 与断言，并记录 SpringBoard／backboardd 的 PID，可用 `tools/k90auto/ui-health.py`（[k90auto 说明 §6](../../tools/k90auto/README.md#6-界面进程状态检查)）。原始日志可能含 NUL，检索使用文本模式。采集和软件恢复成功后，界面进程中止或重启时功能结果仍记为失败。
 
 ## 8. 外设开关（修改 kernel payload 的 cmdline）
 
-`make-payload.py` 固定带 `touchscreen=2 buttons=1 battery=1`，`cycle.py` 的 `FIXED_ARGS` 再加 GPU、120 Hz、触摸轮询和 Wi-Fi 一组，其余参数用 `cycle.py --boot-args` 追加。每轮只增加一个待测参数，先检查 USB 日志和对应的实际行为。触摸、震动、手电不带参数时不做任何动作，QEMU 也不需要它们。
+`make-payload.py` 固定带 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1` 与 `touchscreen=2 buttons=1 battery=1`，`cycle.py` 的 `FIXED_ARGS` 再加 GPU、120 Hz、触摸轮询和 Wi-Fi 一组，其余参数用 `cycle.py --boot-args` 追加。每轮只增加一个待测参数，先检查 USB 日志和对应的实际行为。触摸、震动、手电不带参数时不做任何动作，QEMU 也不需要它们。
 
 - `touchscreen=2`：annibale Goodix 触摸。先查芯片身份、报告模式和有效触点，再验证用户滑动与点击的坐标及延迟。`ready` 日志和自动操作脚本的手势都不足以完成手指操作验收。`cycle.py` 另带 `touch_poll_us=4000`，每 4 ms 读一次。
 - `buttons=1`：音量键与电源键，只读 PMIC，不写入（`annibale_buttons.c`）。音量上是 PMI GPIO slave 1 function `0x18d`，低有效带上拉；电源和音量下是 PMK8550 PON（KPDPWR／RESIN）。事件进 USB 日志的 `buttons:` 行和 `/dev/redwood-input`，`buttons_hv_steps=1..5` 分步诊断。验收依次查看 arbiter、通道表、TYPE/SUBTYPE、引脚状态和 `buttons:` 事件，再核对 iOS 行为。
@@ -120,24 +123,12 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - 震动（`annibale_haptic.c`，需要内核 `5847dd3` 及以后）：`hv_haptic=3` 起内核后直驱马达 30 ms，靠手感验收，没感觉时加 `haptic_amp=128`，仍没有就读 USB 日志的 `haptic:` 行；`hv_haptic=4` 让 iOS 触感反馈经 `/dev/redwood-haptic` 驱动马达，单次最长 1 秒，出现 fault 后停用。
 - 更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。手电与震动在 iOS 16.5 上实测通过，iOS 26 上还不能用。
 
-## 9. 大于单次 fastboot 长度的 RAM 系统盘
+## 9. 启动卷与内存窗口检查
 
-`tools/stage-system.sh` 对超过 `0xffffffff` 字节的镜像使用分块协议，要求 `getvar ramdisk-protocol` 返回 `1`，并由 `STAGE_SYSTEM_WINDOW` 提供十六进制内存窗口字节数（`cycle.py` 用 `0x300000000`）。窗口必须按 32 MiB 对齐，并容纳系统盘、loader 保留区与内核运行空间；已分配窗口必须与请求完全一致，调整窗口需重启 loader。较小镜像使用单次上传（`oem ramdisk` 后 `stage`）。
+在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，生成 `userland/flashboot.apfs`。本轮产物为 4 MiB，包含 `stage0` 与挂载目录。`stage0` 挂载辅助盘并执行 `/redwood/sbin/init`，后者从 UFS 挂载系统卷并切换根目录。
 
-| 命令 | 行为 |
-|---|---|
-| `getvar ramdisk-protocol` | 返回协议版本 `1` |
-| `oem ramdisk begin TOTAL_HEX WINDOW_HEX` | 校验长度和窗口，开始新的顺序上传，清除已发布镜像长度 |
-| `download:SIZE_HEX` | 标准 fastboot 数据传输，追加一个完整块；主机脚本使用 256 MiB 块 |
-| `getvar ramdisk-state` | 返回状态、已完成块的总字节数、镜像总长度、窗口长度；三个数值均为十六进制 |
-| `oem ramdisk none` | 取消上传，清除镜像长度；继续保留内存窗口及现有 USB 缓冲归属 |
-| `oem dsu load TOTAL_HEX WINDOW_HEX` | 从手机存储里的 Android DSU 读入系统盘（`run-auto.py` 使用） |
-| `oem dsu crc OFFSET_HEX LENGTH_HEX` | 计算一段 CRC，结果用 `getvar dsu-crc` 读；`run-auto.py` 逐 GiB 比对，不一致时 `oem ramdisk none` 后改走 USB |
-
-状态查询只用 `getvar ramdisk-state`。loader 按 `oem ramdisk` 前缀决定下载归属，`begin` 和 `none` 之外的任何 `oem ramdisk` 参数都会清除已发布镜像长度并把下一次 `download:` 指向 RAM 区，`max-download-size` 随即变为 `0xffffffff`。发现该值后用 `oem ramdisk none` 清除归属，确认 `max-download-size` 回到 `0x03700000` 再继续；`reboot-lk.py` 的前置检查会以「Loader download target is not its payload buffer」拒绝这种状态，且不会发出 reboot。
-
-只有全部数据接收完成才发布 `resident_rd_size`。分块短传、非法长度、断线或 USB 通道失效后进入失败状态，拒绝续传和运行，需要取消或重新开始。主机未收到成功应答就停止，不重发含义不确定的块，也不执行内核。最后一块可能已经完整接收但应答未到主机，此时仍需重新查询状态并记录该轮结果。分块短传、断线及重传的固件行为没有单独真机验证。
-
-## 10. 分区备份
-
-写 `boot_a` 或切换槽位前，建议先备份两个槽位的 `boot` 等重要分区，方法见[分区备份说明](../backup/README.md)。
+- 启动卷上限为 64 MiB；完整 XNUP 容器上限为 `0x03700000` 字节（55 MiB），以未压缩长度校验。
+- `getvar ramdisk-protocol` 应返回 `1`；`getvar ramdisk-state` 返回状态、已接收长度、总长度和窗口长度，三个长度均为十六进制。
+- 自动流程先检查 loader idle 且常驻区为空，再按第 4 节顺序上传；接收长度与窗口不匹配即停止。
+- 独立启动由 `mkstandalone.py --boot-image ...` 将启动卷写入 `rdimage` 条目，loader 校验布局后复制到常驻区。
+- `ufs_native=1` 请求原生 UFS 读取；验收需记录实际读取方式、切根结果与可用内存，详见[根文件系统说明](../analysis/rootfs-strategy.md)。本路径尚未进行真机验证。

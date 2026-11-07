@@ -53,7 +53,7 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 3. LK 的 `reboot` 在目标槽被标为不可引导时无效。实测 `slot-unbootable:b=yes` 时 `reboot` 答 `OKAY` 而设备仍停在 LK；`set_active b` 会清掉这个标志（读回 `slot-unbootable:b=no`），`set_active a` 同样清 A 槽。判断是否真的复位看 USB 是否断开：`ioreg` 250 毫秒采样能看到设备消失再重现，只看命令返回值判断不出来。
 4. `slot-retry-count:a` 每跑一轮扣 2 次，约三轮后归 0，LK 随即把 A 槽标成不可引导并回退 B 槽 Android。经 loader 起 iOS 不写成功引导记录，`slot-successful:a` 始终是 `no`，计数器一路递减，与 panic 无关。`set_active a` 把计数重置为 7 并把 `slot-unbootable:a` 清回 `no`。起轮前先读 `slot-retry-count:a`，低于 3 时执行 `set_active a`。`cycle.py` 每 2 轮经 `reboot-lk.py` 进 LK 做一次 `set_active a` 并读回 7；`round-run.py` 只在设备处于 LK 时读这个计数，低于 3 时重置。
 5. 安卓侧点屏不能用 `input keyevent`。adb shell 缺 `INJECT_EVENTS`，会抛 `SecurityException`；用 `svc power stayon usb` 能把屏幕点亮。`screencap` 全黑先看 `mWakefulness` 与 `Display State`，两者都是 OFF 时黑屏来自休眠，与面板无关。
-6. `reboot-lk.py` 的 `--payload` 必须是 prepare 载荷。误传轮次载荷时，工具 `stage` 后把内核又起了一次并停在 `hung-held`，报 `Probe return timed out; reboot not sent`；那次引导的日志是 `Process 1 exec of /sbin/launchd failed, errno 2`（没有常驻系统盘）。
+6. `reboot-lk.py` 的 `--payload` 必须是 prepare 载荷。误传轮次载荷时，工具 `stage` 后把内核又起了一次并停在 `hung-held`，报 `Probe return timed out; reboot not sent`；那次引导的日志是 `Process 1 exec of /sbin/launchd failed, errno 2`（历史启动路径缺少常驻系统盘）。
 7. `boot_a` 分区尾部残留 `AVBf` 页脚且偏移 `0x022b9000` 的 `AVB0` 块被覆盖时，LK 执行 `set_active a && reboot` 会在第 1 次引导立即将 `boot_a` 标为 `unbootable` 并回退 B 槽 Android：
    - 高通 ABL（`LinuxLoader.efi`）的 `LoadImageAndAuthVB2`（`0x3a6d4`）调用 `avb_slot_verify`（`0x43af0`）与 `load_and_verify_vbmeta`（`0x44374`）校验链式分区 `"boot_a"`。
    - `boot_a` 分区总长 96 MiB（`0x06000000`），分区末尾 `0x05ffffc0` 处的 64 字节 `AVBf` 页脚指向 `vbmeta_offset = 0x022b9000`（34.72 MiB）、`vbmeta_size = 0x00000980`。
@@ -62,8 +62,8 @@ fastboot -s "${ANDROID_SERIAL}" reboot
    - `LoadImageAndAuthVB2`（`0x3af3c`）仅放行位掩码 `0x39`（返回码 `{0, 3, 4, 5}`），遇到返回码 `6` 立即跳转 `0x3aa3c` 调用 `HandleActiveSlotUnbootable(0)`（`0x1cd34`），在第 1 次尝试即将 `boot_a` 置为 `unbootable=1`（`attrs=0x00b2000000000000`，`retries=6`）并切回 B 槽启动 Android。
    - 此外，`LoadImageAndAuthVB2`（`0x3be58`）在无 AVB 属性时检查 `boot.img` 头部偏移 `0x2c` 的 `os_version`，若为 `0` 则报 `"Boot image header OS version == 0 \n"` 拒绝启动；`reseal-loader-img.py` 必须向 `mkbootimg.py` 传入 `--os_version 15.0.0 --os_patch_level 2026-02`（写入 `0x1e0001a2`），且 `boot_a` 偏移 `0x022b9000` 与 `0x05ffffc0` 必须保持有效 `AVB0`／`AVBf` 配对。
 8. 在 `xnuloader` 下运行自包含镜像期间需要重刷 `boot_a` 时，必须先执行 `fastboot -s xnuloader oem recovery && sleep 1`，确认 `fastboot -s xnuloader getvar result` 返回 `result: idle 0 0` 后再执行 `fastboot -s xnuloader flash boot_a`。自包含镜像自动调用 `run_kernel(0, 0)` 期间，`last_result` 保持初始值 `"idle"`（不带尾随数字），单纯 `oem stop` 仅置位 `live->stop = 1`，若不经 `oem recovery` 置位 `other_cpu_done = 1` 并触发 `boot_fallback_enter()` 释放 `kernel_resources_held`（此时 `getvar result` 变为 `"idle 0 0"`），直接下发 `flash boot_a` 会报 `FAILED (remote: 'a kernel is running (oem stop ends it)')`。
-9. 封装自包含 `boot-a-ios.img` 必须使用 `mkstandalone.py` 生成的未压缩 `XNUP` 容器 `out/standalone-payload.bin`，直接传给 `reseal-loader-img.py`：
-   - 第一步：`python3 hackios-xnu-kernel/xnuloader/mkstandalone.py -k hackios-xnu-kernel/out/xnu12377-st4.bin -r hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs -o hackios-xnu-kernel/out/standalone-payload.bin`（内部调用 `mkpayload.py` 将 `loader.efi`、`kernel`、`ramdisk`、`rdfile`、`cmdline` 打包为未压缩 `XNUP` 容器 `standalone-payload.bin`）。
+9. 当前工作树的 standalone 将 4 MiB 启动卷嵌入 `rdimage`，由 `init` 挂载 UFS `darwin` 系统卷并切根；此路径尚未进行真机验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。封装自包含 `boot-a-ios.img` 必须使用 `mkstandalone.py` 生成的未压缩 `XNUP` 容器 `out/standalone-payload.bin`，直接传给 `reseal-loader-img.py`：
+   - 第一步：`python3 hackios-xnu-kernel/xnuloader/mkstandalone.py -k hackios-xnu-kernel/out/xnu12377-st4.bin -r hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs --boot-image hackios-xnu-kernel/userland/flashboot.apfs -o hackios-xnu-kernel/out/standalone-payload.bin`（内部调用 `mkpayload.py` 将 `loader.efi`、`kernel`、`ramdisk`、`rdimage`、`cmdline` 打包为未压缩 `XNUP` 容器 `standalone-payload.bin`）。
    - 第二步：`python3 hackios-xnu-kernel/tools/reseal-loader-img.py hackios-xnu-kernel/out/handoff-loader-v19.img hackios-xnu-kernel/out/standalone-payload.bin -o hackios-xnu-kernel/out/boot-a-ios.img`（将 `BootShim + FD + standalone-payload.bin` 整体经 zlib level 9 压缩并封装为 `boot-a-ios.img`）。
    - 严禁将 `standalone-payload.bin.lz4` 直接传给 `reseal-loader-img.py`（头部为 `LZ4S`，非 `XNUP`），也严禁再用 `mkpayload.py` 把 `payload.lz4=` 二次包装进外层 `XNUP` 容器（`parse_payload()` 只解析顶层 `kernel` 与 `ramdisk` 条目，遇到 `payload.lz4` 条目会报 `no kernel in payload: entering Fastboot debug mode`）。
 10. `xnuloader` 空闲界面 120 秒超时切槽（`xnuloader/loader_06a_screen_ui.inc` 的 `boot_fallback_check()`）：旧逻辑在 loader 空闲界面连续 120 秒未收到主机 fastboot 命令时，会执行 `slot_set_active_other()` 切换活动槽位并重启进 Android；当第 9 条导致 `xnuloader` 未能自动启动 iOS 时，设备会在 120 秒后自动切回 B 槽重启进 Android。`boot_fallback_check()` 现已改为仅刷新 `host_last_cmd` 保持在当前槽位驻留。
@@ -102,7 +102,7 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 - 起轮前要求 `fastboot devices` 里有 `xnuloader`、`result` 为 idle、`ramdisk-state` 为 `idle 0 0 0`，任一项不满足就停止。
 - 设备在 Android 时先调 `recover-loader.py` 经 LK 回到 loader。
 - 每 2 轮做一次检查点（§5.3），驻留 loader 的 build-id 不含 `a48c7fb`（v16、v17 的 loader）时也先做检查点。
-- 载荷、根盘、系统盘的身份由 `make-payload.py`、`run-auto.py` 按 `manifest.json` 的 SHA-256 核对，不符就拒跑。
+- 载荷、辅助盘、启动卷的身份由 `make-payload.py`、`run-auto.py` 按 `manifest.json` 的 SHA-256 核对，不符就拒跑。实际载荷参数固定包含 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。上传顺序为 payload、`oem ramdisk`、启动卷；运行前核对接收长度与内存窗口。
 - 轮次结束后再核一次 loader 状态，不满足就以非零退出。
 
 手工起轮时，在 LK 侧读下面五项并记下，作为下一轮出现异常时的对照基线：
