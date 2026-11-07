@@ -503,7 +503,7 @@
 
 ### 9.5 16:40 用户真机交互实测 10 项问题汇总、根因定位与全量代码修复完成（2026-11-07）
 
-用户在真机启动进入 iOS 26 锁屏界面后完成交互实测：日常启动默认停留在锁屏界面、手动上滑解锁流畅、控制中心亮度与音量滑块可拖动。针对实测发现的 8 项问题及追加发现的 2 项充电与拔线状态问题（共 10 项），结合实时内核／控制台日志（`/tmp/live_ios.log`、`/tmp/boot_now.log`）完成逐项定位与全量代码修复、编译及独立引导镜像封装（`root.apfs` SHA-256 `a64bc1f5`，`standalone-payload.bin.lz4` SHA-256 `913b9cea`，`boot-a-ios.img` SHA-256 `7f725bab`）：
+用户真机交互实测后，结合实时内核／控制台日志（`/tmp/live_ios.log`、`/tmp/boot_now.log`）完成逐项定位与全量代码修复、编译及独立引导镜像封装（`root.apfs` SHA-256 `a64bc1f5`，`standalone-payload.bin.lz4` SHA-256 `913b9cea`，`boot-a-ios.img` SHA-256 `0317f5c0`）：
 
 1. **Safari 无法加载网页，天气与地图无法请求网络内容（Wi-Fi 已连上 `<LAN_IP>` 且可 ping 通）**：
    - **现象与关联**：此前为修复天气与地图所做的改动（提交 `4ed62d8` 与 `f500b7c`）直接把 Safari、天气和地图的网络请求链路修坏了。
@@ -536,8 +536,25 @@
    - **根因**：[`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject/inject_sb26.c) 对 `"airdrop-p2p"`／`"airdrop"` 返回了 `kCFBooleanFalse`，且在 `Preferences` 进程中提前 `return` 未安装 `install_airdrop_hooks()`；[`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject/inject_sb26_airdrop.inc) 将 `isAirDropAvailable` 硬编码为 `NO`、`isActionDisabled` 硬编码为 `YES` 并忽略了 `setDiscoverableMode:`。
    - **修复动作**：在 `inject_sb26.c` 中对 `"airdrop-p2p"`／`"airdrop"` 返回 `kCFBooleanTrue`，为 `SpringBoard` 与 `Preferences` 共同注册 `install_airdrop_hooks()`，并在 `inject_sb26_airdrop.inc` 中持久化 `discoverableMode`（默认 `2` 所有人）及触发 `delegate` 回调刷新 UI。
 
+### 9.6 反复重启回退 Android（Slot B）的 ABL 指令级根因与修复（2026-11-07）
 
+通过反汇编 `abl_a`／`abl_b` 中的 `LinuxLoader.efi`（`LoadImageAndAuthVB2` `0x3a6d4..0x3c3a8`、`avb_slot_verify` `0x43af0`、`load_and_verify_vbmeta` `0x44374`）并比对真机 `boot_a`、`boot_b`、`vbmeta_a`、`vbmeta_b` 分区二进制，查明此前执行 `set_active a && reboot` 或在 `xnuloader` 下重启后直接跳回 Android（Slot B）的三项根因并完成修复：
 
-
-
+1. **主根因：`boot_a` 分区偏移 `0x022b9000` 处的链式 `AVB0` 元数据被旧大镜像覆盖，而分区末尾 `0x05ffffc0` 的 `AVBf` 页脚仍指向该偏移**：
+   - `vbmeta_a`（偏移 `0x39c`）将 `"boot"` 声明为链式校验分区（`AvbChainPartitionDescriptor`）。
+   - `boot_a` 与 `boot_b` 分区总长均为 96 MiB（`100,663,296` 字节 = `0x06000000`）。分区末尾 `0x05ffffc0` 处的 64 字节原厂 `AVBf` 页脚记录 `original_image_size = 0x022b9000`、`vbmeta_offset = 0x022b9000`（`36,409,344` 字节，34.72 MiB）、`vbmeta_size = 0x00000980`（`2,432` 字节）。
+   - 早期曾向 `boot_a` 写入过约 `51.3 MiB`（结束于 `0x03352800`）的大体积镜像，覆盖了 `0x022b9000` 处的 `"AVB0"` 头（变为非 AVB 数据 `b526 14a9...`），但未触及 96 MiB 末尾 `0x05ffffc0` 的 `AVBf` 页脚；后续刷入 23 MiB（`0x016e5800` 字节）的 `boot-a-ios.img` 仅覆盖 `[0, 0x016e5800)`，保留了 `0x022b9000` 的损坏数据与 `0x05ffffc0` 的 `AVBf` 页脚。
+   - `LinuxLoader.efi` 在 `LoadImageAndAuthVB2`（`0x3af0c`）中调用 `avb_slot_verify`（`0x43af0`）及 `load_and_verify_vbmeta`（`0x44374`），读取 `boot_a` 末尾 `0x05ffffc0` 的 `AVBf` 页脚后定位到 `0x022b9000` 并调用 `avb_vbmeta_image_verify`（`0x44744`）。
+   - `avb_vbmeta_image_verify` 因 `0x022b9000` 处无 `"AVB0"` 魔数返回 `2`（`AVB_VBMETA_VERIFY_RESULT_INVALID_VBMETA_HEADER`）。在跳转表 `0x44758..0x4476c` 中，返回码 `4`（`HASH_MISMATCH`）与 `5`（`SIGNATURE_MISMATCH`）在 Bootloader 解锁状态下检查 `allow_verification_error` 后放行；而返回码 `2` 直接跳转 `0x44998` 打印 `"boot_a: Data does not look like a vbmeta image.\n"`，无条件返回 `6`（`AVB_SLOT_VERIFY_RESULT_ERROR_INVALID_METADATA`）。
+   - `LoadImageAndAuthVB2`（`0x3af3c`）仅放行位掩码 `0x39`（即返回码 `{0, 3, 4, 5}`）；遇到返回码 `6` 时立即跳转 `0x3aa3c` 调用 `HandleActiveSlotUnbootable(0)`（`0x1cd34`），在第 1 次启动尝试即将 `boot_a` 置为 `unbootable = 1`（GPT 属性变为 `0x00b2000000000000`，`retries = 6`），并立即将活动槽位切回 B 槽启动 Android。
+   - 此前 `set_active b` 加 `fastboot boot` 能够启动，原因在于 `fastboot boot` 执行 `avb_slot_verify` 时校验的是当前活动槽位 `_b`，而 `boot_b` 在 `0x022b9000` 处的原厂 `AVB0` 块保持完好。
+2. **次根因 A：`reseal-loader-img.py` 未传 `--os_version` 导致 `boot.img` 头部偏移 `0x2c` 为 `0`**：
+   - `LinuxLoader.efi` 的 `LoadImageAndAuthVB2`（`0x3be58`）在未读到 AVB 属性时检查 `boot.img` 头部偏移 `0x2c` 的 `os_version` 字段；若为 `0`，则打印 `"Boot image header OS version == 0 \n"` 并跳转 `0x3bf98` 拒绝引导。
+3. **次根因 B：`fastboot -s xnuloader oem stop` 与 `flash boot_a` 连续拼接时的 1 秒停核窗口**：
+   - `19:03` 在 `xnuloader` 下把 `oem stop` 与 `flash boot_a` 连写为单条命令，而 `oem stop` 仅设置 `stop_requested = 1`，XNU 内核需在下一个 1 Hz 定时器中断（最多 1 秒）才释放 `kernel_resources_held` 返回 `idle`；未等 `getvar result` 变为 `idle` 即执行 `flash boot_a` 会触发 `kernel resources held: reboot first` 拒写，随后的 `reboot` 直接启动了当时仍为活动槽位的 B 槽 Android。
+4. **修复与真机验证**：
+   - 在 [`hackios-xnu-kernel/tools/reseal-loader-img.py`](../../hackios-xnu-kernel/tools/reseal-loader-img.py) 中向 `mkbootimg.py` 传入 `--os_version 15.0.0 --os_patch_level 2026-02`（偏移 `0x2c` 写入 `0x1e0001a2`），重新封装 `hackios-xnu-kernel/out/boot-a-ios.img`（24,008,704 字节，SHA-256 `0317f5c059caa78e4f3a06a30749bba254a84a422dfe383980dff9e8a248b866`）。
+   - 在 [`hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 中同步维护 LUN 4 与 LUN 0（`vm-bootsys_a`／`_b`）的 `PartitionTypeGUID` 与 GPT 属性位。
+   - 将最新 `boot-a-ios.img` 写入真机 `/dev/block/by-name/boot_a`（`[0, 0x016e5800)`），并将 `boot_b` 偏移 `0x022b5000..0x022ba000`（含 `0x022b9000` 处的原厂 `AVB0` 块）与 `0x05ffffc0` 处的 `AVBf` 页脚同步恢复至 `boot_a`。
+   - 真机实测执行 `adb reboot bootloader` → `fastboot set_active a` → `fastboot reboot`，设备一次直接从 `boot_a` 启动进入 `xnuloader`（`slot: refreshed boot_a retry budget to 0x006f000000000000`）并顺利引导进入 iOS 26 锁屏界面（`sb26: autounlock!=1, the lock screen stays until it is swiped away`）。
 

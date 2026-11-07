@@ -54,6 +54,14 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 4. `slot-retry-count:a` 每跑一轮扣 2 次，约三轮后归 0，LK 随即把 A 槽标成不可引导并回退 B 槽 Android。经 loader 起 iOS 不写成功引导记录，`slot-successful:a` 始终是 `no`，计数器一路递减，与 panic 无关。`set_active a` 把计数重置为 7 并把 `slot-unbootable:a` 清回 `no`。起轮前先读 `slot-retry-count:a`，低于 3 时执行 `set_active a`。`cycle.py` 每 2 轮经 `reboot-lk.py` 进 LK 做一次 `set_active a` 并读回 7；`round-run.py` 只在设备处于 LK 时读这个计数，低于 3 时重置。
 5. 安卓侧点屏不能用 `input keyevent`。adb shell 缺 `INJECT_EVENTS`，会抛 `SecurityException`；用 `svc power stayon usb` 能把屏幕点亮。`screencap` 全黑先看 `mWakefulness` 与 `Display State`，两者都是 OFF 时黑屏来自休眠，与面板无关。
 6. `reboot-lk.py` 的 `--payload` 必须是 prepare 载荷。误传轮次载荷时，工具 `stage` 后把内核又起了一次并停在 `hung-held`，报 `Probe return timed out; reboot not sent`；那次引导的日志是 `Process 1 exec of /sbin/launchd failed, errno 2`（没有常驻系统盘）。
+7. `boot_a` 分区尾部残留 `AVBf` 页脚且偏移 `0x022b9000` 的 `AVB0` 块被覆盖时，LK 执行 `set_active a && reboot` 会在第 1 次引导立即将 `boot_a` 标为 `unbootable` 并回退 B 槽 Android：
+   - 高通 ABL（`LinuxLoader.efi`）的 `LoadImageAndAuthVB2`（`0x3a6d4`）调用 `avb_slot_verify`（`0x43af0`）与 `load_and_verify_vbmeta`（`0x44374`）校验链式分区 `"boot_a"`。
+   - `boot_a` 分区总长 96 MiB（`0x06000000`），分区末尾 `0x05ffffc0` 处的 64 字节 `AVBf` 页脚指向 `vbmeta_offset = 0x022b9000`（34.72 MiB）、`vbmeta_size = 0x00000980`。
+   - 曾写入过超过 `34.72 MiB` 的镜像（如 51.3 MiB 旧镜像）覆盖了 `0x022b9000` 处的 `"AVB0"` 魔数，而后续刷入 23 MiB 的 `boot-a-ios.img` 仅覆盖 `[0, 0x01700000)`，保留了 `0x022b9000` 的非 AVB 数据与 `0x05ffffc0` 的 `AVBf` 页脚。
+   - `avb_vbmeta_image_verify`（`0x44744`）在 `0x022b9000` 未读到 `"AVB0"`，返回 `2`（`AVB_VBMETA_VERIFY_RESULT_INVALID_VBMETA_HEADER`）；在跳转表 `0x44758` 中，返回码 `4`（哈希不匹配）与 `5`（签名不匹配）在解锁状态下按 `allow_verification_error` 放行，而返回码 `2` 直接跳转 `0x44998` 打印 `"boot_a: Data does not look like a vbmeta image.\n"` 并无条件返回 `6`（`AVB_SLOT_VERIFY_RESULT_ERROR_INVALID_METADATA`）。
+   - `LoadImageAndAuthVB2`（`0x3af3c`）仅放行位掩码 `0x39`（返回码 `{0, 3, 4, 5}`），遇到返回码 `6` 立即跳转 `0x3aa3c` 调用 `HandleActiveSlotUnbootable(0)`（`0x1cd34`），在第 1 次尝试即将 `boot_a` 置为 `unbootable=1`（`attrs=0x00b2000000000000`，`retries=6`）并切回 B 槽启动 Android。
+   - 此外，`LoadImageAndAuthVB2`（`0x3be58`）在无 AVB 属性时检查 `boot.img` 头部偏移 `0x2c` 的 `os_version`，若为 `0` 则报 `"Boot image header OS version == 0 \n"` 拒绝启动；`reseal-loader-img.py` 必须向 `mkbootimg.py` 传入 `--os_version 15.0.0 --os_patch_level 2026-02`（写入 `0x1e0001a2`），且 `boot_a` 偏移 `0x022b9000` 与 `0x05ffffc0` 必须保持有效 `AVB0`／`AVBf` 配对。
+8. 在 `xnuloader` 下执行 `fastboot -s xnuloader oem stop` 后不能立即拼接 `fastboot -s xnuloader flash boot_a`。`oem stop` 仅置位 `stop_requested = 1`，XNU 内核需等待最多 1 秒的 1 Hz 定时器tick才能释放 `kernel_resources_held` 并返回 `loader_return`；未轮询确认 `fastboot -s xnuloader getvar result` 变为 `idle` 就下发 `flash boot_a`，loader 会因 `kernel resources held: reboot first` 拒写 `boot_a`，紧接着执行 `reboot` 会直接引导旧分区或当前活动槽位。
 
 ## 5. 三种复位的差别
 
