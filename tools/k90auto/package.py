@@ -376,6 +376,7 @@ DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
                    "tools/userland-driver/redwoodmetal_state.inc",
                    "tools/userland-driver/redwoodmetal_stitch.inc",
                    "tools/userland-driver/redwoodmetal_texture.inc",
+                   "tools/userland-driver/redwoodmetal_yuv.inc",
                    "tools/userland-driver/redwoodmetal_texture_layout.inc",
                    "tools/userland-driver/redwoodmetal_work.inc",
                    "tools/userland-driver/redwoodmetal_work_private.h"]

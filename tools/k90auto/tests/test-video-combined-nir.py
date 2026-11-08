@@ -35,7 +35,8 @@ link_args[link_args.index("-o") + 1] = str(output / "test")
 link_args += ["-fsanitize=address,undefined"]
 with (output / "link.log").open("w") as log:
     subprocess.run(link_args, cwd=build, stdout=log, stderr=subprocess.STDOUT, check=True)
-result = subprocess.run([str(output / "test"), str(args.bitcode.resolve())],
+result = subprocess.run([str(output / "test"), str(args.bitcode.resolve()),
+                         str(args.bitcode.resolve().with_name("combined_fragment.bc"))],
                         capture_output=True, text=True)
 (output / "run.log").write_text(result.stdout + result.stderr)
 print(result.stdout + result.stderr, end="")

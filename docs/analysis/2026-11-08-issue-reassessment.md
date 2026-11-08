@@ -73,7 +73,7 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 
 SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，下一步检查其 draw 输入、输出与远程 surface。A/B 结果与画面在本地忽略目录 `storage-boot-device-1108/phase5/`，C 结果在 `phase6/`，写回探针与候选在 `out/widget-render-1108/view-writeback/`。
 
-实际组件渲染发生在 backboardd。首批 `glass_background_sdf` 像素采样覆盖 Dock 区域，纹理槽位 3 的壁纸输入和输出均有正确颜色；该批没有覆盖顶部组件。下一轮按日历组件的 scissor 范围采集全部相关 draw，定位首次异常输出。
+实际组件渲染发生在 backboardd。首批 `glass_background_sdf` 像素采样覆盖 Dock 区域，纹理槽位 3 的壁纸输入和输出均有正确颜色；该批没有覆盖顶部组件。后续 scissor 过滤增加最小宽高，并在两轮已有 draw 上通过回放；本次热加载最终停在锁屏，未取得顶部组件缩略图。组件首次异常输出仍需采集。
 
 原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。该项进入完整系统回归，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
 
@@ -99,13 +99,17 @@ GLINK 的 `DONE_REUSE` 原来把远端公布的缓冲区容量改成固定 2048 
 
 当前常用镜像的 `AudioQueueStart` 返回 `-66681`（`kAudioQueueErr_CannotStart`）。直接写入 144000 帧 PCM 完成并记录两颗功放上电；现有日志没有逐包 PCM 完成计数，真实输出与听感尚未通过验收。原始结果在本地忽略目录 `storage-boot-device-1108/phase8/`。
 
-HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 timestamp seed，PCM 写失败或短写返回错误，Actuator 启停保留 Speaker 计数。完整生产接口表的九个主机测试场景通过，旧实现有六个场景失败，五项故障变体被识别；arm64e 插件编译和签名通过，候选尚未部署。
+HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 timestamp seed，PCM 写失败或短写返回错误，Actuator 启停保留 Speaker 计数。完整生产接口表的九个主机测试场景通过，旧实现有六个场景失败，五项故障变体被识别；arm64e 插件已上机，AudioQueue 错误仍为 `-66681`。新增探针显式请求原生 AVAudioSession playback category 和 activation，两项均成功；随后 AudioQueue 仍失败，HAL 未记录 playing。
+
+同一内核再次出现首次 `GET_SPF_STATE` 在 250 毫秒内无回复。`4d8d9b9a` 将该查询的期限改为上游控制请求使用的 5 秒，并记录成功回复耗时；XNU 编译、生产传输检查与打包通过，候选尚未上机。其他命令期限保持原值，偶发无回复的原因仍待定位。
 
 网络审查发现应用注入库强改路径可达性与 DNS 状态；内核的容器路径查询存在实现，原生设置接口却直接返回成功且不保存路径。本轮按系统库反汇编确认容器接口和生命周期，补上 setter、凭据引用与 exec 属性处理。打包器已移除固定应用 UUID、固定应用环境变量和 Weather/Maps 专用目录，保留通用容器父目录；应用数据目录由 MobileContainerManager 根据 bundle identifier 创建。Weather/Maps 的具体请求失败原因仍需取得实际错误记录。
 
 `net_test` 增加整次调用期限，超时返回 124；DNS、TCP、HTTP 与地址检查失败返回 1，HTTP 成功要求 2xx。完整生产源码的 9 项主机行为测试和 arm64e 严格编译通过，原生应用内容请求仍待验证。
 
-应用请求日志改为记录 host/path 摘要、HTTP 状态和错误 domain/code，保留原方法调用与 `errno`，限制输出长度。`REDWOOD_NET_TRACE=1` 可观察 23G90 两个任务完成入口，安装前检查实时方法签名；原生 Foundation 对象测试及六项故障变体检查通过，候选 arm64e 库已编译签名，实际完成日志尚未上机。
+应用请求日志改为记录 host/path 摘要、HTTP 状态和错误 domain/code，保留原方法调用与 `errno`，限制输出长度。`REDWOOD_NET_TRACE=1` 可观察 23G90 两个任务完成入口，安装前检查实时方法签名；原生 Foundation 对象测试及六项故障变体检查通过，诊断库已上机。`geod` 的完成日志包含 HTTP 200/304 与实际接收字节数，早期两条请求返回 `NSURLErrorDomain=-1009`；`nsurlsessiond` 也完成一次 HTTP 200 请求。Weather 的目标请求只记录 resume，采样期内未找到对应完成记录。
+
+本轮截图中 Weather 温度仍显示「--」，Maps 停在打开定位服务的提示框。提示框关闭后的瓦片加载尚未检查，现有成功请求的具体用途需继续关联；记录位于本地忽略目录 `storage-boot-device-1108/phase9/`。
 
 本轮持久启动的网络结果如下，原始日志保存在 `storage-boot-device-1108/phase2/` 本地忽略目录：
 
@@ -161,7 +165,9 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 NV12 修复前，Y、UV plane 在真机均导入失败。实际打包的 Metal 驱动原来拒绝多 plane IOSurface；内核仓库 `a445beb3` 改为读取各 plane 的尺寸、行距与偏移，供直接导入和非对齐复制共用，并在缓存键中区分 plane。宿主原生与真机像素检查均通过：Y plane 的 512 字节和 UV plane 的 256 字节逐项一致，命令状态为 completed。
 
-同一段 H.264 的 Safari 页面已返回媒体错误 3，首次记录只有一帧，网页播放尚未通过。实际 backboardd 日志显示 CoreAnimation 请求 Metal format 500，驱动仍按单 plane 格式校验而拒绝导入。原生 format 500 会按 surface 的视频范围与 YCbCrMatrix 把 Y/UV 转成 RGB；对应实现已提交。真机四组 compute 采样通过，fragment 输出偏绿且释放阶段发生 signal 11，继续修复该路径；Safari 本轮仍停在首帧前并返回媒体错误 3。
+同一段 H.264 的 Safari 页面已返回媒体错误 3，首次记录只有一帧，网页播放尚未通过。实际 backboardd 日志显示 CoreAnimation 请求 Metal format 500，驱动仍按单 plane 格式校验而拒绝导入。原生 format 500 会按 surface 的视频范围与 YCbCrMatrix 把 Y/UV 转成 RGB；对应实现已提交。真机四组 compute 采样通过，fragment 输出偏绿且释放阶段发生 signal 11；Safari 本轮仍停在首帧前并返回媒体错误 3。
+
+后续定位到 YUV 转换新增的 UV 槽位未进入 `textures_used`，IR3 因此少计片元纹理；另修正 Metal texture 未持有 device 的生命周期。`bc376ea`、`1bd05897` 已提交，生产 NIR 及释放方法检查通过，候选完整 boot 已构建；片元颜色、正常退出和 Safari 尚未在该候选复核。
 
 ### 3.6 天气签名与 UnfairPlay 参考范围
 
