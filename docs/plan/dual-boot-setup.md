@@ -23,6 +23,8 @@ Android 每次开机时，`fs_mgr` 会调用 `resize.f2fs` 将 `/data` 文件系
 
 操作前确认 `/data` 剩余可用空间充足（`adb -s "$ANDROID_SERIAL" shell df -h /data`），并已按[分区备份与恢复](../backup/README.md)备份重要分区与个人数据。
 
+下文的 `sda34`、`dm-55`、总块数和 LBA 都是测试机的值。在本机先用 `adb -s "$ANDROID_SERIAL" shell su -c "ls -l /dev/block/by-name/userdata"` 和 `adb -s "$ANDROID_SERIAL" shell su -c "grep ' /data ' /proc/mounts"` 查出 `userdata` 的分区节点与 `/data` 所在的 `dm` 节点，命令里的数值以这两条和 `userdata-dual-carve.py` 的输出为准。
+
 ```sh
 # 1. 编译并推送在线缩容工具，读取本机 LUN 0 总块数并导出主备 GPT 表与 f2fs 超级块
 bash hackios-xnu-kernel/tools/android/build.sh
@@ -65,7 +67,7 @@ adb -s "$ANDROID_SERIAL" shell "dd if=/data/local/tmp/appos.dmg of=/dev/block/sd
 
 ## 4. 刷入双启动 loader 与切换系统
 
-REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。独立双系统引导镜像 `boot-a-ios.img`（由 [README.md](../../README.md) §3 合并已链接 `ath12k.o` 的内核、含 `out/fw-wifi` 固件的 `root.apfs` 与 `loader-phone.efi` 生成）应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：
+REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。独立双系统引导镜像（[开发指南](../development.md) §8 的 `boot-a-ios.img`，或 Release 用户合成的 `boot-ios.img`，含已链接 `ath12k.o` 的内核、带 Wi-Fi 固件的 `root.apfs` 与 `loader-phone.efi`）应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：
 
 ```sh
 adb -s "$ANDROID_SERIAL" reboot bootloader
@@ -77,10 +79,10 @@ fastboot -s "$ANDROID_SERIAL" set_active a
 fastboot -s "$ANDROID_SERIAL" reboot
 ```
 
-`xnuloader` 启动时会读取 LUN 4 的 GPT 槽位优先级属性，自动识别自身所在的槽位（`loader_slot`）以及另一侧 Android 所在的槽位（`android_slot`），无需固定假设哪个槽位是 A 或 B。刷入后的启动与切换方式（详见[引导目标切换 SOP](device-boot-target-sop.md)）：
+`xnuloader` 启动时读取 `boot_a` 与 `boot_b` 开头的镜像头：header v1 且 kernel 段为 gzip 的是 loader 镜像，原厂 Android 的 boot 镜像是 header v4。只有一侧是 loader 镜像时，那一侧记为自身槽位（`loader_slot`），另一侧记为 Android 槽位（`android_slot`），不需要固定哪个槽位是 A 或 B。两侧都不是 loader 镜像（从 LK 用 `fastboot boot` 临时启动）或两侧都是时，loader 不改动任何槽位属性，菜单不显示槽位，「Boot Android」直接重启进入当前活动槽位，USB 刷写命令也会拒绝执行。刷入后的启动与切换方式（详见[引导目标切换 SOP](device-boot-target-sop.md)）：
 
-- **日常开机进 iOS 26**：按电源键开机，`xnuloader` 自动维护自身槽位的 `slot-retry-count`，显示启动菜单并倒计时 3 秒；倒计时结束后自动加载内核、挂载 `darwin` 与 `darwin_var` 进入 iOS 26 桌面。
-- **从开机菜单切回 Android 或调试模式**：在 3 秒倒计时内按音量上／下键移动光标，按电源键确认，可选「Boot iOS 26」、「Boot Android」（自动将活动槽位切换到另一侧的 `android_slot` 并重启）或「USB Fastboot Debug Mode」。
+- **日常开机进 iOS 26**：按电源键开机，`xnuloader` 自动维护自身槽位的 `slot-retry-count`，显示启动菜单并倒计时 5 秒；倒计时结束后自动加载内核、挂载 `darwin` 与 `darwin_var` 进入 iOS 26 桌面。
+- **从开机菜单切回 Android 或调试模式**：在 5 秒倒计时内按音量上／下键移动光标，按电源键确认，可选「Boot iOS 26」、「Boot Android」（自动将活动槽位切换到另一侧的 `android_slot` 并重启）或「USB Fastboot Debug Mode」。
 - **从 Android 切回 iOS 26**：在 Android 的 root 终端 App 或 `adb shell` 中将活动槽位切到 `xnuloader` 所在槽位（`0` 对应 `a` 槽，`1` 对应 `b` 槽）并重启，例如 `su -c 'bootctl set-active-boot-slot 0 && reboot'`；或在 FASTBOOT 模式下执行 `fastboot -s "$ANDROID_SERIAL" set_active <loader槽位> && fastboot -s "$ANDROID_SERIAL" reboot`。
 
 ## 5. Android 系统内更新（OTA）与槽位轮换

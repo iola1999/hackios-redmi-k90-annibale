@@ -1,6 +1,6 @@
 # annibale 真机调试手册
 
-本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见 [README §5](../../README.md#5-启动并使用-ios-26) 与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。本文已按 UFS 系统卷与 4 MiB 启动卷更新；该路径已通过真机切根与重启验证，验收边界见[根文件系统说明](../analysis/rootfs-strategy.md)。
+本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见[体验说明 §11](../user-guide.md#11-日常使用与切换)与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。本文已按 UFS 系统卷与 4 MiB 启动卷更新；该路径已通过真机切根与重启验证，验收边界见[根文件系统说明](../analysis/rootfs-strategy.md)。
 
 ## 1. 槽位假设与当前启动方式
 
