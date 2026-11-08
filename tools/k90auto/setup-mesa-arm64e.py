@@ -23,8 +23,9 @@ DEFAULT_DEST = KERNEL / "out/ios26-resume/mesa-arm64e"
 VENV = Path(os.environ.get("AIR_VENV", "/tmp/mesa-rebase/venv/bin"))
 BISON = Path(os.environ.get("AIR_BISON", "/opt/homebrew/opt/bison/bin")) / "bison"
 # The same -D list as mk-mesa.sh's meson setup; only the cross file differs. shader-cache stays
-# disabled: with ir3's disk cache on (patch 0015, /private/var/db/annibale-ir3cache), the second boot,
-# the first one that reads the cache, showed nothing but black after unlock
+# disabled: the libraries on the phone never had ir3's disk cache (patch 0015,
+# /private/var/db/annibale-ir3cache), and with it on the second boot, the first one that reads the
+# cache, was still all black about 1.5 minutes after unlock; whether the cache is why is not settled
 # (docs/analysis/2026-11-09-ir3-disk-cache.md).
 OPTIONS = ["--wrap-mode=nofallback", "--prefix=/annibale", "--libdir=lib", "--buildtype=release",
            "-Db_ndebug=true", "-Dplatforms=", "-Dgallium-drivers=softpipe,freedreno", "-Dfreedreno-kmds=msm",
