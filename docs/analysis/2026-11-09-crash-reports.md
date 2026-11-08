@@ -1,22 +1,37 @@
 # 用户态崩溃报告
 
-[架构审查](2026-11-08-architecture-review.md) §13 建议让 `ReportCrash` 的输出跨重启可取。本文记录 2026-11-09 的核对结果：`/private/var` 本身已经跨开机保留，但设备上目前没有生成崩溃报告。
+[架构审查](2026-11-08-architecture-review.md) §13 建议让 `ReportCrash` 的输出跨重启可取。本文记录 2026-11-09 的核对、根因与修复：写报告的 `osanalyticshelper` 原先因为 XPC activity 登记被去掉而反复崩溃，`userland/mkjobs.py` 保留这部分登记后，默认镜像登记它，崩溃报告写进系统目录并跨开机保留。
 
-## 1. 现状
+## 1. 修复前的现状
 
-- 开机后 nearbyd、cloudd 等进程反复以 SIGABRT、SIGTRAP 退出，`/private/var/mobile/Library/Logs/CrashReporter/` 下只有 `Assistant`、`DiagnosticLogs`、`com.apple.appstored` 三个目录，没有 `.ips` 文件。
 - `ReportCrash` 已按需登记（`tools/k90auto/package.py` 的 `ON_DEMAND_JOBS`），开机后以 root 运行。
-- 报告文件由 `osanalyticshelper` 代 `ReportCrash` 写出，它的任务在 `userland/mkjobs.py` 的 `DENY` 里（关键词 `osanalytics`），没有登记。
+- 报告文件由 `osanalyticshelper` 代 `ReportCrash` 写出。它的任务在 `userland/mkjobs.py` 的 `DENY` 里（关键词 `osanalytics`），默认镜像没有登记，nearbyd、cloudd 等进程以 SIGABRT、SIGTRAP 退出时不留报告。
+- iOS 26 的报告目录是 `/private/var/containers/Shared/SystemGroup/systemgroup.com.apple.osanalytics/DiagnosticReports/`。`/private/var/mobile/Library/Logs/CrashReporter/` 下只有 `Assistant`、`DiagnosticLogs`、`com.apple.appstored` 三个目录。
 
-## 2. 放行 `osanalyticshelper` 的实测
+## 2. 只放行 `osanalyticshelper` 的实测
 
 用 `REST_ALLOW=osanalytics` 打包，其余不变：
 
-- `osanalyticshelper` 被 `ReportCrash` 的请求拉起，日志依次是 `helper service invoked for '309' report creation on behalf of ReportCrash`、`helper service creating file`，随后以 SIGTRAP 退出。约 30 秒内退出 5 次，每次运行 0.3～10 秒，没有写出 `.ips` 文件。
-- 退出前还有一行 `DREIsRunningInDeviceRecoveryEnvironment: Failed to determine size of buffer to read OSEnvironment value(Invalid argument). Assuming running in normal mode`，按这行的字面意思，它在这一步按普通模式继续。
-- 用 `systrace=1 systrace_name=osanalyticshelpe` 记录这个进程失败的系统调用：只有特性开关 plist 不存在（ENOENT）和 `csops`／`csops_audittoken` 读 DER 权限时的缓冲区长度探测（ERANGE，缓冲区不够长时的常规返回；systrace 只记失败的调用，看不到之后的重读）。没有能解释这次退出的失败调用。
+- `DiagnosticReports/` 下写出 7 份 `.ips`，有 cloudd、nearbyd、MessagesBlastDoorService 和 `osanalyticshelper` 自己的报告，重启后仍在。另有 4 个以点开头的同格式文件名，按命名看是没有改成正式名字的临时文件。
+- `osanalyticshelper` 反复以 SIGTRAP 退出，约 30 秒内 5 次，每次运行 0.3～10 秒；没有报告请求时也会退出。4 个请求同时到达时，有一个建文件失败，返回 EEXIST。
+- 日志里的 `DREIsRunningInDeviceRecoveryEnvironment: Failed to determine size of buffer to read OSEnvironment value(Invalid argument). Assuming running in normal mode` 是读 `hw.osenvironment` 得到 EINVAL 后按普通模式继续。
+- 用 `systrace=1 systrace_name=osanalyticshelpe` 记录这个进程失败的系统调用：只有特性开关 plist 不存在（ENOENT）和 `csops`／`csops_audittoken` 读 DER 权限时的缓冲区长度探测（ERANGE），没有能解释退出的调用。
 
-## 3. 结论与下一步
+## 3. 退出位置与根因
 
-- `osanalytics` 继续留在 `DENY`，放行后它反复崩溃，也写不出报告。
-- 下一步要找到 SIGTRAP 的位置。SIGTRAP 一般来自用户态的断言或运行时检查，可以用 idalib 反编译 `osanalyticshelper` 与 OSAnalytics 框架里报告落盘的路径，找出「creating file」之后检查的条件，再确定它依赖内核或文件系统的哪一项回答。
+- 内核的 `usertrap` 行和它自己的崩溃报告给出同一个位置：去掉 shared cache slide 后是 libxpc `0x197fbbbd8` 的 `brk #1`，触发前的提示是「XPC API Misuse: Given object not of required type. Given: %s, required: %s.」。
+- 调用栈从上到下是 libxpc 的 `xpc_dictionary_get_int64`，OSASubmissionClient 的 `0x2676fbaf0`、`0x2676fbc94`、`0x2676fb11c`，再往下是 libxpc 与 libdispatch 的事件派发。
+- `0x2676fbaf0` 的前一条指令以 `XPC_ACTIVITY_DELAY` 为键调用 `xpc_dictionary_get_int64`，对象来自 XPC activity 上的一次取值调用。同一段代码按 activity 状态分支，在 CHECK_IN 状态下取出同一个对象，写入 `XPC_ACTIVITY_DELAY`、`XPC_ACTIVITY_INTERVAL`、`XPC_ACTIVITY_GRACE_PERIOD` 后设回 activity，日志文案是「Submission cadences were unchanged for activity %{public}@」。按调用形态判断，这个对象是 `xpc_activity_copy_criteria()` 的返回值，崩溃时它的类型不是字典。
+- `osanalyticshelper` 的 launchd plist 在 `LaunchEvents` 的 `com.apple.xpc.activity` 下登记了 `submissions.submit`、`state-monitor`、`daily.telemetry` 等 activity 及各自的 `Delay`、`Interval`、`GracePeriod`。`mkjobs.py --rest` 生成按需任务时去掉全部启动条件，`LaunchEvents` 也在其中，所以 activity 以 CHECK_IN 登记时没有 criteria。
+
+## 4. 修复与真机验证
+
+- `mkjobs.py --rest` 只保留 `LaunchEvents` 里的 `com.apple.xpc.activity`，其余启动条件照旧去掉；`DENY` 删去 `osanalytics`。镜像里带 activity 登记的按需任务有 103 个。
+- 先用 `REST_ALLOW=osanalytics` 加保留 activity 的镜像验证，再换成默认打包的镜像，两次开机都到可用桌面。`osanalyticshelper` 开机后一直是同一个进程，日志依次出现 S1～S6 并以 `final result 1` 结束，没有新的 `usertrap` 和 XPC API Misuse，也没有它自己的新报告。
+- 报告按进程计数，cloudd 和 nearbyd 各到 25 份后不再增加。OSAnalytics 里有「Report of type '%{public}@(%@)' not saved because the limit of %lu logs has been reached」和 `logLimit_309`，按这两处看是框架自带的条数上限。
+- 处理器占用：开机约 5～6 分钟后，90 秒内平均占用的处理器数，验证镜像为 0.17，默认打包的镜像为 0.14，期间新出现 anomalydetectiond、sosd、fitnesscoachingd 等进程；开机后 2～4 分钟的读数在 0.8～1.4 之间，主要是 iconservicesagent。没有在同一时间点量修复前的镜像。
+
+## 5. 遗留
+
+- nearbyd、cloudd、MessagesBlastDoorService、airplayd 开机后反复崩溃，报告已在 `DiagnosticReports/` 下，原因待查。
+- 4 个请求同时到达时出现过一次 EEXIST，修复后没有再观察。
