@@ -42,7 +42,8 @@ FILES = ["air_metal.c", "air_metal.h", "air_clear_plan.h", "air_metal_clear.inc"
          "air_metal_texture.inc", "air_metal_texels.inc", "air_metal_fence.inc", "air_metal_state.inc",
          "air_metal_dispatch.inc", "air_texture.inc", "air_llvm.inc", "air_argbuf.inc",
          "air_metal_depth_stencil.inc", "air_ptr_slot.inc", "air_ptr_phi.inc", "air_debug.inc",
-         "air_metal_vertex_cache.inc"]
+         "air_metal_vertex_cache.inc", "air_metal_yuv.h", "air_metal_yuv.inc",
+         "air_metal_formats.inc", "air_yuv_test.c"]
 
 # The toolchain: a venv with meson 1.12.1 and the ninja from homebrew, with bison ahead of the
 # system one because the frontend's parser needs it. The paths are part of the host image, not of
@@ -64,6 +65,17 @@ def strings(path):
 def main():
     check_only = "--check" in sys.argv
     record = {}
+    yuv_patch = WORKSPACE / "tools/mesa/rebase-26/0017-nir-yuv-explicit-lod.patch"
+    mesa_root = MESA.parents[2]
+    patch_args = ["patch", "--batch", "-p1", "-d", str(mesa_root), "-i", str(yuv_patch)]
+    applied = subprocess.run(patch_args + ["--dry-run", "-R"], capture_output=True).returncode == 0
+    if not applied:
+        if check_only:
+            print("out of sync: explicit-LOD YUV lowering patch")
+        else:
+            subprocess.run(patch_args + ["--forward"], check=True, capture_output=True)
+    record["yuv_patch_sha256"] = digest(yuv_patch)
+    record["nir_lower_tex_sha256"] = digest(mesa_root / "src/compiler/nir/nir_lower_tex.c")
     for name in FILES:
         src, tree = SRC / name, MESA / name
         assert src.is_file(), f"{src} is missing"

@@ -97,7 +97,7 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 当前生产 APFS 读取代码已编译为主机工具，从三个原始容器读取 12 个文件，与 macOS 完整提取结果的长度及 SHA-256 全部一致。检查覆盖 `launchd`、`locationd`、`fairplayd.H2`、日历通知资源、五个 CoreImage metallib，以及 OS/App Cryptex 中的文件。
 
-完整系统启动镜像为 22,450,176 字节，SHA-256 为 `cff5d9104672098d536ca10ebbf6a9a16986c96c749f006c3bad3df422339109`。解开 Android kernel 的 gzip 后，XNUP 直接包含内核、辅助盘和 4 MiB 启动卷；内核、loader、启动参数与 Metal/AIR 沿用第 6 节的已部署输入。首轮检查完整系统及对应启动任务，图形候选修复另行验证。
+首轮完整系统启动镜像为 22,450,176 字节，SHA-256 为 `cff5d9104672098d536ca10ebbf6a9a16986c96c749f006c3bad3df422339109`。解开 Android kernel 的 gzip 后，XNUP 直接包含内核、辅助盘和 4 MiB 启动卷；内核、loader、启动参数与 Metal/AIR 沿用第 6 节的已部署输入。首轮检查完整系统及对应启动任务，图形候选修复另行验证。
 
 `reseal-loader-img.py` 校验容器长度、条目边界、padding 和结束记录，并拒绝 loader 无法解开的 `payload.lz4` 条目。7 项测试通过；BootShim、UEFI、DTB、Android ramdisk 及其余 header 字段保持原值。完整 boot 已通过 LK 临时启动，随后写入 `boot_a` 并重启；物理分区前 22,450,176 字节的完整读回 SHA-256 与上述镜像一致。
 
@@ -122,4 +122,9 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 - 11:08:30～31（CST）采样空闲页 408088，约 6.23 GiB；wired 页 91626，约 1.40 GiB。该读数随运行负载变化。
 - 桌面能够启动，早期透明的应用图标在原生应用和控制中心交互后恢复；Weather/Calendar 大组件仍为黑底，天气和地图内容请求仍待修复。
 
-部署内核为 `990b6fcc`、loader 为 `b935d2e5`。图形候选及后续数据同步错误处理修复尚未包含在该启动镜像中，按独立变量继续验证。
+当前 `boot_a` 已更新为集成内核与已验证的 Metal/AIR 修复，loader 继续使用 `b935d2e5`。正常重启及物理读回结果保存在 `storage-boot-device-1108/phase8/`：
+
+- boot 为 22,448,128 字节，SHA-256 `fa40724114ce1c91300d2a31cbb75dd2dcfa800b26627cd26392b602c845f887`，全范围物理读回一致。
+- 内核包含 `01cf6f5b` 及此前的数据同步错误处理、IOSurface selector 54、GLINK intent 修复；内核 SHA-256 `7d45fe5c732f74fb1b73d035e999aa33d426b83827b3a5a87270eb23145dfc88`。
+- 系统卷按需读取，启动卷为 4 MiB、辅助盘为 18,137,088 字节；正常重启后的 110 字节测试文件摘要一致。
+- 运行测试后的空闲页为 395382，约 6.03 GiB；wired 页为 97456，约 1.49 GiB。该采样对应 16 KiB 页，随运行负载变化。

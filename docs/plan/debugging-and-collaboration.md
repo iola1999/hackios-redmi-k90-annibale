@@ -81,7 +81,7 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 ### 缓冲和镜像都有生命周期
 
 - `oem log`、`oem screenshot` 准备数据，`get_staged` 读最近一次准备的内容，要成对、串行执行。内核正常返回后先取 `result` 再读已合并日志，额外调 `oem log` 会重新生成内容。
-- 启动卷 `flashboot.apfs` 作为 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 作为 `md1` 挂到 `/redwood`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径尚未进行真机验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
+- 启动卷 `flashboot.apfs` 作为 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 作为 `md1` 挂到 `/redwood`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径已通过真机临时启动、写入 `boot_a` 和正常重启验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
 - 主机超时后设备端 USB DMA 请求可能还没结束，只有匹配的终止通知才能解除缓冲归属，见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。
 - 电源票值先分清是本方请求、聚合状态还是实际供给（ARC 读数只描述 DRV2 的请求）；读完只清理本轮新增的控制位。
 
