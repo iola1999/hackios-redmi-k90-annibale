@@ -74,10 +74,10 @@ def picture(texels, scale):
 
 
 def tile_of(rows):
-    """The sheet's tile: SIZE x SIZE, every n-th texel of a larger sample."""
+    """按最近邻把实际采样尺寸转换为固定大小的图块。"""
     texels = texels_of(rows)
-    step = max(1, texels.shape[0] // SIZE)
-    return picture(texels[::step, ::step][:SIZE, :SIZE], SCALE)
+    indices = np.arange(SIZE) * texels.shape[0] // SIZE
+    return picture(texels[indices[:, None], indices[None, :]], SCALE)
 
 
 def main():

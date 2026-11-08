@@ -68,9 +68,10 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 后续发现 texture view 的写入未更新原纹理的 buffer 写回记录。修复让各级 view 直接引用原纹理，共用已有写回记录并保留其生命周期；写入标记无需遍历全局纹理。
 
 - 五组生产函数 ASan/UBSan 检查通过，覆盖原纹理、buffer 提前释放和多级 view；四项故障变体被识别。
-- 宿主原生 Metal 的 buffer 与非对齐行距 IOSurface 各检查 136 像素，差异均为 0；候选等待真机对照。
+- 真机 B 的 buffer 写回检查有 136 个像素错误，GPU 模式的非对齐行距 IOSurface 也有 136 个错误；C 轮仅更新 AIR 后，软件与 GPU 模式各项错误均降为 0。
+- C 轮软件视频解码的 12 帧摘要仍与 ffmpeg 一致；Home→控制中心→Home 往返后，两个大组件仍为黑底。
 
-SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，纹理写回缺陷与黑底的关联尚未确认。A/B 结果与画面保存在本地忽略目录 `storage-boot-device-1108/phase5/`，写回探针与候选在 `out/widget-render-1108/view-writeback/`。
+SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，下一步检查其 draw 输入、输出与远程 surface。A/B 结果与画面在本地忽略目录 `storage-boot-device-1108/phase5/`，C 结果在 `phase6/`，写回探针与候选在 `out/widget-render-1108/view-writeback/`。
 
 原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。该项进入完整系统回归，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
 
@@ -90,7 +91,9 @@ GLINK 的 `DONE_REUSE` 原来把远端公布的缓冲区容量改成固定 2048 
 
 18 个主机场景通过，旧实现失败 7 个；删除 PMIC 发送失败后的归还操作会使重试测试失败。XNU 编译和链接成功，日志补充实际应答是否收到、opcode 和状态字段。
 
-另以 `990b6fcc` 重建得到与真机 B 完全相同的内核，再只加入本组三个音频源文件，完成单变量候选打包。Speaker OPEN、图启动与播放完成仍待真机复核。
+另以 `990b6fcc` 重建得到与真机 B 完全相同的内核，再只加入本组三个音频源文件。真机状态查询和内存映射成功，扬声器 OPEN 因缺少可用 intent 失败：固件公布 116 项，驱动固定数组只保存前 16 项；这些项容量均为 128 字节，无法发送 296 字节的 OPEN 请求。
+
+修复改为按公告分配记录，保留容量和传输归属，收到 `RX_DONE` 后释放。19 项生产函数 ASan/UBSan 检查通过，包括真实的 116 项公告顺序、不同长度请求和分配失败恢复；旧实现无法取得 296 字节请求所需的记录。新候选已完成 XNU 编译与完整 boot 打包，Speaker OPEN、图启动和真实播放完成仍待真机复核。
 
 HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 timestamp seed，PCM 写失败或短写返回错误，Actuator 启停保留 Speaker 计数。完整生产接口表的九个主机测试场景通过，旧实现有六个场景失败，五项故障变体被识别；arm64e 插件编译和签名通过，候选尚未部署。
 
@@ -112,9 +115,11 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 23G90 `fairplayd.H2` 导入 `IOConnectCallStructMethod`、`IORegistryEntryFromPath` 和 `IORegistryEntryCreateCFProperty`。可选诊断库记录 selector、长度、返回值、属性类型及主程序内的调用偏移；只观察程序自身的调用，保留参数、CF 所有权、iterator 状态、`errno` 和 `dlerror()`。认证内容、属性值、路径文本和启动参数内容均不输出。
 
-生产函数的普通及 ASan/UBSan 检查通过，19 项故障变体被识别，arm64e 严格编译及签名校验通过。首次设备检查确认诊断库文件哈希正确，但没有加载记录。
+生产函数的普通及 ASan/UBSan 检查通过，19 项故障变体被识别，arm64e 严格编译及签名校验通过。项目 launchd 会过滤任务中的 `DYLD_*` 环境变量，诊断注入通过 `/etc/inject.conf` 和 `kern.exec_inject` 配置。
 
-项目的 launchd 会过滤任务中的 `DYLD_*` 环境变量，诊断注入应通过 `/etc/inject.conf` 和 `kern.exec_inject` 配置。修正后的 helper 仅修改该配置和诊断库，其他文件与任务缓存保持原值；实际服务名称、Open type、selector 和启动退出条件仍待确认。
+真机六次加载均记录 `IOServiceMatching("com_apple_driver_FairPlayIOKit")` 后取得空 iterator，`IOIteratorNext` 返回 0，随后正常退出；尚未调用 `IOServiceOpen` 或读取产品属性。23G90 反汇编确认该失败分支直接退出，当前内核缺少对应服务。
+
+原版驱动的 userclient 初始化只分配 24 字节状态，selector 22/23 返回查询值；selector 21/26 的输出由原算法计算。驱动存在 `IOAESAccelerator` 调用及 UID/GID 相关操作，首次开机请求是否进入这些分支仍待确认。服务注册、消息接口和实际算法尚未实现，静态地址与接口记录在本地忽略目录 `out/fairplay-probe/static/`。
 
 按进程复核同一轮日志，Weather 和 WeatherWidget 均查找 `com.apple.fairplayd` 及 `com.apple.fairplayd.versioned`，返回服务不存在；Maps 与地图组件已确认的失败涉及 `locationd`、`kvsd`。Weather 的 JWT 签名调用见第 3.6 节，Maps 的 FairPlay 依赖尚未确认。
 
@@ -136,7 +141,9 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 - 软件模式退出 0，耗时 684 毫秒；12 次提交均接受并输出 12 帧，回调、丢帧与像素检查错误均为 0，276480 字节有效 NV12 数据的逐帧摘要与 ffmpeg 一致。
 - 强制硬件模式退出 1，耗时 524 毫秒；会话创建返回 `-12906`，没有提交样本或输出帧。
-- 软件路径记录 `kIOSurfaceMethodSetCoreVideoBridgedKeys failed: e00002c7`。23G90 对应 selector 54，清理 bridged values 使用 trap 8，当前驱动均未实现；还需确认完整属性契约及对呈现的影响。
+- 软件路径记录 `kIOSurfaceMethodSetCoreVideoBridgedKeys failed: e00002c7`。23G90 对应 selector 54，清理 bridged values 使用 trap 8；该轮内核均未实现。
+
+内核 `4fa0d162` 已实现 selector 54 和 trap 8/9，按 userclient 保存注册键，清理 values 与 bulk 属性并返回实际 seed。宿主原生实验核对了连接隔离、替换、空数组、删除后的 seed、无效地址和 bulk 清理；生产函数 ASan/UBSan、三项消融与 XNU 构建通过，设备复核待执行。
 
 该项验证覆盖内存中的软件解码输出，网页播放、GPU 合成与实际硬件解码仍未通过。
 
@@ -144,7 +151,11 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 - 九项主机测试通过，正常样本取得 12 帧，逐时间戳摘要与 ffmpeg 一致。
 - 损坏媒体数据可能正常结束却输出零帧，探针据此返回失败。
-- arm64e 编译与签名通过，设备播放尚待验证；探针不负责屏幕呈现。
+- 真机 1626 毫秒完成播放，ready、playing、时钟前进和结束通知均通过；输出 12 帧、276480 字节，逐时间戳摘要与 ffmpeg 一致。该探针检查视频输出，屏幕呈现继续单独验证。
+
+原生 NV12 的 Y、UV plane 在真机均导入失败。实际打包的 Metal 驱动原来拒绝多 plane IOSurface；内核仓库 `a445beb3` 改为读取各 plane 的尺寸、行距与偏移，供直接导入和非对齐复制共用，并在缓存键中区分 plane。宿主原生像素检查通过，设备候选已打包。
+
+同一段 H.264 的 Safari 页面已返回媒体错误 3，首次记录只有一帧，网页播放尚未通过。原生 Metal format 500 的采样会按 surface 的视频范围与 YCbCrMatrix 转成 RGB；后续实现还需覆盖这项组合采样契约。
 
 ### 3.6 天气签名与 UnfairPlay 参考范围
 
