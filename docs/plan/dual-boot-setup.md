@@ -65,6 +65,14 @@ adb -s "$ANDROID_SERIAL" push "$IPSW_DIR/appos.dmg" /data/local/tmp/appos.dmg
 adb -s "$ANDROID_SERIAL" shell "dd if=/data/local/tmp/appos.dmg of=/dev/block/sda bs=4096 seek=$((32584704 + 3666944)) conv=notrunc,fsync && rm -f /data/local/tmp/appos.dmg"
 ```
 
+`darwin_var` 的持久化格式（`ANNFS001` 超级块或节点记录）变化后，内核不读取旧数据：两个元数据槽位都不是有效超级块且不全为零时，`/private/var` 挂载失败，开机停在 launchd 之前。这时在 LK 下把 `darwin_var` 前 64 MiB（两个 32 MiB 元数据槽位）写零，下次开机重建空的 `/private/var`，已安装的应用、Wi-Fi 网络和设置随之清空，需要保留的先备份：
+
+```sh
+head -c 67108864 /dev/zero > zero64m.img
+fastboot -s "$ANDROID_SERIAL" flash darwin_var zero64m.img
+fastboot -s "$ANDROID_SERIAL" reboot
+```
+
 ## 4. 刷入双启动 loader 与切换系统
 
 REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。独立双系统引导镜像（[开发指南](../development.md) §8 的 `boot-a-ios.img`，或 Release 用户合成的 `boot-ios.img`，含已链接 `ath12k.o` 的内核、带 Wi-Fi 固件的 `root.apfs` 与 `loader-phone.efi`）应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：
