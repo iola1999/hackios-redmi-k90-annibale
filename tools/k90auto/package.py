@@ -150,15 +150,16 @@ AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weathe
 # and without a device the wallpaper window hosts its context empty. It is an ExtensionKit service
 # with no launchd job, so the inserted library is the whole switch (sb_metal_registration_sequence.inc).
 POSTER_METAL = os.environ.get("POSTER_METAL", "1") == "1"
-# libannibale.dylib goes into backboardd for its run loop probe (tl: b). /dev/annibale-touch has one
-# reader, input26-service, which is what userland/build.sh checks its own inject.conf for; the
-# library's touch thread stays off where that job exists (userland/src/inject.c). Before that, from
-# 2026-10-29 every round had two touch screens in backboardd and some swipes lost their lift.
+# TOUCH_LAT=1 inserts libannibale.dylib (userland/src/inject/inject.c) into backboardd for its run loop
+# probe, which also needs the boot-arg touch_lat=1. Its window server and brightness hooks check iOS 16.5
+# (20F66) addresses and find other code there on 23G90, so on iOS 26 they install nothing; its touch
+# thread stays off where the input26-service job exists, the one reader /dev/annibale-touch has.
+TOUCH_LAT = os.environ.get("TOUCH_LAT") == "1"
 INJECT = (
     "/annibale/lib/libannibale-sbmetal-experiment.dylib SpringBoard backboardd" +
     (" iconservicesagent" if os.environ.get("ICON_METAL", "1") == "1" else "") +
-    (" MercuryPosterExtension" if POSTER_METAL else "") + "\n"
-    "/annibale/lib/libannibale.dylib backboardd\n"
+    (" MercuryPosterExtension" if POSTER_METAL else "") + "\n" +
+    ("/annibale/lib/libannibale.dylib backboardd\n" if TOUCH_LAT else "") +
     "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences lsd wifid\n"
     "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd\n"
     "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +

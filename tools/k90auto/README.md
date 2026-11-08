@@ -148,7 +148,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 - `install-ipa.py 轮次目录 App.ipa [--open]`：经 USB 把 IPA 分块（每块不超过 15 MB）推进内核的 16 MB 收件区，rwsh 的 `pull 路径 偏移` 写到 `/private/var/tmp/ipa/`，等 `appinst list` 出现该应用。需要带 `serve_pushes` 的 `run-auto.py` 和支持偏移的 rwsh。
 - `ui.py 轮次目录 dump|tap 文字|wait 文字|shot 名称|accessibility`：读各进程 `libannibale-ax.dylib` 写的界面元素（文字和屏幕坐标），按文字点按，代替手写坐标。UIKit 的按钮、提示框和主屏图标能读到；SwiftUI 页面（设置的列表、天气）目前读不到。
 
-其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`VARSTORE_SHOW`、`XPCWATCH`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。
+其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`VARSTORE_SHOW`、`XPCWATCH`、`TOUCH_LAT`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。
 
 `JOB_ENV="任务.plist:变量=值 ..."` 给指定任务的 plist 和 launchd 缓存各加一个环境变量，一项一个变量。常用的几个：
 

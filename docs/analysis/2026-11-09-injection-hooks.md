@@ -7,7 +7,7 @@
 | 库 | 注入的进程 | 源码 |
 |---|---|---|
 | `libannibale-sbmetal-experiment.dylib` | SpringBoard、backboardd、iconservicesagent、MercuryPosterExtension | `sb_metal_experiment.m` 与 `sb_metal_*.inc` |
-| `libannibale.dylib` | backboardd | `inject.c` |
+| `libannibale.dylib` | backboardd，仅在 `TOUCH_LAT=1` 打包时 | `inject.c` |
 | `libannibale-sb26.dylib` | SpringBoard、PosterBoard、MercuryPosterExtension、Preferences、lsd、wifid | `inject_sb26*.c`、`inject_sb26_*.inc` |
 | `libannibale-media.dylib` | cameracaptured、mediaserverd | `inject_media.c`，相机实现在 `userland/src/services/camera_device.c` |
 | `libannibale-app.dylib` | 计算器、备忘录、提醒事项、日历、设置、信息、天气、地图、Safari 与 WebKit 进程等 | `inject_app.c`、`inject_app_network.inc` |
@@ -18,9 +18,7 @@
 | 库 | 替换对象 | 源码中的用途说明 | 归类 |
 |---|---|---|---|
 | sbmetal-experiment | Metal 设备注册（`sb_metal_registration_sequence.inc` 等） | 让进程拿到本项目 Metal 驱动的设备 | 供应商类替换 |
-| libannibale | `-[CAWindowServer _detectDisplays]` | 建立窗口服务器的显示设备 | 待评估：显示设备应由内核 `MiniIOMobileFramebuffer` 提供 |
-| libannibale | `-[BLControl waitForALSArrival]` | 不等待环境光传感器，改为等待触摸服务 | 待评估：`input26_service` 已注册环境光 HID 服务，需要复核等待是否仍然发生 |
-| libannibale | `touch_lat=1` 时的主线程观察者 | 测量触摸到上屏的延迟 | 诊断 |
+| libannibale | `touch_lat=1` 时的主线程观察者 | 测量触摸到上屏的延迟，需要 `TOUCH_LAT=1` 打包 | 诊断 |
 | sb26 | `-[SBLockScreenManager unlockUIFromSource:withOptions:]` 与 `com.annibale.unlock` 通知 | 主机自动解锁 | 测试辅助 |
 | sb26 | `CHHapticEngine` 的能力查询与启停 | 报告无震动能力，启停直接返回 | 待评估：审查 §10.1 建议改为 HAL Actuator |
 | sb26 | `SBPowerDownViewController`、`SBRestartManager`、`FBSystemService` 的关机方法 | 关机改走本项目的关机路径 | 待评估：关机应由内核 reboot 路径对齐 |
@@ -41,5 +39,6 @@
 ## 3. 结论
 
 - 审查 §3.2 建议诊断与测试类注入不进 `boot_a` 镜像。按上表，`libannibale-ax.dylib` 属于测试辅助，却随默认镜像注入 9 个进程；其中的状态栏布局是用户可见行为，需要先拆出来再决定去留。
+- `inject.c` 的窗口服务器与亮度钩子按 iOS 16.5（20F66）的地址校验，23G90 上这些地址落在 GeoServices 里，校验不通过，钩子不安装。默认镜像因此不再把 `libannibale.dylib` 注入 backboardd，真机开机到桌面、触摸翻页正常。
 - `inject.c` 原有的 `+[MCMUserIdentityCache personasAreSupported]` 钩子只在 containermanagerd 里安装，iOS 26 镜像不把库注入这个进程，开机也已补齐 persona，本轮已删除。
 - 待评估项按审查 §19 的优先级排期，每项改到对应层之后从本表删去。
