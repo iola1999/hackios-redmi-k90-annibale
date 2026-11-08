@@ -122,7 +122,7 @@ python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
 
 Release 只放本项目的文件。根盘里来自 IPSW 的文件（launchd 任务与缓存、`/private/var` 模板和少量原样复制的系统文件）和手机厂商固件不进 Release，改为记录生成方法，由用户在本地用 `tools/release/assemble.py` 从自己的 IPSW 和手机重新生成。
 
-1. 三个仓库的改动都已提交并推送。在不含个人用户名的目录里重新克隆，例如 `/Users/Shared/hackios-release`：内核会把源文件的绝对路径编进二进制，`build-release.py` 发现产物里有本机用户目录时拒绝出包。
+1. 三个仓库的改动都已提交并推送，然后在本机重新克隆一份，目录不限。`xnu26/build-macos.sh` 与 `tools/mk-ath12k.sh` 用 `-ffile-prefix-map` 把内核里 `__FILE__` 的路径改成相对源码目录的路径，产物里不再有本机目录；`build-release.py` 仍会检查，发现本机用户目录时拒绝出包。已有构建树里旧的目标文件不会因为参数变化自动重编，所以要用新克隆。
 2. 在这份克隆里按第 2～8 节构建全部产物，再执行 `bash hackios-xnu-kernel/tools/android/build.sh` 编译安卓端分区工具。
 3. 在工作区根目录执行：
 
