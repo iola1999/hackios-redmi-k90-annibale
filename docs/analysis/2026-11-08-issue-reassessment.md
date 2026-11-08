@@ -15,7 +15,7 @@
 | 范围 | 用户反馈或要求 | 当前可确认的状态 | 验收条件 |
 |---|---|---|---|
 | 系统卷与内存 | 整个系统镜像占用约 5 GiB 内存不可接受 | 新版已刷入 `boot_a` 并重启完成 UFS 切根，启动卷常驻 4 MiB，内存采样见[根文件系统](rootfs-strategy.md) | 当前启动路径已通过；后续构建继续核对产物身份与常驻长度 |
-| 完整系统文件 | 使用完整系统卷 | 原版三容器共约 14.002 GiB，完整提取、配套用户态构建和候选启动镜像均通过；当前系统与数据备份已核验，分区迁移等待确认 | 原版容器逐字节校验，完整系统服务文件可读取，启动与原生应用请求复核 |
+| 完整系统文件 | 使用完整系统卷 | 系统分区已扩至 16 GiB；原版三容器共约 14.002 GiB，写入、全范围读回及主备 GPT 校验通过，首次启动待验收 | 原版容器逐字节校验，完整系统服务文件可读取，启动与原生应用请求复核 |
 | 数据持久化 | 文件直接落盘；输入法、Wi-Fi、语言和桌面位置跨重启保留 | 当前日志确认恢复 UFS 数据盘；挂载失败和检查点恢复已修正 | 写入与同步后正常重启读回文件及设置；单独检查异常复位恢复 |
 | 开机交互 | 图标约一分钟才出现，期间不能点击；卡在苹果 Logo | 曾出现多种回归，最后反馈未逐项复核 | 记录首帧、图标完整与首次响应时刻，检查关键进程启动、退出和主线程等待 |
 | 大组件与图形 | 天气、日历大组件黑底，滑动或控制中心切换后黑白变化；壁纸和玻璃效果曾消失 | 本轮新镜像仍复现两个组件黑底；图标、壁纸、Dock 与控制中心玻璃可见 | 对组件、锁屏、桌面与控制中心执行相同操作并连续截图；核对 GPU 完成与颜色附件，人工检查画面可读性 |
@@ -44,6 +44,10 @@
 
 旧 `oem recovery` 在内核仍运行或资源未释放时清除占用标志，并回报 idle；启动失败返回也调用相同代码。修复后该命令只在资源可用时取消启动菜单，故障返回保留结果与资源状态。生产函数测试覆盖 16 组占用状态，主机脚本接受 `idle` 和 `idle 0 0`，拒绝带非零字段或多余字段的 idle 回答。
 
+数据卷卸载原来忽略最后一次元数据同步错误，仍释放缓冲区和挂载引用。修复沿原调用路径返回错误，保留重试所需资源；卸载先在锁内摘除回调，再解锁并等待，使用原生 `THREAD_CALL_OPTIONS_ONCE` 处理运行中再次排队的情况。映射页的 `ubc_msync()` 错误也传回 `setattr`、`read`、`write`、`fsync` 和 full/barrier sync。
+
+生产函数的 ASan/UBSan 测试、真实线程的 ThreadSanitizer 检查及 11 项消融通过，XNU 增量编译和链接成功。候选内核尚未上机；普通 stop 到 loader 的进程停止、卸载和 UFS 排空顺序仍在审查。
+
 ### 3.2 清屏与附件
 
 Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurface、尺寸或附件数改写不透明黑色的 Alpha。AIR 又将清屏与 draw 绑定，没有 draw 的 pass 和零顶点 draw 可能丢失清屏。修复逐附件传递颜色，并通过既有工作队列执行独立清屏。
@@ -58,6 +62,8 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 扩展后的运行测试在宿主原生 Metal 的默认、越界 viewport、IOSurface 及组合场景中通过。真机旧版本已复现上述两处差异，候选 AIR 和 Metal 库完成 arm64e 构建与签名，等待分别复核。SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，黑底原因仍需结合实际组件输出确认。
 
 原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。该项进入完整系统回归，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
+
+完整原版卷首次启动新增了图形差异：应用图标和两个组件内容透明，文字、壁纸、时钟指针与 Dock 可见。该轮保持原 Metal/AIR 输入，尚未使用两项候选修复；继续分别检查原始 APFS 资源读取、图形输出和主线程响应，当前画面不满足桌面验收条件。
 
 ### 3.3 音频与网络
 
@@ -75,11 +81,13 @@ ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也
 - GeoServices 裸配置 URL 返回 HTTP 400，WeatherKit 基址返回 HTTP 200；这些请求确认传输已完成，尚未覆盖地图瓦片或天气鉴权内容。
 - 原生 Weather 显示温度「--」，Maps 地图区空白。Weather/weatherd 查找 `fairplayd`、`locationd` 相关 Mach 服务失败，Weather/Maps 还记录 `kvsd` 查找失败；下一步核对实际 job cache、系统文件和服务启动结果。
 
-设备与旧主机输入均确认缺少 `/usr/libexec/locationd` 和 `/usr/sbin/fairplayd.H2`，helper 的 job cache 因实际文件缺失而未登记这些服务。完整提取后两文件已恢复，候选 helper 已登记匹配的启动任务；`syncdefaultsd` 仍受现有任务排除规则限制。后续按[完整原版部署](rootfs-strategy.md#7-完整原版系统卷部署)检查真实服务启动和原生请求。
+设备与旧主机输入均确认缺少 `/usr/libexec/locationd` 和 `/usr/sbin/fairplayd.H2`，helper 的 job cache 因实际文件缺失而未登记这些服务。完整原版系统启动后，两文件均可读取，`locationd` 和 `geod` 已运行；`fairplayd.H2` 可被实际启动，但随后以 `exit(0)` 退出，launchd 延后重试。`syncdefaultsd` 仍受现有任务排除规则限制，服务与内容请求继续按[完整原版部署](rootfs-strategy.md#7-完整原版系统卷部署)验收。
 
 `syncdefaultsd` 的排除依据来自 iOS 16.5 的 nil 路径异常。23G90 的 `changeTokenURLForStoreConfiguration:xpcConnection:error:` 先通过 `sandbox_container_path_for_audit_token` 查询客户端容器，失败后查询 MobileContainerManager 的 `com.apple.kvs` 容器，并处理空结果；需要在当前系统验证实际返回值。隔离候选保留原始服务 plist 的 mobile 身份与两个 Mach service，只比完整系统基线增加该项任务，缓存从 553 项变为 554 项；现有打包器的两个过滤层需同时处理，候选尚未部署。
 
-23G90 `fairplayd.H2` 导入 `IOConnectCallStructMethod`，现有探针只拦截 `IOConnectCallMethod`。后续需直接记录结构调用的 selector、长度和返回值，以及程序自身的 matching、Open 和 iterator 调用；记录范围限于接口信息。当前尚未解析实际服务名称、Open type 和 selector，旧版正常退出的记录不能确定本版的退出原因。
+23G90 `fairplayd.H2` 导入 `IOConnectCallStructMethod`，诊断库已补上该入口，记录 selector、长度和返回值。iterator 探针只记录程序自身的调用，删除额外枚举与 reset；日志保留 `errno` 和 `dlerror()` 状态，认证内容、属性值、文件路径和启动参数内容均不输出。生产函数检查通过，六项故障变体被识别，arm64e 严格编译及签名校验通过；诊断库尚未部署，实际服务名称、Open type 和 selector 仍待确认。
+
+按进程复核同一轮日志，Weather 和 WeatherWidget 均查找 `com.apple.fairplayd` 及 `com.apple.fairplayd.versioned`，返回服务不存在；Maps 与地图组件已确认的失败涉及 `locationd`、`kvsd`。Weather 的 JWT 签名调用见第 3.6 节，Maps 的 FairPlay 依赖尚未确认。
 
 ### 3.4 时间来源
 
@@ -92,6 +100,16 @@ ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也
 本轮内核 Iris OPEN、DECODE、CLOSE ioctl 均返回 `EOPNOTSUPP`，用户态创建 decoder 返回 `kVTVideoDecoderMalfunctionErr` 并清空实例；未完成的 HFI 会话不会进入打包路径。后续 `352e8a32` 同时使设备 open 返回 `EOPNOTSUPP`，删除错误的上电、PAS、队列和 IRQ 路径，避免打开设备就写入固件区；整份驱动测试、5 个错误变体和完整 XNU 构建通过，该内核尚未刷入本轮设备。真实 HFI gen2 INIT、OPEN、BUFFER、完成队列、VideoToolbox 私有 ABI 和硬件帧输出仍需独立实现与真机验收。
 
 同笔提交修正 DSC v5 认证指针的 34 位偏移解析，并让虚表入口传入指针所在映射地址。8 项布局与入口测试、3 个实际指针反汇编检查通过，后续原生 ABI 分析使用该工具版本。
+
+### 3.6 天气签名与 UnfairPlay 参考范围
+
+23G90 的 `WDSJWTAuthenticatorService.generateToken(for:endpoint:)` 构造含 `bundleId` 的 JSON。`WDSJWTMescalSigner.sign(data:bundleIdentifier:)` 对其计算 SHA-1，经 `AMSMescal` 调用 `AMSMescalFairplaySession` 签名。结果经过 Base64 编码，写入 `X-Apple-ActionSignature`，随 `POST …/token` 请求申请 JWT。
+
+原生工厂也有按配置选择 HMAC 的分支。当前运行请求选择了哪个分支、FairPlay IPC 方法及 IOKit selector、签名和服务端响应是否成功，仍需真机检查。GeoServices、MapKit 的直接依赖、本镜像字符串和符号未发现 FairPlay/Mescal 调用标识；该检查未覆盖 Maps 全部间接组件。
+
+函数入口与请求构造地址分别为 `0x1b85627cc`、`0x1b857b70c`、`0x1b8563634`，`AMSMescalSession` 创建 FairPlay session 的 initializer 为 `0x193398b10`。定向反汇编、六框架审计脚本与结果在本地忽略目录 `out/apple-services-audit-1108/weather-fairplay/`。
+
+[UnfairPlay](https://github.com/DrWhax/unfairplay/tree/c1753f4076fceccbf3e97625ea88c0609869e978) 此次审查版本为 `c1753f4`。它从已登记 Mac 的 FairPlay 状态恢复模型，用于同一登记关系下的个性化 IPA、SINF/SUPF 与 Mach-O 加密页处理。其格式解析、输入校验和失败测试可供后续应用安装研究参考；当前代码未提供 Mescal 请求签名、天气 JWT、地图请求或 `fairplayd` 的 IPC/IOKit 实现。本次只读源码，未运行账户状态采集或解密操作。
 
 ## 4. 验证边界
 
