@@ -354,7 +354,7 @@ def deaths(lines):
         print("nothing recorded: this round says no host died, not that the path was not taken")
 
 
-DEATH = re.compile(r"redwood: proc (\S+) pid (\d+) died on signal (-?\d+) code (-?\d+)")
+DEATH = re.compile(r"annibale: proc (\S+) pid (\d+) died on signal (-?\d+) code (-?\d+)")
 
 
 def death_classes(lines):

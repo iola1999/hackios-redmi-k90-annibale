@@ -18,10 +18,10 @@
 ## 2. 触摸：传输与报告模式
 
 - 芯片：Goodix，固件报 `BERLIN`／`9916K`，坐标范围 `1156 × 2510`。报告地址 `0x10308`，头长 8，每个触点 8 字节；命令地址 `0x10174`。
-- 传输：驱动（`xnu/files/bsd/dev/redwood_goodix.c`、`redwood_touch_bus_private.h`）先试 GENI SPI 引擎的 FIFO 模式。引擎没有 SPI 固件、FIFO 接口被禁用（`GENI_IF_DISABLE_RO` bit 0 为 1）或芯片不应答时，改用 GPIO 模拟 SPI；两根数据脚哪根是输入没有资料，两种都试。2026-10-24 的日志读到 GENI `interface 0x1`，走的是 GPIO 模拟。
+- 传输：驱动（`xnu/files/bsd/dev/annibale_goodix.c`、`annibale_touch_bus_private.h`）先试 GENI SPI 引擎的 FIFO 模式。引擎没有 SPI 固件、FIFO 接口被禁用（`GENI_IF_DISABLE_RO` bit 0 为 1）或芯片不应答时，改用 GPIO 模拟 SPI；两根数据脚哪根是输入没有资料，两种都试。2026-10-24 的日志读到 GENI `interface 0x1`，走的是 GPIO 模拟。
 - 报告模式：读到稳定的芯片身份、版本校验也有效时，报告内容仍可能全为零。K90 的固件要先关原始帧上报、再开坐标上报：`0x90` 数据 `02 00`，`0x91` 数据 `01`，命令长度与校验按数据长度计算。做法取自 MiCode `vendor_xiaomi_proprietary_touch-driver` 仓 `warsaw-w-oss` 分支 `warsaw/goodix_9916k/goodix_brl_hw.c` 的 `goodix_htc_enable()`（同芯片的其他机型）；Android 日志里原厂驱动也走 THP（`goodix_ts_probe IN THP`）。加上这两条命令后日志出现连续的 `goodix: finger 0 at ...`。
-- 中断线：驱动不用中断，线程按 `touch_poll_us`（默认 8000 us）查中断线电平。K90 的中断线不会一直拉低到报告被读走，所以驱动同时读 TLMM 锁存的下降沿（`GPIO_INTR_STATUS` bit 0，打开 raw status 后即使中断关闭也会锁存），线电平和锁存位都没有变化时每 80 ms 也读一次报告（`redwood_goodix.c`，`kernel-12377-cmd52-bo61`）。`cycle.py` 用 `touch_poll_us=4000`。
-- 逐层核对顺序：驱动开关 → 芯片身份与校验 → 报告模式 → 有效触点 → `/dev/redwood-touch` → 用户态注入 → 界面响应时间。芯片应答、内核坐标日志和实际手势分别记录，`touch screen ready` 一行不能代替输入验收。`rwtouch` 注入的手势不经过芯片，要与手指操作分开统计。
+- 中断线：驱动不用中断，线程按 `touch_poll_us`（默认 8000 us）查中断线电平。K90 的中断线不会一直拉低到报告被读走，所以驱动同时读 TLMM 锁存的下降沿（`GPIO_INTR_STATUS` bit 0，打开 raw status 后即使中断关闭也会锁存），线电平和锁存位都没有变化时每 80 ms 也读一次报告（`annibale_goodix.c`，`kernel-12377-cmd52-bo61`）。`cycle.py` 用 `touch_poll_us=4000`。
+- 逐层核对顺序：驱动开关 → 芯片身份与校验 → 报告模式 → 有效触点 → `/dev/annibale-touch` → 用户态注入 → 界面响应时间。芯片应答、内核坐标日志和实际手势分别记录，`touch screen ready` 一行不能代替输入验收。`rwtouch` 注入的手势不经过芯片，要与手指操作分开统计。
 
 ## 3. 实体按键
 
@@ -38,7 +38,7 @@
 - 电量计：Android 的设备树和 I²C 设备 `uevent` 确认是 TI BQ27Z561，地址 `0x55`，挂在 QUP1 SE5，SDA／SCL 为 GPIO52／53；同一总线还有地址 `0x6e` 的充电泵。旧的 PMIC FG／SDAM 路径读不到有效电量。
 - 读法：`xnu/files/bsd/dev/annibale_battery.c`（`battery=1`）用 GPIO 开漏模拟 I²C 读标准命令，每次采样后恢复两根引脚的配置。读电量也会改动 GPIO 状态，要检查总线占用、异常退出与恢复；并发访问的情形没有全部验证。电量计自己写闪存时可能把 SCL 拉低 40.08 ms，驱动按此等待。
 - 样本检查：电量、电压、温度超出范围的样本直接丢弃（10-24 首个样本温度为 `65535`，被拒）。有效样本约 95%、4377～4381 mV、34.75～34.85 °C，iOS 电源服务收到 95%。UEFI 缓存的读数与 BQ 的读数是两个来源，日志要按发布者和时间解释。
-- 充电状态：BQ 路径用有符号电流推导，电流超过 +50 mA 判为充电，低于 −50 mA 判为放电（`CHARGE_FLOW_UA`；接近充满时电流在 0 附近几十 mA 内摆动，一次 +17 mA 的样本曾让 iOS 显示 5 秒「充电」）。电流方向只反映电池净电流；USB 是否连接、充电器是否在线、充电策略都要另一个来源。iOS 26 上充电器在线与充电状态取自 DSP 的电池管理（`xnu/files/iokit/Kernel/RedwoodBattery.cpp`），连着 Mac 时显示不准的现状与待办见[默认参数与充电状态](../progress/2026-11-05-defaults-and-charging.md)。
+- 充电状态：BQ 路径用有符号电流推导，电流超过 +50 mA 判为充电，低于 −50 mA 判为放电（`CHARGE_FLOW_UA`；接近充满时电流在 0 附近几十 mA 内摆动，一次 +17 mA 的样本曾让 iOS 显示 5 秒「充电」）。电流方向只反映电池净电流；USB 是否连接、充电器是否在线、充电策略都要另一个来源。iOS 26 上充电器在线与充电状态取自 DSP 的电池管理（`xnu/files/iokit/Kernel/AnnibaleBattery.cpp`），连着 Mac 时显示不准的现状与待办见[默认参数与充电状态](../progress/2026-11-05-defaults-and-charging.md)。
 
 ## 5. CPU 拓扑
 

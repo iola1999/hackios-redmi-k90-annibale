@@ -65,29 +65,29 @@ FIXED_ARGS = " ".join([
     # reported to CoreAnimation (fb_hz, fb_ca_hz) and UIKit's in-process animations left at the display's
     # rate (dl_max=1).
     "fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1",
-    # The touch screen read every 4 ms instead of 8 (redwood_goodix.c), as in every round since bo63.
+    # The touch screen read every 4 ms instead of 8 (annibale_goodix.c), as in every round since bo63.
     "touch_poll_us=4000",
     # Wi-Fi as in kernel-12377-cmd83-wd32 (docs/progress/2026-11-01-wifi-ath12k-driver.md §1): ath12k on
     # the WCN7850, wifid joins the networks picked in Settings (wifi_station=1). The address is a locally
     # administered one of ours; the card's firmware carries none. package.py puts the firmware in.
     "pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1",
     "pcie_rddm=1 wifi_mlo=1 wifi_mac=02:4b:39:30:00:01 wifi_station=1",
-    # RDWFS001 writes /private/var to darwin_var; bt=4 selects SE14 UART / WCN7850.
+    # ANNFS001 writes /private/var to darwin_var; bt=4 selects SE14 UART / WCN7850.
     "ufs_write=1 bt=4",
 ])
 TOUR = [
     "home@3*2",
-    "icons-layers=notify com.redwood.layers.Icon@4*0",
-    "wallpaper-layers=notify com.redwood.layers.Wallpaper@4*0",
-    "statusbar-layers=notify com.redwood.layers.StatusBar@4*0",
-    "full-layers=notify com.redwood.layers.full@4*0",
-    f"settings=/redwood/bin/rwtouch tap {SETTINGS_ICON[0]} {SETTINGS_ICON[1]}@4*2",
-    "settings-scrolled=/redwood/bin/rwtouch swipe 0.5 0.7 0.5 0.35 300@3*2",
-    "home-again=/redwood/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@4*1",
-    "control-center=/redwood/bin/rwtouch swipe 0.9 0.005 0.9 0.6 300@3*2",
-    "cc-closed=/redwood/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@3*1",
-    "notifications=/redwood/bin/rwtouch swipe 0.3 0.005 0.3 0.7 300@3*1",
-    "nc-closed=/redwood/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@3*1",
+    "icons-layers=notify com.annibale.layers.Icon@4*0",
+    "wallpaper-layers=notify com.annibale.layers.Wallpaper@4*0",
+    "statusbar-layers=notify com.annibale.layers.StatusBar@4*0",
+    "full-layers=notify com.annibale.layers.full@4*0",
+    f"settings=/annibale/bin/rwtouch tap {SETTINGS_ICON[0]} {SETTINGS_ICON[1]}@4*2",
+    "settings-scrolled=/annibale/bin/rwtouch swipe 0.5 0.7 0.5 0.35 300@3*2",
+    "home-again=/annibale/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@4*1",
+    "control-center=/annibale/bin/rwtouch swipe 0.9 0.005 0.9 0.6 300@3*2",
+    "cc-closed=/annibale/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@3*1",
+    "notifications=/annibale/bin/rwtouch swipe 0.3 0.005 0.3 0.7 300@3*1",
+    "nc-closed=/annibale/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@3*1",
 ]
 
 
@@ -202,11 +202,10 @@ def main():
     # GPU up to 1100 MHz (speed 14; kernels from 12377-rate6 lower it to what the bin has, older ones
     # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).
     gpu_speed = os.environ.get("GPU_SPEED", "14")
-    # CYCLE_PROGRAMS=path[:path] puts more files into /redwood/bin of the image beside rwsh, var_store and
-    # appinst.
+    # CYCLE_PROGRAMS=path[:path] puts more files into /annibale/bin of the image beside the ones
+    # userland/build.sh stages there.
     env = dict(os.environ, GPU_SPEED=gpu_speed, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
-               PAYLOAD_PROGRAMS=":".join(["hackios-xnu-kernel/out/ios26-resume/rwsh", "hackios-xnu-kernel/out/ios26-resume/var_store",
-                                          *[p for p in BOOT_PROGRAMS if (WORKSPACE / p).exists()],
+               PAYLOAD_PROGRAMS=":".join([*[p for p in BOOT_PROGRAMS if (WORKSPACE / p).exists()],
                                           *[p for p in os.environ.get("CYCLE_PROGRAMS", "").split(":") if p]]))
     with open(EVIDENCE / f"pack-{args.label}.log", "w") as log:
         if run([sys.executable, HERE / "package.py"], env=env, stdout=log, stderr=subprocess.STDOUT).returncode:

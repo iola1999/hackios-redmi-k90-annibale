@@ -6,8 +6,8 @@
 
 | 提交哈希 | 主题 | 涉及模块 | K90（`annibale`）适用性 |
 | --- | --- | --- | --- |
-| `81b5dd2` | 按下期间每轮轮询触摸芯片，抬指延迟由最高 169 ms 降至约 5 ms | `redwood_goodix.c`、`redwood_focaltech_private.h` | 直接适用，解决 `annibale` 抬指与慢速滑动尾段偶发 80 ms 延迟 |
-| `a3975b6` | 每 8 次滑动输出一次笔画级延迟统计（首点移动、采样间隔、抬指延迟） | `redwood_input.c` | 直接适用，提供内核侧实指触摸延迟汇总 |
+| `81b5dd2` | 按下期间每轮轮询触摸芯片，抬指延迟由最高 169 ms 降至约 5 ms | `annibale_goodix.c`、`annibale_focaltech_private.h` | 直接适用，解决 `annibale` 抬指与慢速滑动尾段偶发 80 ms 延迟 |
+| `a3975b6` | 每 8 次滑动输出一次笔画级延迟统计（首点移动、采样间隔、抬指延迟） | `annibale_input.c` | 直接适用，提供内核侧实指触摸延迟汇总 |
 | `539d35e` | 慢速帧直接用双线性过滤绘制，并在二次重绘前检查 `MiniIOSurface::drawn` | `MiniIOMobileFramebuffer.cpp`、`MiniFramebufferPacing.inc` | 直接适用，消除静止桌面时钟跳秒引起的画面抖动与复用表面半帧闪烁 |
 | `3b9db78`（上半） | SpringBoard 主线程 RunLoop 慢帧栈采样线程 `stall_watch` | `inject_sb.c`（对应本仓 `inject_sb26_rate.c`） | 去掉 `arm64e` 指针签名（PAC）后直接适用，定位实指长按、滑动起手 100～300 ms 主线程阻塞 |
 | `3b9db78`（下半） | CoreAnimation 着色器名称按汉明距离匹配 451 个预提取变体（`hm_ca_nearest`） | `hakios-metal/driver/HakiosMetalCA.m` | 本仓在 iOS 26 上直接编译 `MTLFunction` 内置 AIR 位码，已从根因解决，无需照搬变体表 |
@@ -20,9 +20,9 @@
 
 触摸线程 `poll_thread` 默认只在检测到 GPIO 中断线为低电平（或 `annibale` 的 TLMM 边沿锁存置位）时调用 `chip_poll()`，其余时刻每隔 `idle_looks` 轮做一次无条件轮询。
 
-在本仓库当前的 `hackios-xnu-kernel/xnu/files/bsd/dev/redwood_goodix.c` 中：
+在本仓库当前的 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_goodix.c` 中：
 
-- `idle_looks = 80000 / poll_us`，对应 80 ms 的空闲兜底周期（上游 `redwood` 改动前为 `160000 / poll_us`，对应 160 ms）。
+- `idle_looks = 80000 / poll_us`，对应 80 ms 的空闲兜底周期（上游 `annibale` 改动前为 `160000 / poll_us`，对应 160 ms）。
 - 手指按下并保持接触或慢速移动直到停下再抬起时，若芯片在上一帧被读取的瞬间更新了抬指状态（0 触点报告），或者单次下降沿在清锁存窗口内未被捕获，`poll_thread` 会等待整整一个 `idle_looks`（本仓 80 ms，上游 169 ms）才读出抬指报告。
 - 手指抬起事件延后 80 ms 送达 `backboardd` 与 `SpringBoard`，会导致惯性滚动起手速度估算偏低、轻点（Tap）与长按（Long Press）判定拖尾。
 
@@ -30,13 +30,13 @@
 
 1. 新增 `chip_touching()`，检查当前是否有任一触点处于 `contact[i].down == true` 状态；只要有手指按下，每一个 `poll_us` 周期（`annibale` 上为 4 ms）都无条件调用 `chip_poll()` 读取芯片，不再依赖 GPIO 中断线或 80 ms 兜底周期。
 2. 无手指按下时，将 `idle_looks` 从 `80000 / poll_us`（80 ms）缩短到 `16000 / poll_us`（16 ms），即使起手第一帧漏掉中断边沿，最坏延迟也控制在 16 ms 以内。
-3. 在 `redwood_input.c` 中新增 `touch_feel_add()`，每完成 8 次单指触摸笔画（`DOWN -> MOVE... -> UP`）在内核日志打印一行汇总：`first move after X ms`、`moves Y ms apart`、`lift Z ms after last move`，直接量化实指操作在驱动层的采样间隔与抬指延迟。
+3. 在 `annibale_input.c` 中新增 `touch_feel_add()`，每完成 8 次单指触摸笔画（`DOWN -> MOVE... -> UP`）在内核日志打印一行汇总：`first move after X ms`、`moves Y ms apart`、`lift Z ms after last move`，直接量化实指操作在驱动层的采样间隔与抬指延迟。
 
 ### 2.2 对 K90（Goodix GT9916K）的验证与合入方案
 
 本仓 K90 使用 Goodix GT9916K（`TOUCH_GOODIX`），芯片固件仅在新一帧坐标或抬指报告就绪时将 `touch_address` 首字节 `report[0]` 置为 `GOODIX_STATUS_TOUCH`（`0x80`），驱动读完后向 `touch_address` 写回 `0`。
 
-在 `goodix_poll()` 中，若芯片尚未产出新帧，`report[0] == 0`，函数在第 319 行直接返回，不会清空 `contact[i].down` 状态；一旦手指抬起，芯片写入 `report[0] = 0x80, count = 0`，下一次 4 ms 轮询即可立即读出并发送 `REDWOOD_TOUCH_UP`。因此 `chip_touching()` 按下期间每轮轮询对 Goodix GT9916K 完全安全，可直接合入 `redwood_goodix.c` 与 `redwood_input.c`。
+在 `goodix_poll()` 中，若芯片尚未产出新帧，`report[0] == 0`，函数在第 319 行直接返回，不会清空 `contact[i].down` 状态；一旦手指抬起，芯片写入 `report[0] = 0x80, count = 0`，下一次 4 ms 轮询即可立即读出并发送 `ANNIBALE_TOUCH_UP`。因此 `chip_touching()` 按下期间每轮轮询对 Goodix GT9916K 完全安全，可直接合入 `annibale_goodix.c` 与 `annibale_input.c`。
 
 ## 3. 静止画面抖动与表面复用半帧闪烁（`539d35e`）
 
@@ -67,7 +67,7 @@
 为定位主线程在慢周期内具体执行的函数，上游在 `inject_sb.c` 中注册了主线程 `CFRunLoopObserver`（监听 `kCFRunLoopBeforeSources | kCFRunLoopAfterWaiting` 进入与 `kCFRunLoopBeforeWaiting | kCFRunLoopExit` 退出），并启动一个轻量后台线程 `stall_watch`：
 
 - 仅在 `touch_lat=1` 开启时运行。
-- 主线程单次 RunLoop 周期超过 25 ms 时唤醒，每隔 50 ms（25 ms、75 ms、125 ms……）挂起主线程约 20 µs，沿帧指针链（`fp`）回溯最多 14 层调用栈，通过 `dladdr` 解析符号名与偏移并写入 `kern.redwood.say`（输出 `tl: t <ms> <sym+off> <sym+off> ...`）。
+- 主线程单次 RunLoop 周期超过 25 ms 时唤醒，每隔 50 ms（25 ms、75 ms、125 ms……）挂起主线程约 20 µs，沿帧指针链（`fp`）回溯最多 14 层调用栈，通过 `dladdr` 解析符号名与偏移并写入 `kern.annibale.say`（输出 `tl: t <ms> <sym+off> <sym+off> ...`）。
 
 ### 4.2 对 K90（iOS 26 `arm64e`）的适配要点
 
@@ -88,20 +88,20 @@
 
 本仓 K90 在 iOS 26.6.2 上采用了不同的着色器编译路线：
 
-- `hackios-xnu-kernel/tools/userland-driver/redwoodmetal.m` 通过 `libredwoodair.dylib`（`air_to_nir.c`）在运行时直接将每个 `MTLFunction` 携带的完整 AIR 位码编译为 Adreno Gen8（A830）原生指令，并持久化到 `/var/db/redwood-pipecache-v5.bin`，不存在「只预提取 451 个变体、其余回退到错误变体」的限制。
-- 本仓此前在 iOS 26 上遇到的桌面小组件黑块、壁纸色彩异常与图标模糊，根因分别是 AIR 指针 `phi` 节点未向后追踪空纹理绑定（已在 `hackios-xnu-userland/tools/mesa/air/air_ptr_phi.inc` 修复）以及单采样 `MultisampleResolve` 渲染通道未复制背景纹理（已在 `hackios-xnu-kernel/tools/userland-driver/redwoodmetal_blit.inc` 修复）。
+- `hackios-xnu-kernel/tools/userland-driver/annibalemetal.m` 通过 `libannibaleair.dylib`（`air_to_nir.c`）在运行时直接将每个 `MTLFunction` 携带的完整 AIR 位码编译为 Adreno Gen8（A830）原生指令，并持久化到 `/var/db/annibale-pipecache-v5.bin`，不存在「只预提取 451 个变体、其余回退到错误变体」的限制。
+- 本仓此前在 iOS 26 上遇到的桌面小组件黑块、壁纸色彩异常与图标模糊，根因分别是 AIR 指针 `phi` 节点未向后追踪空纹理绑定（已在 `hackios-xnu-userland/tools/mesa/air/air_ptr_phi.inc` 修复）以及单采样 `MultisampleResolve` 渲染通道未复制背景纹理（已在 `hackios-xnu-kernel/tools/userland-driver/annibalemetal_blit.inc` 修复）。
 - 因此，上游的 `hm_ca_nearest` 变体近似匹配无需移植到本仓；其排查思路印证了保留完整 `MTLFunction` AIR 实时编译管线在 iOS 26 上的必要性。
 
 ## 6. 多机型兼容性保护与仓库结构（`f8976bc`、`9da1523`、`d18f6bd`、`95c956b`）
 
 1. **DPU 接口寄存器读取保护（`f8976bc`）**：上游将 `MiniIOMobileFramebuffer` 中读取 `MDSS_MDP_INTF` 帧计数器的诊断代码放入 `fb_intf=1` 开关后，防止在未开启 DISPCC 时钟的 SoC 上触发总线挂起。本仓 `MiniFramebufferFlip.inc` 默认 `gFlip = 0`、`gDim = 0`、`gDcs = 0`，且在访问寄存器前先通过 `flip_clocks()` 检查 `mdss_gdsc` 与 `disp_cc_mdss_ahb_clk`，已具备同等保护。
-2. **未知 GPU 芯片 ID 安全拒绝（`d18f6bd`）**：上游在 `HakiosMetalDevice` 初始化时校核内核汇报的 Adreno `chip_id`，若不在已支持列表则直接返回 `nil`，让 CoreAnimation 安全回退到 CPU 渲染而不触发进程崩溃循环。本仓 `redwood_adreno.c` 与 `redwoodmetal.m` 已针对 A830（`chip_id = 0x44050000` / Gen8 `8030001`）做精确匹配。
+2. **未知 GPU 芯片 ID 安全拒绝（`d18f6bd`）**：上游在 `HakiosMetalDevice` 初始化时校核内核汇报的 Adreno `chip_id`，若不在已支持列表则直接返回 `nil`，让 CoreAnimation 安全回退到 CPU 渲染而不触发进程崩溃循环。本仓 `annibale_adreno.c` 与 `annibalemetal.m` 已针对 A830（`chip_id = 0x44050000` / Gen8 `8030001`）做精确匹配。
 3. **机型配置分离（`9da1523`）**：上游新增 `devices/<name>/metal.args` 存放各机型专属的 Metal/显示启动参数，构建脚本按机型加载。
 
 ## 7. 本仓执行结论
 
 基于以上对比，本仓立即合入三项有直接收益的改进：
 
-1. 在 `hackios-xnu-kernel/xnu/files/bsd/dev/redwood_goodix.c` 与 `redwood_input.c` 中合入 `chip_touching()` 按下期间每轮轮询、16 ms 空闲兜底以及 `touch_feel_add()` 每 8 次滑动延迟统计（对应上游 `81b5dd2`、`a3975b6`）。
+1. 在 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_goodix.c` 与 `annibale_input.c` 中合入 `chip_touching()` 按下期间每轮轮询、16 ms 空闲兜底以及 `touch_feel_add()` 每 8 次滑动延迟统计（对应上游 `81b5dd2`、`a3975b6`）。
 2. 在 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferPacing.inc` 与 `MiniIOMobileFramebuffer.cpp` 中合入 `fFastFrames` 连续快帧过滤判定与 `settle()` 前的 `shownDrawn` 表面复用校验（对应上游 `539d35e`）。
 3. 在 `hackios-xnu-userland/userland/src/inject_sb26_rate.c` 中合入适配 `arm64e` PAC 剥离的 `stall_watch` 主线程慢帧采样器（对应上游 `3b9db78`），用于捕获实指滑动与长按时的 SpringBoard 主线程阻塞调用栈。

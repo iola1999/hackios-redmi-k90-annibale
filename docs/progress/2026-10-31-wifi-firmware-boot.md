@@ -12,7 +12,7 @@
   - 用 UniXNU 的 MhiBoot（`mhi_boot.c`，BSD-2-Clause-Patent）经 BHI 下载引导程序，READY 后写 MHI context，请求 M0，再经 BHIe 下载完整固件，等 mission mode；
   - 固件取 RAM 盘 `fw/` 下的 `amss20.bin`（SoC 版本寄存器的主版本为 2 时）或 `amss.bin`，`pcie_fw=1`／`2` 可指定。
 - 第 8 步（`pcie=8`，`f72115c`）：填写通道 20、21（IPCR）的 context，各发一条 START_CHAN，在通道 21 上放接收缓冲，按 QRTR v1 读包，回应网卡的 HELLO，打印它报出的服务。
-- QRTR 路由从 `redwood_wifi.c` 拆到 `redwood_qrtr.c`，GLINK 与 MHI 两种链路共用；第 8 步改为把通道 21 收到的包交给路由，后台线程每 5 ms 读一次两个事件环，路由同时作为 QMI 的传输层（`15aed86`）。
+- QRTR 路由从 `annibale_wifi.c` 拆到 `annibale_qrtr.c`，GLINK 与 MHI 两种链路共用；第 8 步改为把通道 21 收到的包交给路由，后台线程每 5 ms 读一次两个事件环，路由同时作为 QMI 的传输层（`15aed86`）。
 - 第 9 步（`pcie=9`，`mhi_pcie_wlfw.c`，`15aed86`）按 ath12k 对 WCN7850 的顺序发消息：PHY 能力、登记要收的通知、主机能力；收到 REQUEST_MEM 后从 4 GB 以下内存分配并回复；收到 FW_MEM_READY 后取目标能力，下发 `regdb.bin`、板级数据与 M3（`phy_ucode20.elf`），再等 FW_READY。`pcie_mission=1` 时继续发日志开关、CE 配置（不含 shadow 寄存器）与 mission 模式。
 - 板级数据：固件不给板号（0xff）时按 Android cnss2 的规则用 `bdwlan.elf`，`pcie_bdf=` 可手动指定（`551b569`）；有板号时用 `bdwlan.eNN`。
 - 消息描述取自 ath12k（BSD-3-Clause-Clear），由 `hackios-xnu-kernel/tools/mk-wlfw-ath12k.sh` 在构建时按固定标签取文件、核对哈希后生成到构建目录，不进仓库。Linux 的 MHI host 与 QMI 库是 GPL-2.0，不用。

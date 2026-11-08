@@ -32,7 +32,7 @@
 修复方案包含四处改动：
 1. `tools/k90auto/package.py`：在根文件系统骨架构建逻辑中预先创建应用专有容器目录 `/private/var/mobile/Containers/Data/Application/<UUID>`（计算器、备忘录与提醒事项各自对应固定 UUID）以及备忘录应用组目录 `/private/var/mobile/Containers/Shared/AppGroup/group.com.apple.notes`，设置权限 `0755` 与属主 `mobile:mobile`。
 2. `tools/k90auto/package.py`：在启动环境导出列表 `EXT_ENV` 中，为目标应用写入对应的 `CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/<UUID>`、`HOME` 与 `TMPDIR`。
-3. `hackios-xnu-userland/userland/src/inject_app.c`：在应用启动注入动态库中增加 `setup_app_container_env()`，在构造函数阶段读取 `/redwood/etc/env/<app>` 配置；独立配置文件缺失时按应用标识匹配预设容器路径并设置环境变量，保证 `NSHomeDirectory()` 返回合法本地路径。
+3. `hackios-xnu-userland/userland/src/inject_app.c`：在应用启动注入动态库中增加 `setup_app_container_env()`，在构造函数阶段读取 `/annibale/etc/env/<app>` 配置；独立配置文件缺失时按应用标识匹配预设容器路径并设置环境变量，保证 `NSHomeDirectory()` 返回合法本地路径。
 4. `hackios-xnu-userland/userland/var.skel.extra`：加入容器顶层目录结构，与打包脚本保持一致。
 
 ## 5. 语音备忘录（VoiceMemos.app）退出根因与暂缓说明

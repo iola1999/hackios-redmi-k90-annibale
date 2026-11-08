@@ -28,7 +28,7 @@
 
 ## 3. 对照中发现的本仓库问题
 
-- `redwood_adreno.c` 读 GPU 温度用的是 POCO X5 Pro 的 tsens 地址 `0x0c265000`；K90 的 GPU 传感器在 `0x0c22a000`（`annibale_cpufreq.c` 的 `tsens_groups`）。只影响每分钟一行的 GPU 温度日志，温控降频用的是 `annibale_cpufreq.c`，不受影响。
+- `annibale_adreno.c` 读 GPU 温度用的是 POCO X5 Pro 的 tsens 地址 `0x0c265000`；K90 的 GPU 传感器在 `0x0c22a000`（`annibale_cpufreq.c` 的 `tsens_groups`）。只影响每分钟一行的 GPU 温度日志，温控降频用的是 `annibale_cpufreq.c`，不受影响。
 - `sb26_boot_arg_present()` 按整词匹配，`cycle.py` 默认带 `dl_max=1` 时，在 `--boot-args` 里加 `dl_max=0` 关不掉它；要关就整串替换 `CYCLE_FIXED_ARGS`。
 
 ## 4. 不适用

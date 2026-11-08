@@ -17,7 +17,7 @@ else
   echo "apply-mu-patch: applied"
 fi
 # BootManagerLib.inf gains XnuLoader.c/h -- shipped by uefi/files/ (we skip the
-# redwoodPkg part of files/: annibale builds on the dodge-based package instead)
+# annibalePkg part of files/: annibale builds on the dodge-based package instead)
 cp -f "$ROOT/hackios-xnu-kernel/uefi/files/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/XnuLoader."{c,h} \
    "$MU/Silicon/Silicium/SiliciumPkg/Library/BootManagerLib/"
 echo "apply-mu-patch: XnuLoader.c/h in place"

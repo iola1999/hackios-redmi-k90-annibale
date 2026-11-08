@@ -19,7 +19,7 @@
 - 配方对账两层：pack 字段与本轮配方逐项对，不设的开关写出依据（`package.py` 漏设开关不报错，只让镜像多或少一个文件）；`changes` 里每个 `null→sha` 新增条目归到 `EXTRA_JOBS`／`PROBE`／`PAYLOAD_PROGRAMS` 之一，归不到的就是缺口。
 - 载荷构成变了，用 `image-diff.py` 把新镜像与上一轮实际跑过的镜像逐条目比较。`package.py` 的断言以基础镜像为参照，查不出本来就不在基础镜像里的文件消失：round F 漏设 `PAYLOAD_PROGRAMS`，镜像缺 `framewatch`，断言全过，整轮采样为零。
 - `run-auto.py` 起轮前按 manifest 重算哈希并核对实际 XNUP 启动参数，不一致拒跑，日志第一行是 `GUARD payload=<前 16 位> root=<前 16 位> dir=<目录名>`；`run/` 非空也拒跑。打包每次重建 `root.apfs`，旧轮次目录不能重跑，要重建载荷。
-- `build-air.py` 不带 `--check` 会就地覆盖 `bbmetal-device/libredwoodair.dylib`，三个同名库与构建路径见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
+- `build-air.py` 不带 `--check` 会就地覆盖 `bbmetal-device/libannibaleair.dylib`，三个同名库与构建路径见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
 
 当前工作树使用本轮构建为 4 MiB 的 `flashboot.apfs` 作为 `md0`，`root.apfs` 作为辅助盘 `md1`；系统卷位于 UFS `darwin`。`make-payload.py` 固定 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。`run-auto.py` 确认 loader idle 且常驻区为空后，依次上传 payload、执行 `oem ramdisk`、上传启动卷，核对实际接收长度与窗口后才运行内核。独立启动由 `mkstandalone.py` 嵌入 `rdimage`。该路径尚未进行真机验证，详见[根文件系统说明](../analysis/rootfs-strategy.md)。
 
@@ -27,7 +27,7 @@
 
 改动落在一处、生效点在另一处时，源码改过说明不了产物。每处改动都从产物读回来验证：产物里相关串 `grep -c` 非零，或 apfs 解出的文件与新编译的哈希一致。实例：
 
-- `userland/build.sh` 里 `obj/libredwoodmetal.dylib` 的编译在 `if [ -d $IOS/rootfs/usr/lib ]` 与 `if [ -z "$PREBUILT" ]` 之内，拷进 `root/lib/` 在两层之外。`IOS` 默认 `../ios165`（本机没有 rootfs），`ld64` 不在 `PATH` 时 `PREBUILT` 自动置 1，任一情形都跳过编译、照常装箱，10 月 23 日的驱动因此进了 10 月 28 日的镜像。`build.sh` 现在装箱前断言目标文件比源文件新。
+- `userland/build.sh` 里 `obj/libannibalemetal.dylib` 的编译在 `if [ -d $IOS/rootfs/usr/lib ]` 与 `if [ -z "$PREBUILT" ]` 之内，拷进 `root/lib/` 在两层之外。`IOS` 默认 `../ios165`（本机没有 rootfs），`ld64` 不在 `PATH` 时 `PREBUILT` 自动置 1，任一情形都跳过编译、照常装箱，10 月 23 日的驱动因此进了 10 月 28 日的镜像。`build.sh` 现在装箱前断言目标文件比源文件新。
 - 改了 `build.sh` 追加进 `var.skel` 的行，不重跑 `build.sh` 不进载荷。
 - `build-air.py` 曾漏复制 `air_to_nir.c`，构建读的是树里的旧副本且不报错；复制清单本身也要断言。
 - `package.py` 的 `add_diag` 曾只改内存缓存、没写回 `xpc/launchd.plist`。
@@ -45,7 +45,7 @@
 
 - 新增的日志行编进内核之前，它没有出现不能用来下结论。
 - 判某段代码在不在树里看符号存在与否，不看出现次数；`.rej` 只说明某块没打上，那块的能力可能由另一条补丁提供。
-- 说明性文字写进文档，不写进补丁头：`tools/mesa/*.patch` 的正文参与 `.redwood-patches` 的哈希，改一行注释就会让 `mk-mesa.sh` 重打补丁链、重编整个库。
+- 说明性文字写进文档，不写进补丁头：`tools/mesa/*.patch` 的正文参与 `.annibale-patches` 的哈希，改一行注释就会让 `mk-mesa.sh` 重打补丁链、重编整个库。
 
 ## 4. 轮次目录与固定收尾
 
@@ -57,7 +57,7 @@
 - 截图与快照间隔：`run-auto.py` 默认 `0,100,20`（不截图、每 20 秒一份日志），`run-queue.sh` 默认 `3,100,20`，`cycle.py` 传 `0,0,5`。一张截图约 11.6 MB，和日志共用 USB 通道。按需截图用 `shot-now.py`，文件名 `shot-{int(elapsed*10):05d}.raw`（`shot-01002.raw` 是第 100.2 秒）。
 - 冻结即收尾：桌面出现后连续 `K90_FREEZE_SECONDS`（默认 20）秒无新帧，打 `FROZEN_AT <elapsed>` 并收尾；`K90_FREEZE_OFF=1` 关闭，`cycle.py` 默认关闭。
 - 等一轮结束用 `wait-round.py`，等一个动作的现场用 `action-probe.py`，不用固定 `sleep`。
-- 检索只按文件点名读 `run/s0*.log` 这类文本（`AGENTS.md` §6）。BSD grep 的内存约为最长无换行段的 3 倍；带上下文窗口的正则在 14 MB 的 `libredwoodair.dylib` 上比 `-F` 慢 79 倍。多 GB 镜像先 `strings` 或流式 `bytes.find`。
+- 检索只按文件点名读 `run/s0*.log` 这类文本（`AGENTS.md` §6）。BSD grep 的内存约为最长无换行段的 3 倍；带上下文窗口的正则在 14 MB 的 `libannibaleair.dylib` 上比 `-F` 慢 79 倍。多 GB 镜像先 `strings` 或流式 `bytes.find`。
 
 ## 5. 计数与判读口径
 
@@ -67,7 +67,7 @@
 - 快照故意重叠，计数前按整行去重，默认报唯一行数；跨快照求和只能判断出现过没有（逐份 `grep -c` 曾把 86 行数成 1,516）。行数与串出现次数分开报。
 - `Code=4099` 按服务名计数：两轮总数相近，分开后 `com.apple.coreduetd.context` 是 3→0。
 - 帧 id 用 `^tl: v (\d+)`，`done` 只用于判断帧是否落在触摸区间；交换提交用 `^tl: s (\d+) \S+ at (\d+)$`。帧洞从帧 id 和 `tl: s` 判断，不用 `ready` 间隔：同一批帧的 `ready` 集中在很窄的区间里，会把空档前的一批帧算进空档。
-- 触摸样点 `tl: p TYPE FINGER X Y at US`：TYPE 1 按下、2 移动、3 抬起，坐标 0～65535。`tl: p` 与 `served as a copy` 只在 2 的幂次打印（`RW_AGAIN`），条数只说明发生过；次数读 `kern.redwood.frames` 这类不节流的计数器。
+- 触摸样点 `tl: p TYPE FINGER X Y at US`：TYPE 1 按下、2 移动、3 抬起，坐标 0～65535。`tl: p` 与 `served as a copy` 只在 2 的幂次打印（`RW_AGAIN`），条数只说明发生过；次数读 `kern.annibale.frames` 这类不节流的计数器。
 - 报 0 前先列文件清单，没有文件与 0 行是两个结论；以 0 作否定写明覆盖时段，零命中附 `ring coverage`。
 - 报缺失写出完整匹配串和位置：`installd[` 与 `[installd]` 是两个串。拿行数当调用次数前读完整的一行：`grep -c "resolve "` 曾把一句警告算成 354 次 resolve。
 - 比较两轮的绘制计数前，用 `screens` 段确认两轮停在同一界面（亮样本比例 `<0.005` 黑、`>0.10` 主屏、其余锁屏）。截图读数写清是整轮还是某个窗口。

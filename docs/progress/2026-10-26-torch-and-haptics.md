@@ -5,7 +5,7 @@
 ## 1. 结论
 
 - 手电（iOS 16.5）：`torch_secs=2 torch_ma=50` 时，驱动依次写入安全定时器、目标电流、模块使能和通道 0 使能，每次写入都读回一致，报告通道 0 以 50 mA 点亮 2 s 后熄灭。`torch=3` 时 iOS 经 AVFlashlight 和 mediaserverd 控制手电，控制中心出现手电按钮（§4）。
-- 震动（iOS 16.5）：`hv_haptic=3` 时，驱动完成配置（1300 mV、5714 µs 周期、闭环制动、正弦波形），以幅度 0x60 直驱马达 30 ms，故障寄存器为 0。`hv_haptic=4` 时，长按图标弹出快捷菜单，iOS 播放的触感经 `/dev/redwood-haptic` 驱动马达（§6）。
+- 震动（iOS 16.5）：`hv_haptic=3` 时，驱动完成配置（1300 mV、5714 µs 周期、闭环制动、正弦波形），以幅度 0x60 直驱马达 30 ms，故障寄存器为 0。`hv_haptic=4` 时，长按图标弹出快捷菜单，iOS 播放的触感经 `/dev/annibale-haptic` 驱动马达（§6）。
 - PMIC 写入必须用 Extended Register Write Long（仲裁器操作码 0）；用 Extended Register Write（操作码 2）写 1～4 字节时 K90 上寄存器值不变（§2）。
 - 仲裁器写通道窗口只映射用到的通道各 4 KB；只映射前 64 KB 或整个 4 MB 窗口都导致过 panic（§3）。
 - iOS 26（`kernel-12377-rate7-def1`，11-05）：手电初始化报 `reading 0x0018 gave: the transfer was dropped`，随后 `the light for iOS stops after 0 times lit: the module said something surprising`；震动的故障寄存器 0x10 清不掉。原因没有查，两项不进默认参数，见[默认参数与充电状态](2026-11-05-defaults-and-charging.md)。
@@ -17,7 +17,7 @@
 
 - 读取用 Extended Register Read（操作码 13），按键驱动和这两个驱动的读数都与原厂设备树和寄存器定义一致。
 - 用操作码 2 时，手电驱动把安全定时器 `0x3e` 从 `0x93` 写为 `0x13`，仲裁器报告传输完成且没有错误位，读回仍为 `0x93`，驱动按规则停止全部写入。
-- Linux 的 `regmap-spmi-ext` 对 16 位寄存器地址发送 Extended Register Write Long（操作码 0），redwood 的 `redwood_torch.c` 也用操作码 0。手电（内核 `4d6eee3`）和震动（内核 `1f83244`）改用操作码 0 后，同一写入读回一致。操作码 2 写入无效的原因没有确认。
+- Linux 的 `regmap-spmi-ext` 对 16 位寄存器地址发送 Extended Register Write Long（操作码 0），annibale 的 `annibale_torch.c` 也用操作码 0。手电（内核 `4d6eee3`）和震动（内核 `1f83244`）改用操作码 0 后，同一写入读回一致。操作码 2 写入无效的原因没有确认。
 - 手电驱动在读回不一致时会在 1 ms 后再读一次并一起报告，用于区分寄存器延迟更新和写入无效。
 
 ## 3. 手电
@@ -30,11 +30,11 @@
 
 ## 4. iOS 手电（`torch=3`）
 
-内核 `a56627f` 在 `torch=3` 时创建 `/dev/redwood-torch`，接口与 redwood 相同：写入 32 位档位 0～1000（`torch_ma` 的千分之几，0 为关），读出当前点亮的档位。根盘中 `libredwood-media.dylib` 的 FigFlashlight 替换直接使用这个设备。
+内核 `a56627f` 在 `torch=3` 时创建 `/dev/annibale-torch`，接口与 POCO X5 Pro 相同：写入 32 位档位 0～1000（`torch_ma` 的千分之几，0 为关），读出当前点亮的档位。根盘中 `libannibale-media.dylib` 的 FigFlashlight 替换直接使用这个设备。
 
 - 安全限制：点亮期间每 100 ms 检查一次仍处于点亮状态、没有实时故障、电池温度不超过 45 °C；单次点亮最长 `torch_max_s`（默认 30 s，最多 120 s），到时熄灭，直到 iOS 写入 0 后才能再次点亮。点亮状态下改变档位只写 ITARGET。
 - loader 在任何 `torch=N` 时告诉 iOS 相机有闪光灯，控制中心因此显示手电按钮。
-- 实测（内核 `00259e5`）：mediaserverd 报告「the kernel has a flashlight (/dev/redwood-torch)」，AVFlashlight 的 `hasFlashlight`、`available` 都为 YES。档位 1.0 时 ITARGET `0x03`，通道 0 以 50 mA 点亮；档位 0.25 时 ITARGET `0x00`（12.5 mA）；档位 850 时 ITARGET `0x02`（37.5 mA）；关闭时通道和模块使能清零。
+- 实测（内核 `00259e5`）：mediaserverd 报告「the kernel has a flashlight (/dev/annibale-torch)」，AVFlashlight 的 `hasFlashlight`、`available` 都为 YES。档位 1.0 时 ITARGET `0x03`，通道 0 以 50 mA 点亮；档位 0.25 时 ITARGET `0x00`（12.5 mA）；档位 850 时 ITARGET `0x02`（37.5 mA）；关闭时通道和模块使能清零。
 - 用 `rwtouch` 点按控制中心的手电按钮，3 轮里 mediaserverd 每轮先收到档位 850、内核点亮，再收到 0、内核熄灭。
 - 时长上限生效过一次：另一个进程新建的 AVFlashlight 读到档位已是 0，没有向 mediaserverd 发出关闭，灯保持点亮，内核在亮满 30 s 时熄灭。
 
@@ -48,7 +48,7 @@
 
 ## 6. iOS 触感反馈（`hv_haptic=4`）
 
-`hv_haptic=4` 时内核创建 `/dev/redwood-haptic`，根盘中 RedwoodAudio 插件把 iOS 在「Actuator」设备上播放的波形写入这个设备，驱动按波形峰值直驱马达，单次最长 1 s，出现故障即停止使用马达。
+`hv_haptic=4` 时内核创建 `/dev/annibale-haptic`，根盘中 AnnibaleAudio 插件把 iOS 在「Actuator」设备上播放的波形写入这个设备，驱动按波形峰值直驱马达，单次最长 1 s，出现故障即停止使用马达。
 
 内核 `ffca661` 的一轮里，解锁后做 6 轮操作，每轮长按「备忘录」图标 1.2 s、按 home 收起快捷菜单，再下拉控制中心和左右翻页：
 

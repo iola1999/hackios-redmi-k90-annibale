@@ -95,7 +95,7 @@ framework 根目录下超过 4 MB（`SMALL = 4 << 20`，非 `Support`／`XPCServ
 
 ## 8. 打包时的检查
 
-- `tools/k90auto/package.py` 检查 `/redwood/LaunchDaemons` 里程序在 `/redwood/` 下的 job：程序必须在打包的根盘里，缺一个就让打包失败，报错给出 plist 名与程序路径。
+- `tools/k90auto/package.py` 检查 `/annibale/LaunchDaemons` 里程序在 `/annibale/` 下的 job：程序必须在打包的根盘里，缺一个就让打包失败，报错给出 plist 名与程序路径。
 - 程序在 `/usr`、`/bin`、`/System` 下的 job 来自系统盘，`package.py` 不打开系统盘，这部分用 `tools/check-launchd-programs.py` 对系统盘检查。
 
 ## 9. 待确认

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Write back the AIR modules the driver printed with REDWOOD_DUMP_AIR.
+"""Write back the AIR modules the driver printed with ANNIBALE_DUMP_AIR.
 
 usage: tools/k90auto/airdump.py ROUND_DIR
 
 The driver prints each render pipeline function's bitcode once, as `air dump NAME: N bytes`
-followed by base64 lines `air dump NAME K: ...` (redwoodmetal_diag.inc). This writes
+followed by base64 lines `air dump NAME K: ...` (annibalemetal_diag.inc). This writes
 ROUND_DIR/air/NAME.bc for every module that arrived whole, and names the ones the log upload
 lost lines of. Read a module with llvm-dis.
 """
@@ -15,8 +15,8 @@ import re
 import sys
 
 HERE = Path(__file__).resolve().parent
-HEADER = re.compile(r"redwoodmetal\[(\S+) \d+\]: air dump (\S+): (\d+) bytes")
-CHUNK = re.compile(r"redwoodmetal\[(\S+) \d+\]: air dump (\S+) (\d+): ([A-Za-z0-9+/=]+)\s*$")
+HEADER = re.compile(r"annibalemetal\[(\S+) \d+\]: air dump (\S+): (\d+) bytes")
+CHUNK = re.compile(r"annibalemetal\[(\S+) \d+\]: air dump (\S+) (\d+): ([A-Za-z0-9+/=]+)\s*$")
 
 
 def merged(run_dir):

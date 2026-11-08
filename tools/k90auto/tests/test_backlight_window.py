@@ -34,7 +34,7 @@ struct OSDictionary : OSObject {
 #define NSEC_PER_MSEC 1000000ULL
 static uint64_t tick = 1, applied_nits;
 static unsigned writes;
-static uint32_t redwood_backlight_level;
+static uint32_t annibale_backlight_level;
 struct Service { void publish(uint64_t, uint64_t nits) { applied_nits = nits; writes++; } } service;
 static struct {
  bool initialized = true, slider_initialized = false;

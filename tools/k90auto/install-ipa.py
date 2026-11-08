@@ -10,7 +10,7 @@ this waits until "appinst list" names the application, and --open launches it.
 
 Before uploading, Mach-O binaries in Payload (main executable, frameworks, dylibs, appex plugins)
 are recursively signed with ad-hoc signatures and necessary entitlements (get-task-allow, application-groups).
-Once registered, com.redwood.var_save is posted to persist installed state immediately into dsu_store.
+Once registered, com.annibale.var_save is posted to persist installed state immediately into dsu_store.
 
 Arbitrary IPA paths can be supplied via argument or through the IPA_PATH or K90_IPA environment variable.
 Exit status: 0 once installed, 1 otherwise.
@@ -353,13 +353,13 @@ def main():
 
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        installed_list = rsh(round_dir, "/redwood/bin/appinst", "list")
+        installed_list = rsh(round_dir, "/annibale/bin/appinst", "list")
         if identifier in installed_list:
             print(f"install-ipa: {identifier} is installed")
             # Post var_save notification to persist immediately
-            rsh(round_dir, "/redwood/bin/rwsh", "notify", "com.redwood.var_save")
+            rsh(round_dir, "/annibale/bin/rwsh", "notify", "com.annibale.var_save")
             if open_after:
-                print(rsh(round_dir, "/redwood/bin/appinst", "open", identifier).strip().splitlines()[-1])
+                print(rsh(round_dir, "/annibale/bin/appinst", "open", identifier).strip().splitlines()[-1])
             return 0
         time.sleep(3)
 

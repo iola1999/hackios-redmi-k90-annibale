@@ -25,7 +25,7 @@ with (output / "compile.log").open("w") as log:
     subprocess.run(compile_args, cwd=build, stdout=log, stderr=subprocess.STDOUT, check=True)
 link_commands = subprocess.check_output(
     ["ninja", "-C", str(build), "-t", "commands",
-     "src/gallium/drivers/freedreno/libredwoodair.dylib"], text=True).splitlines()
+     "src/gallium/drivers/freedreno/libannibaleair.dylib"], text=True).splitlines()
 link_args = [str(output / "test.o") if item == old_object else item
              for item in shlex.split(link_commands[-1])
              if item not in ("-shared", "-dynamiclib")

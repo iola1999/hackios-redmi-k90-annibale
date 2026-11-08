@@ -25,7 +25,7 @@
 | 进程数 | 129 | 254 | 238 |
 
 - `xpc1` 的 SpringBoard 主线程 12 次回溯都在同一条链上：libxpc 同步发送 ← Sleep+0x57d4 ← Sleep+0x58b0 ← Sleep+0x5518 ← Sleep+0x52bc ← Sleep+0x54d64（dispatch 块）。Sleep.framework 的 `sub_274B2E574` 在连接为空时打「rebuilding connection」并新建连接，`sub_274B7DB70` 逐条重发待发消息（「retrying message」）。服务不存在时每次发送立即失败，失败又清空连接，循环没有退避。
-- 中断采样（`kern.redwood.prof`，20 秒）：`rest1` 共 315249 个样本，空闲占 74%，主要占用者是 PerfPowerServices、ScreenTimeAgent、appprotectiond；`rest2` 共 34872 个样本，空闲占 84%，没有单个进程超过 4%。
+- 中断采样（`kern.annibale.prof`，20 秒）：`rest1` 共 315249 个样本，空闲占 74%，主要占用者是 PerfPowerServices、ScreenTimeAgent、appprotectiond；`rest2` 共 34872 个样本，空闲占 84%，没有单个进程超过 4%。
 
 ## 3. `DENY` 的两处改动
 
@@ -37,14 +37,14 @@
 
 这一批为定位占用加了四样东西，用法写在各文件头。
 
-- 内核 `12377-cmd24`：`kern.redwood.prof_on`／`prof_pid`／`prof` 在每次中断时采样被打断的 PC 与 LR，按进程汇总；`rwsh dump PID` 打印进程每个线程的用户态回溯与共享缓存 slide；`kern.redwood.cpus` 按类型统计 IPI；`kern.redwood.say` 让任意进程写一行内核日志。
+- 内核 `12377-cmd24`：`kern.annibale.prof_on`／`prof_pid`／`prof` 在每次中断时采样被打断的 PC 与 LR，按进程汇总；`rwsh dump PID` 打印进程每个线程的用户态回溯与共享缓存 slide；`kern.annibale.cpus` 按类型统计 IPI；`kern.annibale.say` 让任意进程写一行内核日志。
 - `tools/k90auto/prof.py`：把一轮里最新的采样表按共享缓存映像与导出符号命名；`--threads PID` 把 `dump` 的回溯按相同方式命名并合并相同的栈。
 - `tools/k90auto/cycle.py --tour`：每轮可指定巡检步骤，`--hold` 之后用 `rsh.py`、`tour.py` 继续在同一次启动里取数。
-- 驱动的每行输出带 `[进程名 pid]` 前缀（`redwoodmetal_console.inc`）。
+- 驱动的每行输出带 `[进程名 pid]` 前缀（`annibalemetal_console.inc`）。
 
 `userland/src/xpcwatch.c` 用 `__interpose` 统计服务名，实测只抓到 1 次调用：共享缓存内部的调用不经过插入表。定位最后靠的是回溯与 IDA。
 
 ## 5. 开机图标不出现与处理器占用无关
 
-- `rest1` 里 SpringBoard 已经空闲，开机后 3 分钟内图标仍不出现。图层读数（`notify com.redwood.layers.Icon`）显示 17 个 `SBIconImageView` 都没有子图层；从设置返回主屏后，每个 `SBIconImageView` 下都有 `SBHIconLayerView` → `ICRIconLayer` → `ICRIconRenderingLayer`，图标全部出现。
+- `rest1` 里 SpringBoard 已经空闲，开机后 3 分钟内图标仍不出现。图层读数（`notify com.annibale.layers.Icon`）显示 17 个 `SBIconImageView` 都没有子图层；从设置返回主屏后，每个 `SBIconImageView` 下都有 `SBHIconLayerView` → `ICRIconLayer` → `ICRIconRenderingLayer`，图标全部出现。
 - `rest1`、`rest2` 重启后的 SpringBoard 都在解锁后直接显示全部图标和两个小组件。根因是每次开机 `/private/var` 都是空的，见[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md)。

@@ -1,6 +1,6 @@
 /*
- * test_redwood_audit_stress.m
- * Empirical stress test harness for redwoodmetal_diag.inc Render Pass audit logic.
+ * test_annibale_audit_stress.m
+ * Empirical stress test harness for annibalemetal_diag.inc Render Pass audit logic.
  *
  * Tests:
  * 1. Thread safety & data race detection with ThreadSanitizer
@@ -111,8 +111,8 @@ static struct {
 }
 @end
 
-/* Mock RedwoodMetalWork as defined in redwoodmetal_work_private.h */
-@interface RedwoodMetalWork : NSObject {
+/* Mock AnnibaleMetalWork as defined in annibalemetal_work_private.h */
+@interface AnnibaleMetalWork : NSObject {
 @public
     id pipeline;
     id render;
@@ -130,10 +130,10 @@ static struct {
     unsigned primitive, vertexStart, vertexCount;
 }
 @end
-@implementation RedwoodMetalWork
+@implementation AnnibaleMetalWork
 @end
 
-/* Now bring in exact logic from redwoodmetal_diag.inc lines 595-725 */
+/* Now bring in exact logic from annibalemetal_diag.inc lines 595-725 */
 static _Atomic int rw_audit_wanted_frame = -1;
 static _Atomic bool rw_audit_active = false;
 
@@ -143,7 +143,7 @@ rw_audit_setup_notify(void)
 	static dispatch_once_t once;
 	dispatch_once(&once, ^{
 		int token;
-		notify_register_dispatch("com.redwood.audit.pass", &token, dispatch_get_main_queue(), ^(int t) {
+		notify_register_dispatch("com.annibale.audit.pass", &token, dispatch_get_main_queue(), ^(int t) {
 			(void)t;
 			atomic_store_explicit(&rw_audit_active, true, memory_order_release);
 			rw_print("audit: single-frame pass audit requested via notification\n");
@@ -157,7 +157,7 @@ rw_audit_frame_active(unsigned commit)
 	rw_audit_setup_notify();
 	int wanted = atomic_load_explicit(&rw_audit_wanted_frame, memory_order_acquire);
 	if (wanted < 0) {
-		const char *env = getenv("REDWOOD_AUDIT_FRAME");
+		const char *env = getenv("ANNIBALE_AUDIT_FRAME");
 		int parsed = -2;
 		if (env != NULL) {
 			if (strcmp(env, "all") == 0)
@@ -186,7 +186,7 @@ rw_audit_commit_begin(NSArray *works, unsigned commit)
 }
 
 static void
-rw_audit_render_work(RedwoodMetalWork *work, unsigned commit, unsigned index)
+rw_audit_render_work(AnnibaleMetalWork *work, unsigned commit, unsigned index)
 {
 	if (!rw_audit_frame_active(commit) || work == nil || work->render == nil)
 		return;
@@ -270,7 +270,7 @@ static void *concurrency_commit_worker(void *arg) {
 
     MockPipeline *pipe = [[MockPipeline alloc] init];
     MockTexture *tex = [[MockTexture alloc] initWithWidth:1156 height:2510 format:80 samples:1 isSurface:YES hasMesa:YES];
-    RedwoodMetalWork *work = [[RedwoodMetalWork alloc] init];
+    AnnibaleMetalWork *work = [[AnnibaleMetalWork alloc] init];
     work->render = pipe;
     work->colorCount = 1;
     work->color[0] = tex;
@@ -299,7 +299,7 @@ static void *concurrency_trigger_worker(void *arg) {
 
 int main(int argc, const char *argv[]) {
     (void)argc; (void)argv;
-    printf("[*] Running empirical verification on redwoodmetal_diag.inc Render Pass audit logic...\n");
+    printf("[*] Running empirical verification on annibalemetal_diag.inc Render Pass audit logic...\n");
 
     /* =========================================================================
      * SECTION 1: Attachment Edge Cases
@@ -311,7 +311,7 @@ int main(int argc, const char *argv[]) {
 
     /* 1.1: Nil textures in color attachments */
     printf("Test 1.1: Multi-attachment pass with nil textures (sparse attachments)...\n");
-    RedwoodMetalWork *workSparse = [[RedwoodMetalWork alloc] init];
+    AnnibaleMetalWork *workSparse = [[AnnibaleMetalWork alloc] init];
     workSparse->render = pipe;
     workSparse->colorCount = 4;
     MockTexture *texValid1 = [[MockTexture alloc] initWithWidth:800 height:600 format:80 samples:1 isSurface:NO hasMesa:YES];
@@ -330,7 +330,7 @@ int main(int argc, const char *argv[]) {
 
     /* 1.2: Depth-only attachment pass (colorCount == 0, depth != nil) */
     printf("Test 1.2: Depth-only pass (colorCount == 0, depth != nil)...\n");
-    RedwoodMetalWork *workDepthOnly = [[RedwoodMetalWork alloc] init];
+    AnnibaleMetalWork *workDepthOnly = [[AnnibaleMetalWork alloc] init];
     workDepthOnly->render = pipe;
     workDepthOnly->colorCount = 0;
     MockTexture *dtex = [[MockTexture alloc] initWithWidth:1156 height:2510 format:252 samples:1 isSurface:NO hasMesa:NO];
@@ -346,7 +346,7 @@ int main(int argc, const char *argv[]) {
 
     /* 1.3: Multi-sampled pass (sampleCount == 4, resolve != nil) */
     printf("Test 1.3: Multi-sampled pass (samples=4, resolve target present)...\n");
-    RedwoodMetalWork *workMSAA = [[RedwoodMetalWork alloc] init];
+    AnnibaleMetalWork *workMSAA = [[AnnibaleMetalWork alloc] init];
     workMSAA->render = pipe;
     workMSAA->colorCount = 1;
     MockTexture *texMSAA = [[MockTexture alloc] initWithWidth:1156 height:2510 format:80 samples:4 isSurface:NO hasMesa:YES];
@@ -405,6 +405,6 @@ int main(int argc, const char *argv[]) {
 
     printf("Thread concurrency test finished without crash/hang. Total prints: %d\n", g_print_count);
 
-    printf("\n[*] All empirical tests in test_redwood_audit_stress complete.\n");
+    printf("\n[*] All empirical tests in test_annibale_audit_stress complete.\n");
     return 0;
 }

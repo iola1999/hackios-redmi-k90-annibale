@@ -4,7 +4,7 @@
 
 ## 1. 结论
 
-- A830 阶段 14～23 全部通过，`RedwoodGPU` 注册成功。CoreAnimation 经 `eagl.c → OSMesa → freedreno` 在 GPU 上绘制，渲染器为「OpenGL ES 3.2 Mesa 26.2.5; Adreno (TM) 830」。
+- A830 阶段 14～23 全部通过，`AnnibaleGPU` 注册成功。CoreAnimation 经 `eagl.c → OSMesa → freedreno` 在 GPU 上绘制，渲染器为「OpenGL ES 3.2 Mesa 26.2.5; Adreno (TM) 830」。
 - 触摸（`touchscreen=2`）与 GPU 路径可以同时工作，用户在设备上确认滑动、翻页和控制中心可用。
 - 主屏标签旁的闪烁色块和控制中心背景异常由 Mesa 的 CCHE 失效修复（userland `94e4c97`）。
 - 双核、向量化缩放和 SCMI 大核调频后，显示驱动每帧从约 21 ms 降到 1.3～2.8 ms。GPU 提交排队、新建缓冲区提速和健康检查复用后，控制中心下拉 58.7 帧/秒（帧间隔 p95 17.5 ms），左右翻页 58.8／60.8 帧/秒，整轮 78% 的帧间隔低于 18 ms。
@@ -48,7 +48,7 @@ HWSCHED 的 RAW131 复位和直接 ring 的 CP_INIT 超时都来自 LPAC 微引�
 ### 5.2 显示驱动与设备树竞态
 
 - 显示驱动每帧把 1125×2436 双线性缩放到面板 1156×2510，`MiniFramebufferScale.h` 在四个面板像素对应四个相邻源像素时用向量代码。
-- GPU 路径每帧调用 `redwood_platform_is_annibale()`，经 `find_entry()` 的静态游标 `startingP` 并发遍历设备树，运行 4～6 分钟后 panic「Device tree pointer outside of device tree region」。平台判断改为启动时算一次（`2249d0b`），`SecureDTFindEntry()` 每次调用使用自己的游标（`940e513`）。
+- GPU 路径每帧调用 `annibale_platform_is_annibale()`，经 `find_entry()` 的静态游标 `startingP` 并发遍历设备树，运行 4～6 分钟后 panic「Device tree pointer outside of device tree region」。平台判断改为启动时算一次（`2249d0b`），`SecureDTFindEntry()` 每次调用使用自己的游标（`940e513`）。
 
 ### 5.3 GPU 提交路径
 

@@ -1,26 +1,26 @@
 # 相机路线：annibale（REDMI K90 / SM8750 "sun"）
 
-状态：调研稿，相机还没开始做。本文记录可复用的 redwood（POCO X5 Pro / SM7375 "yupik"）相机栈、K90 的资源与差异、分级路线和放弃准则。CAMSS 各块基址与 sensor 挂线见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
+状态：调研稿，相机还没开始做。本文记录可复用的 POCO X5 Pro（SM7375 "yupik"）相机栈、K90 的资源与差异、分级路线和放弃准则。CAMSS 各块基址与 sensor 挂线见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
 
 ## 1. 结论
 
-- redwood 的相机栈是端到端能跑的裸寄存器方案：内核 `redwood_camera.c` 出 RAW10 帧，mediaserverd 里的注入库冒充 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有真机回归脚本。
+- annibale 的相机栈是端到端能跑的裸寄存器方案：内核 `annibale_camera.c` 出 RAW10 帧，mediaserverd 里的注入库冒充 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有真机回归脚本。
 - 用户态没有裁剪或修改相机框架，K90 上要重写的主要在内核与资源层；这部分用户态按 iOS 16.5 写成，在 iOS 26 上要重新核对（§4.2）。
 - 最大未知数是主摄 OV50E（光影猎人800，OV 定制）的上电序列、初始化寄存器表与模式表，只存在于设备的 `/vendor/lib64/camera/com.qti.sensormodule.*.bin`；`annibale-backup/` 没有 vendor 分区。
 - 估算：L1（单摄预览，先 TPG 后真 sensor）3–5 周加 6–10 个真机窗口，L2（拍照）再加 2–3 周；拿不到 sensor 表就停在 TPG 演示。
 
-## 2. redwood 相机栈
+## 2. annibale 相机栈
 
-### 2.1 内核：`hackios-xnu-kernel/xnu/files/bsd/dev/redwood_camera.c`
+### 2.1 内核：`hackios-xnu-kernel/xnu/files/bsd/dev/annibale_camera.c`
 
 - 纯手写寄存器驱动，不用 IOKit 相机框架和高通固件（不碰 CamX/CHI，不用 ICP 固件）。文件头注释是完整的设计说明。
-- boot-arg 分级：`cam=1` 只读勘察；`cam=2` 上电读 chip ID 再下电；`cam=3` 无 sensor，CSID test pattern → RDI0 → IFE-lite0 → 内存；`cam=4` 真 sensor 帧走同一路径；`cam=5` iOS 模式，出 `/dev/redwood-camera`（接口见 `xnu/files/bsd/sys/redwood_camera.h`）。修饰项有 `cam_sensor=`、`cam_pattern=1`（彩条）、`cam_fake=1`（QEMU 假帧）等。
+- boot-arg 分级：`cam=1` 只读勘察；`cam=2` 上电读 chip ID 再下电；`cam=3` 无 sensor，CSID test pattern → RDI0 → IFE-lite0 → 内存；`cam=4` 真 sensor 帧走同一路径；`cam=5` iOS 模式，出 `/dev/annibale-camera`（接口见 `xnu/files/bsd/sys/annibale_camera.h`）。修饰项有 `cam_sensor=`、`cam_pattern=1`（彩条）、`cam_fake=1`（QEMU 假帧）等。
 - 硬件路径按 yupik 写：camcc／GDSC／PLL、PM8008i 经手写 I2C 供电、CCI 位时序（含总线卡死恢复）、cam SMMU 只配一个 context；每次写都读回，失败即全下电。K90 上可复用的是骨架、日志、分级与 CCI 时序。
 - sensor 初始化序列不在代码里：`hackios-xnu-kernel/tools/camsensor.py` 把 `com.qti.sensormodule.*.bin` 转成 `fw/camera-*.tab`，`tools/camtuning.py` 把 `com.qti.tuned.*.bin` 转成 `fw/camera-*.isp`，由 `userland/build.sh` 从不入库的 `../fw-camera/` 读入。
 
 ### 2.2 用户态：`hackios-xnu-userland/userland/src/`
 
-- `inject_media.c` 注入 mediaserverd：`cam=5` 时把 `+[BWFigCaptureDeviceVendor sharedCaptureDeviceVendor]` 的 create 函数换成我们的 FigCaptureDevice；没有相机时只给 FigFlashlight 一个假 vendor（`torch=3` 接 `/dev/redwood-torch`）。
+- `inject_media.c` 注入 mediaserverd：`cam=5` 时把 `+[BWFigCaptureDeviceVendor sharedCaptureDeviceVendor]` 的 create 函数换成我们的 FigCaptureDevice；没有相机时只给 FigFlashlight 一个假 vendor（`torch=3` 接 `/dev/annibale-torch`）。
 - `camera_device.c`：FigCaptureDevice 加后（wide）、前（front）两条 stream，格式名照抄 iPhone X 的 `CMCapture D22/AVCaptureSession.plist`；wide 有 VCM 点按对焦。
 - `camera_isp.c`：黑电平、lens shading、grey-world AWB 加 AE、CCM、sRGB gamma；没有降噪和视频稳像。
 - 回归：`rc.jobs.camera`（靠 loader 的假 `/arm-io/isp` 节点出图标）、`rc.jobs.photo`。没有录像。
@@ -40,22 +40,22 @@
 | front | QUP SE9 I2C `0x884000`，slave 0x10 | sd-index 4 | MCLK4（GPIO93），RESET 7 | 同构 |
 
 - 主摄：光影猎人800 是 OmniVision OV50E 的小米定制版，50MP、1/1.55"、OIS（[fonearena 发布稿](https://www.fonearena.com/blog/467264#1)）。设备树不含型号与寄存器表，CamX 从 vendor 用户态 bin 探测加载。
-- 供电轨是 RPMH PMIC LDO，走 SPMI/RPMH，redwood 的 PM8008i 手写 I2C 经验不适用。
+- 供电轨是 RPMH PMIC LDO，走 SPMI/RPMH，annibale 的 PM8008i 手写 I2C 经验不适用。
 
 ## 4. 结构性差异与最小路线
 
 ### 4.1 SM7375 → SM8750 的差异
 
-1. CPAS/CAMNOC/cesta 是新的必经环节：不初始化 CPAS（`0xac13000`，含 RPMH 带宽投票），titan 域起不来；redwood 没有这一步，只能靠读回加报错二分。
+1. CPAS/CAMNOC/cesta 是新的必经环节：不初始化 CPAS（`0xac13000`，含 RPMH 带宽投票），titan 域起不来；annibale 没有这一步，只能靠读回加报错二分。
 2. camcc 换成 `sun-camcc`，GDSC 偏移与时钟 id 要重排，多出 camnoc_rt／cesta 时钟族。
-3. CSID980／IFE980 走 RT-CDM 缓冲编程；csid-lite980／ife-lite0 仍在，L1 首选复刻 redwood `cam=3/4` 的 lite 路径，先用 TPG13–15 证明通路。
+3. CSID980／IFE980 走 RT-CDM 缓冲编程；csid-lite980／ife-lite0 仍在，L1 首选复刻 annibale `cam=3/4` 的 lite 路径，先用 TPG13–15 证明通路。
 4. CSIPHY v2.3.0 的 D-PHY 4 lane settle 与时序常数要真机标定。
-5. wide／tele 在 CCI 上，redwood 的 CCI 代码可移植；ultra／front 在 QUP GENI I2C 上，L1 用不到。
+5. wide／tele 在 CCI 上，annibale 的 CCI 代码可移植；ultra／front 在 QUP GENI I2C 上，L1 用不到。
 6. SMMU 至少要配 IFE context 和 RT buffer 区（可用 `camera_region`）。
 
 ### 4.2 iOS 侧
 
-redwood 在 iOS 16.5 上的做法：内核出 `/dev/redwood-camera`，loader 加假 `/arm-io/isp` 节点，`inject_media.c` 替换 `BWFigCaptureDeviceVendor`，Camera.app 即可预览与拍照。当前系统是 iOS 26（iPhone 17 身份），以下各项要重新核对：
+annibale 在 iOS 16.5 上的做法：内核出 `/dev/annibale-camera`，loader 加假 `/arm-io/isp` 节点，`inject_media.c` 替换 `BWFigCaptureDeviceVendor`，Camera.app 即可预览与拍照。当前系统是 iOS 26（iPhone 17 身份），以下各项要重新核对：
 
 - 承载 CMCapture 的进程与 vendor 的替换点。
 - 属性表与 `AVCaptureSession.plist` 的机型目录（16.5 照抄的是 D22）。
@@ -66,7 +66,7 @@ redwood 在 iOS 16.5 上的做法：内核出 `/dev/redwood-camera`，loader 加
 
 | 级别 | 内容 | 盲写比例 | 真机窗口 | 工作量 |
 |---|---|---|---|---|
-| L1a 通路验证 | sun-camcc／CPAS／GDSC／SMMU-ife → TPG13 或 CSID TPG → csid-lite0 → ife-lite0 → `camera_region` → `/dev/redwood-camera`，iOS 上看到彩条预览 | 约 70–80% | 4–6 个 | 2–3 周 |
+| L1a 通路验证 | sun-camcc／CPAS／GDSC／SMMU-ife → TPG13 或 CSID TPG → csid-lite0 → ife-lite0 → `camera_region` → `/dev/annibale-camera`，iOS 上看到彩条预览 | 约 70–80% | 4–6 个 | 2–3 周 |
 | L1b 真 sensor 预览 | 从 OV50E bin 解出上电序列和一条 4032×3024@~30 的模式，CCI0 初始化 wide，同一 lite 路径出帧 | sensor 表约 50% | 再加 2–4 个 | 再加 1–2 周 |
 | L2 拍照 | 全幅模式、eeprom tuning（shading／CCM）、VAF 点按对焦 | tuning 解析约 40% | 再加 3–5 个 | 再加 2–3 周 |
 | 暂缓 | 录像、多摄并发、AON、HDR／多帧、IFE980 全量 CDM／UBWC、ICP／OFE | — | — | — |

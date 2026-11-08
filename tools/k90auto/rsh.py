@@ -4,7 +4,7 @@
 usage: tools/k90auto/rsh.py ROUND_DIR COMMAND...
 
 ROUND_DIR is the directory make-payload.py printed and run-auto.py is running. The round must carry
-/redwood/bin/rwsh in its rc.jobs and boot a kernel and loader with the command mailbox (kernel
+/annibale/bin/rwsh in its rc.jobs and boot a kernel and loader with the command mailbox (kernel
 loader_live magic3, loader "oem sh"). run-auto.py stays the only process that talks to the device:
 this drops the command into ROUND_DIR/run/cmd-request-*.txt and waits for run-auto.py to send it
 and to read the log into ROUND_DIR/run/cmd-SEQ.log. The command is one line of at most 119
@@ -76,7 +76,7 @@ def main():
     if done is None:
         started = f"rwsh {seq} start" in text_seen
         print(f"rsh: no end of the output in {log.name}"
-              f"{'' if started else ', and rwsh never started it (is /redwood/bin/rwsh in rc.jobs?)'}; "
+              f"{'' if started else ', and rwsh never started it (is /annibale/bin/rwsh in rc.jobs?)'}; "
               f"later lines may be in the round's next s*.log", file=sys.stderr)
         return 3
     print(f"rsh: exit {done.group(1)} after {done.group(2)} ms", file=sys.stderr)

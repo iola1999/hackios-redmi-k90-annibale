@@ -1,6 +1,6 @@
 # Mesa 26.2.5 移植层（rebase-26）
 
-本文记录 Mesa 从 25.0.7 换到 26.2.5 时 fork 补丁的应用结果、`tools/mesa/rebase-26/` 适配层的内容、a8xx 支持的版本依据、iOS 交叉构建和测试脚本在 26.x 上的适配。`tools/mk-mesa.sh`、`userland/build.sh`、`prebuilt/userland/SHA256SUMS`、`tools/mesa/rebase-26/README.md` 和 `tools/air/` 下的脚本按节号引用本文（第 2、3、6、9 节和 10.3），调整章节时同步检查这些引用。
+本文记录 Mesa 从 25.0.7 换到 26.2.5 时 fork 补丁的应用结果、`tools/mesa/rebase-26/` 适配层的内容、a8xx 支持的版本依据、iOS 交叉构建和测试脚本在 26.x 上的适配。`tools/mk-mesa.sh`、`userland/build.sh`、`tools/mesa/rebase-26/README.md` 和 `tools/air/` 下的脚本按节号引用本文（第 2、3、6、9 节和 10.3），调整章节时同步检查这些引用。
 
 ## 1. 结论
 
@@ -11,7 +11,7 @@
 
 ## 2. fork 补丁在 26.2.5 上的应用结果
 
-流程与 `mk-mesa.sh` 相同：解压上游 tarball，依次应用 `tools/mesa/*.patch`，拷入 `src/compiler/air` 和 `src/redwood-drm` 两个直接复制的目录，再应用 rebase-26。tarball 为 archive.mesa3d.org 的 `mesa-26.2.5.tar.xz`，SHA-256 `794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5`。
+流程与 `mk-mesa.sh` 相同：解压上游 tarball，依次应用 `tools/mesa/*.patch`，拷入 `src/compiler/air` 和 `src/annibale-drm` 两个直接复制的目录，再应用 rebase-26。tarball 为 archive.mesa3d.org 的 `mesa-26.2.5.tar.xz`，SHA-256 `794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5`。
 
 | 补丁 | 26.2.5 上的结果 | 处理 |
 | --- | --- | --- |
@@ -38,7 +38,7 @@
    - 26.x 的 shared-glapi 静态库只含调度核心，`gl*` 桩在 `libglapi_bridge`。osmesa 目标不链它时 dylib 不导出任何 `gl*`，加进 `link_whole` 后导出 1300 个。
    - `driParseConfigFiles` 改为 3 参的 `driConfigFileParseParams`，`osmesa_target.c` 的调用点重写。
    - 26.x 删除了 postprocess（`postprocess/filters.h`），`pp_*` 全部去掉，`OSMesaPostprocess` 保留为空函数；本端口从未启用 filter。
-   - `src/util/u_sync_provider.c` 在 Darwin 上加 `host_machine.system() != 'darwin'` 门控，因为 redwood-drm 没有 syncobj；Turnip 构建另行编译它（rebase-26 的 0004）。
+   - `src/util/u_sync_provider.c` 在 Darwin 上加 `host_machine.system() != 'darwin'` 门控，因为 annibale-drm 没有 syncobj；Turnip 构建另行编译它（rebase-26 的 0004）。
 
 macOS 主机验证：`nm -gU` 见 1300 个 `_gl*` 和 13 个 `_OSMesa*`；`rebase-26/smoke-osmesa.c` 输出 `GL_VERSION: 3.3 (Compatibility Profile) Mesa 26.2.5 / GL_RENDERER: softpipe`，clear(0.25,0.5,0.75) 读回像素 (64,128,191,255)；`smoke-osmesa-es.c` 用 `OSMESA_ES_PROFILE` 创建出 OpenGL ES 3.1 上下文。
 
@@ -74,7 +74,7 @@ VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f61
 
 - `REBASE=26` 在 `tools/mesa/*.patch` 循环之后按文件名顺序应用 `tools/mesa/rebase-26/*.patch`。rebase-26 是子目录，原有的 `tools/mesa/*.patch` 通配不会收进它，25.0.7 构建因此不受影响。
 - 旧补丁在 `REBASE=26` 时允许失败或跳过，其他版本仍要求严格应用（第 2 节）。
-- 补丁戳 `mesa-$VERSION/.redwood-patches` 在 `REBASE=26` 时计入 rebase-26 的补丁内容；`out/built-from` 另计入版本号与 `REBASE`，`userland/build.sh` 据此判断库是否过期。两个戳的计算逻辑见 `hackios-xnu-userland/tools/mk-mesa.sh` 与 `hackios-xnu-userland/tools/mesa-stamp.sh`。
+- 补丁戳 `mesa-$VERSION/.annibale-patches` 在 `REBASE=26` 时计入 rebase-26 的补丁内容；`out/built-from` 另计入版本号与 `REBASE`，`userland/build.sh` 据此判断库是否过期。两个戳的计算逻辑见 `hackios-xnu-userland/tools/mk-mesa.sh` 与 `hackios-xnu-userland/tools/mesa-stamp.sh`。
 
 ## 7. 源码副本与构建树
 
@@ -99,7 +99,7 @@ VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f61
 退出码为 0，产物在 `xnu-deps/build/mesa/out/`，均为 Mach-O arm64（2026-10-23）：
 
 - `libOSMesa.8.dylib` 18 659 056 字节，导出 1300 个 `gl*`，与 macOS 主机构建逐名比对一致；
-- `libredwoodair.dylib` 13 063 080 字节，31 个 `rwa_*` 导出，与主机构建的数量和集合相同；
+- `libannibaleair.dylib` 13 063 080 字节，31 个 `rwa_*` 导出，与主机构建的数量和集合相同；
 - `air_run` 13 620 416 字节，另有 `exported-gl.txt`、`gl.xml`、`built-from`、`built-from-air`。
 
 Mesa 的二进制不按字节复现（25.0.7 实测两次构建相差 9 132 774 字节），所以交叉产物与主机产物的等价按导出符号集合判定，字节哈希只用来固定输入（tarball、补丁栈、镜像内工具）。导出集合一致只覆盖符号名称，类型布局、调用约定、运行行为和着色器结果要在设备上验证。31 这个数是当时的记录，`mk-mesa.sh` 把实际导出列表写进 `out/exports-rwa.txt`。
@@ -159,20 +159,12 @@ VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f61
 
 因此 `fbfetchcheck.py`、`vattrcheck.py`、`corpus.py --ir3` 与 10.2 同样降级：`$IR3` 存在时行为不变；缺失时 fbfetch 的 isamm 段与 vattr 的 VFD fetch-table 段打印 SKIPPED 并计入通过，corpus 去掉 ir3 列，表格停在 translate。三个脚本都在 stderr 留一行说明，退出码不受影响，`check.sh` 在 26.x 主机上不再因此失败。实测 fbfetch `7 of 7`、vattr `16 of 16`，corpus 对单个 `.bc` 运行 `--ir3` 去掉该列后退出码为 0。这些段落的结果以设备上打印的指令为准。
 
-### 10.4 `SHA256SUMS`
-
-`prebuilt/userland/SHA256SUMS` 尾部有 26.2.5 GL 链六个产物的区块（`libOSMesa.8.dylib`、`libredwoodair.dylib`、`libredwood-gl.dylib`、`gl_test`、`u2f_test`、`air_run`），路径按构建树 `userland/obj/…` 记录。这六个文件不在 prebuilt 目录里，`build.sh` 也不校验这张表，只作记录。复验命令（在 `hackios-xnu-kernel` 下）：
-
-```bash
-sha256sum -c <(grep -E '^[0-9a-f]{64}  userland/obj/' prebuilt/userland/SHA256SUMS)
-```
-
 ## 11. 附录：macOS 主机构建命令
 
-前提：已解压 mesa-26.2.5，应用 fork 补丁栈和 `rebase-26/*.patch`，并按 `mk-mesa.sh` 拷入 `src/compiler/air`、`src/redwood-drm`。系统自带的 bison 2.3 过旧，需要 bison ≥ 3（Homebrew）和装有 meson 1.12.1、mako、pyyaml 的 venv。相对 `mk-mesa.sh`，去掉了 26.x 已删除的 `-Dgallium-vdpau`、`-Dgallium-xa`；`-Dshared-glapi=enabled` 仍保留，上游已标记废弃。
+前提：已解压 mesa-26.2.5，应用 fork 补丁栈和 `rebase-26/*.patch`，并按 `mk-mesa.sh` 拷入 `src/compiler/air`、`src/annibale-drm`。系统自带的 bison 2.3 过旧，需要 bison ≥ 3（Homebrew）和装有 meson 1.12.1、mako、pyyaml 的 venv。相对 `mk-mesa.sh`，去掉了 26.x 已删除的 `-Dgallium-vdpau`、`-Dgallium-xa`；`-Dshared-glapi=enabled` 仍保留，上游已标记废弃。
 
 ```bash
-meson setup build-darwin mesa-26.2.5 --wrap-mode=nofallback --prefix=/redwood --libdir=lib \
+meson setup build-darwin mesa-26.2.5 --wrap-mode=nofallback --prefix=/annibale --libdir=lib \
   --buildtype=release -Db_ndebug=true -Dplatforms= -Dgallium-drivers=softpipe,freedreno \
   -Dfreedreno-kmds=msm -Dvulkan-drivers= -Dglx=disabled -Degl=disabled -Dgbm=disabled \
   -Dosmesa=true -Dllvm=disabled -Dshared-glapi=enabled -Dgles1=disabled -Dgles2=enabled \

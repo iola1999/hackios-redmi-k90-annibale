@@ -31,7 +31,7 @@
 |---|---|
 | 顶层仓库与两个 submodule | 父仓只记录子模块 commit |
 | `hackios-xnu-kernel` 与 `.userland.git` | 共用工作目录；驱动、shim 与 `tools/mesa/` 用 `common/ugit add -f <路径>` 提交，`hackios-xnu-userland` 的提交从这里移植 |
-| 12377 内核构建树 `out/xnu12377-cmd`（更早的一棵是 `out/xnu12377`） | 独立 git 目录（分支 `redwood26`），顶层 `git log --all` 查不到它的提交；改动从 `xnu/files/` 复制进去，见 [k90auto 说明](../../tools/k90auto/README.md) |
+| 12377 内核构建树 `out/xnu12377-cmd`（更早的一棵是 `out/xnu12377`） | 独立 git 目录（分支 `annibale26`），顶层 `git log --all` 查不到它的提交；改动从 `xnu/files/` 复制进去，见 [k90auto 说明](../../tools/k90auto/README.md) |
 | `xnu/files/`、`xnu26/patches/` 与展开树 | 仓库来源和实际编译输入可能不同，没有双向同步 |
 | 宿主与 `kbuild` 的 `/work/repo` | 容器用持久卷 checkout，宿主更新后要同步 |
 | 编译结果、打包输入与设备 RAM | 还要核对选择、打包、上传和本轮实际使用 |
@@ -83,7 +83,7 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 ### 缓冲和镜像都有生命周期
 
 - `oem log`、`oem screenshot` 准备数据，`get_staged` 读最近一次准备的内容，要成对、串行执行。内核正常返回后先取 `result` 再读已合并日志，额外调 `oem log` 会重新生成内容。
-- 启动卷 `flashboot.apfs` 作为 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 作为 `md1` 挂到 `/redwood`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径已通过真机临时启动、写入 `boot_a` 和正常重启验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
+- 启动卷 `flashboot.apfs` 作为 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 作为 `md1` 挂到 `/annibale`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径已通过真机临时启动、写入 `boot_a` 和正常重启验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
 - 主机超时后设备端 USB DMA 请求可能还没结束，只有匹配的终止通知才能解除缓冲归属，见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。
 - 电源票值先分清是本方请求、聚合状态还是实际供给（ARC 读数只描述 DRV2 的请求）；读完只清理本轮新增的控制位。
 
@@ -149,3 +149,16 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 - 文档按 `AGENTS.md` §1 分类存放。原始日志和截图放在已忽略的 `docs/analysis/local/` 或 `docs/progress/evidence/`；写结论前用 `git check-ignore -v <目标路径>` 确认目标没被忽略。
 - 交接保留当前目标、最后成功与首次失败的阶段、用户最新反馈、实际输入、未提交修改归属和恢复入口。提交前核对逐文件 diff、父仓及子模块状态。
 - 读来源会话：dsh 数据在用户主目录的 `.dsh/sessions/`，用 `turnOutline` 定位后读对应的 `session.v4.jsonl.zstd`；Claude Code 的用户追加要求可能在队列事件或附件里。压缩摘要只用于导航。
+
+## 10. 合入前检查
+
+改动合入前跑与改动对应的主机检查，比较改动前后的结果。各套测试里已有改动前就失败的项（2026-11-09 的清单见[交接](../progress/2026-11-09-handoff.md)），门槛是没有新增失败。
+
+| 改动范围 | 检查 |
+|---|---|
+| 内核 ramfs、持久化格式、loader 与镜像装配 | `hackios-xnu-kernel/tools/tests/` 下同主题的 `test-*.py`，如 `test-annfs-inspect.py`、`test-ramfs-*.py`、`test-payload-*.py`、`test-bootshim-contract.py` |
+| 内核启动参数 | `python3 tools/bootargs.py` 重新生成[启动参数目录](../analysis/boot-args.md)，`--check` 确认与源码一致 |
+| AIR 前端与 Mesa 补丁 | `hackios-xnu-userland/tools/air/check.sh`；库用 `tools/k90auto/build-air.py` 编译，它在源码与构建树不一致时拒绝编译 |
+| 用户态启动、注入库与服务 | `hackios-xnu-userland/tools/tests/` 与 `userland/test_*.py` |
+| 发布脚本 | `python3 tools/release/test-localfiles.py` |
+| 改名与路径 | 用 `git ls-files` 取得文件清单后逐个扫描，遵守 [AGENTS.md](../../AGENTS.md) §7 禁止目录递归检索的约定 |

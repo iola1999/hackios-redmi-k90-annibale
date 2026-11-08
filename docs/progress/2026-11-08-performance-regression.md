@@ -58,6 +58,14 @@ AIR 回退轮的帧间隔 p95 和固定翻页等效帧率有所改善，但 p99 
 
 本轮没有形成生产修复。下一步优先拆分 `990b6fcc..4fa0d162` 的内核改动，并重复当前版与完整回退轮以区分运行波动；AIR 的帧间隔收益需要重复轮确认，不能以牺牲像素正确性换取该收益。
 
+2026-11-09 对 11-08 午后以来的提交做了静态审查，没有找到明确的回退来源。
+
+- `990b6fcc..4fa0d162` 的 ramfs 改动只把 `ubc_msync` 与卸载检查点的错误码传回调用者，调用次数不变。元数据同步改用 `thread_call_allocate_with_options` 是为了 `THREAD_CALL_OPTIONS_ONCE`；`thread_call_allocate` 的默认优先级本来就是 `THREAD_CALL_PRIORITY_HIGH`（`osfmk/kern/thread_call.c`），1.5 秒一次的周期也没有变。
+- 同一区间的其余内核改动在音频 DSP 的 GLINK 通道、Iris 初始化（删除了不安全的初始化）、IOSurface 的 CoreVideo 附件登记和 texture view 保留，不在每帧的提交与上屏路径上。
+- `4fa0d162` 之后的 NV12 与 format 500 导入、Metal 设备保留只在对应纹理的创建与释放时执行；`1cb961fa` 的缩略图采集只在设置 `ANNIBALE_THUMB_SCISSOR` 时启用。
+- `96ac249f` 在每次翻页时多读一个 `INTF_FRAME_COUNT` 寄存器并记时间戳，Metal 驱动在每次提交时多一次加锁计数，慢帧日志每轮最多 4 行，开销与帧间隔的量级相差很远。
+- 以上与 round4 的结果一致：只回退到 `01cf6f5b` 之前不能复现完整回退轮的改善。完整回退轮的收益是否来自运行波动，仍需按上一条重复轮确认。
+
 ## 4. 无效数据与指标修正
 
 首次 Metal 回退轮在 300 秒冷却等待内没有达到开始门槛，未执行手势，已从对比中排除。旧运行目录由批次脚本自动归档；冷却等待改为可通过 `PERF_COOL_TIMEOUT` 设置后，重跑使用 600 秒并取得有效数据。

@@ -6,10 +6,10 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 DRIVER = ROOT / "hackios-xnu-kernel/tools/userland-driver"
-texture = (DRIVER / "redwoodmetal_texture.inc").read_text()
-methods = texture[texture.index("- (instancetype)initWithRedwoodDevice:"):
-                  texture.index("- (void)redwoodSetBuffer:")]
-yuv = (DRIVER / "redwoodmetal_yuv.inc").read_text().split("static id\n", 1)[0]
+texture = (DRIVER / "annibalemetal_texture.inc").read_text()
+methods = texture[texture.index("- (instancetype)initWithAnnibaleDevice:"):
+                  texture.index("- (void)annibaleSetBuffer:")]
+yuv = (DRIVER / "annibalemetal_yuv.inc").read_text().split("static id\n", 1)[0]
 source = r'''
 #import <Foundation/Foundation.h>
 #include <assert.h>
@@ -22,13 +22,13 @@ static void destroy_texture(struct rwa_texture *texture) {
     free(texture);
 }
 static struct { void (*texture_destroy)(struct rwa_texture *); } mesa = {destroy_texture};
-@interface RedwoodMetalDevice : NSObject
+@interface AnnibaleMetalDevice : NSObject
 @end
-@implementation RedwoodMetalDevice
+@implementation AnnibaleMetalDevice
 - (void)dealloc { device_dead++; [super dealloc]; }
 @end
-@interface RedwoodMetalTexture : NSObject {
-    RedwoodMetalDevice *_owner;
+@interface AnnibaleMetalTexture : NSObject {
+    AnnibaleMetalDevice *_owner;
     struct rwa_texture *_texture;
     struct rwa_texture_shape _shape;
     CFTypeRef _iosurface;
@@ -36,21 +36,21 @@ static struct { void (*texture_destroy)(struct rwa_texture *); } mesa = {destroy
     id _parentTexture, _buffer;
 }
 @end
-@implementation RedwoodMetalTexture
+@implementation AnnibaleMetalTexture
 ''' + methods + '\n@end\n' + yuv + r'''
-static id make(Class cls, RedwoodMetalDevice *device) {
+static id make(Class cls, AnnibaleMetalDevice *device) {
     struct rwa_texture_shape shape = {0};
-    return [[cls alloc] initWithRedwoodDevice:device texture:calloc(1, sizeof(struct rwa_texture))
+    return [[cls alloc] initWithAnnibaleDevice:device texture:calloc(1, sizeof(struct rwa_texture))
         shape:&shape iosurface:NULL plane:0];
 }
 int main(void) {
     @autoreleasepool {
-        RedwoodMetalDevice *device = [RedwoodMetalDevice new];
-        id y = make([RedwoodMetalTexture class], device);
-        id uv = make([RedwoodMetalTexture class], device);
-        id combined = make([RedwoodMetalYUVTexture class], device);
+        AnnibaleMetalDevice *device = [AnnibaleMetalDevice new];
+        id y = make([AnnibaleMetalTexture class], device);
+        id uv = make([AnnibaleMetalTexture class], device);
+        id combined = make([AnnibaleMetalYUVTexture class], device);
         NSArray *planes = [[NSArray alloc] initWithObjects:y, uv, nil];
-        [combined redwoodSetPlanes:planes];
+        [combined annibaleSetPlanes:planes];
         [planes release]; [y release]; [uv release];
         [device release];
         assert(!device_dead && !resources_dead);

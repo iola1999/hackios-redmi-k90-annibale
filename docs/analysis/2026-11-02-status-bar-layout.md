@@ -11,7 +11,7 @@
 3. `Split1125` 把时间放在刘海左侧那块 83 点宽区域的中间，中心距左缘 46.7 点；电池右缘距屏幕右缘约 15 点。没有切口的直角机型用 `LegacyPhone`，图标贴边。两者对照，就是用户看到的「靠角落，但没有贴边」。
 4. iPhone 17 画布（`fbwidth=1206 fbheight=2622 fbpitch=460`，402×874 点，screen class 36）的切口是灵动岛，状态栏用 `DynamicSplit`：时间中心距左缘 73.7 点，电池中心在 327.2 点。在 1156 像素宽的面板上，时间中心从约 144 像素移到约 212 像素。
 5. 2026-11-02 起 `cycle.py` 默认带上这三个参数，见第 6 节。
-6. 2026-11-05 起 `libredwood-ax.dylib` 把区域与岛之间的 8 点间距改为 32 点，时间中心移到 61.7 点、右侧图标组中心移到 339.7 点，位于 1125×2436 画布与 iPhone 17 画布默认位置之间，见第 6 节第 4 项。
+6. 2026-11-05 起 `libannibale-ax.dylib` 把区域与岛之间的 8 点间距改为 32 点，时间中心移到 61.7 点、右侧图标组中心移到 339.7 点，位于 1125×2436 画布与 iPhone 17 画布默认位置之间，见第 6 节第 4 项。
 
 ## 2. 布局类的选择
 
@@ -54,7 +54,7 @@ SpringBoard 的状态栏是 SystemStatusUI.framework 的 `STUIStatusBar`，库�
 
 | 画布 | 来源 | 时间 | 电池 |
 |---|---|---|---|
-| 1125×2436（375 点） | `kernel-12377-rate1-rt2/run/cmd-1.log` 的 `com.redwood.layers.StatusBar` 图层导出 | `STUIStatusBarStringView` 41×18，中心 x=47 点 | `STUIStatusBarBatteryView` 24×12，中心 x=348 点，右缘 360 点 |
+| 1125×2436（375 点） | `kernel-12377-rate1-rt2/run/cmd-1.log` 的 `com.annibale.layers.StatusBar` 图层导出 | `STUIStatusBarStringView` 41×18，中心 x=47 点 | `STUIStatusBarBatteryView` 24×12，中心 x=348 点，右缘 360 点 |
 | 1125×2436（375 点） | `kernel-12377-rate6-pt3/run/shot-00530.raw`（设置页） | 字形 99～188 像素，中心 46.5 点 | 右缘距屏幕右缘 14.3 点 |
 | 1206×2622（402 点） | `hackios-xnu-kernel/out/ios26-resume/native-display-device/device-45.png`（2026-10-27） | 字形 154～270 像素，中心 212 像素，即 73.7 点 | 902～980 像素，中心 327.2 点 |
 | 1206×2622，间距 32 点 | `kernel-12377-rate10-w1/run/app1.png`（设置页） | 字形 128～228 像素，中心 61.9 点 | Wi-Fi 与电池 903～1049 像素，中心 339.4 点 |
@@ -68,7 +68,7 @@ SpringBoard 的状态栏是 SystemStatusUI.framework 的 `STUIStatusBar`，库�
 1. 画布：改 `fbwidth`／`fbheight`／`fbpitch`，MobileGestalt 换 screen class，SpringBoard 换切口和布局类。当前采用这一项。
 2. 布局常量：在注入库里替换 `STUIStatusBarVisualProvider_Split1125` 的 `+leadingCenteringOffset`／`+trailingCenteringOffset`，每加 1 点，时间右移约 3 像素。只改 SpringBoard 时应用内状态栏不变，应用进程也要注入同样的替换。
 3. 切口形状：替换 `_exclusionArea` 或 `sb_displayShapeForScreenType:` 的返回值。同一个矩形还决定灵动岛（SystemAperture）的位置和尺寸，影响面最大，没有采用。
-4. 区域与岛的间距：`-setupInContainerView:` 返回后，把两条以 `cutoutLayoutGuide` 为第二项、常量为 ∓8 的约束改为 ∓32。外缘不变，每加 1 点间距，中心向外移 0.5 点。用户反馈 1125×2436 画布太贴边、iPhone 17 画布太靠内，2026-11-05 起在第 1 项之上加这一项，代码是 `hackios-xnu-kernel/userland/src/statusbar26.m`，随 `libredwood-ax.dylib` 插入 `package.py` 的 `AX` 列出的进程。UIKitCore 的 `-cutoutEdgeInset` 保持 8，原因见该文件头。
+4. 区域与岛的间距：`-setupInContainerView:` 返回后，把两条以 `cutoutLayoutGuide` 为第二项、常量为 ∓8 的约束改为 ∓32。外缘不变，每加 1 点间距，中心向外移 0.5 点。用户反馈 1125×2436 画布太贴边、iPhone 17 画布太靠内，2026-11-05 起在第 1 项之上加这一项，代码是 `hackios-xnu-kernel/userland/src/statusbar26.m`，随 `libannibale-ax.dylib` 插入 `package.py` 的 `AX` 列出的进程。UIKitCore 的 `-cutoutEdgeInset` 保持 8，原因见该文件头。
 
 屏幕圆角只以 0.15 的权重进入刘海布局，不作为调整手段。
 

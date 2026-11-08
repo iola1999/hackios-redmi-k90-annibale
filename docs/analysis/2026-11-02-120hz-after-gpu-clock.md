@@ -20,7 +20,7 @@
 
 ## 3. 提交延迟
 
-`tl: Q` 在 `redwood_gpu_submit` 返回之后打印，`tl: R` 的 sub 是 GMU 把这次提交写进环形缓冲的时刻。best1 两者之差：
+`tl: Q` 在 `annibale_gpu_submit` 返回之后打印，`tl: R` 的 sub 是 GMU 把这次提交写进环形缓冲的时刻。best1 两者之差：
 
 | 提交时 GPU 状态 | 次数 | p10 | p50 | p90 |
 |---|---|---|---|---|
@@ -63,7 +63,7 @@ sk1 面板驱动每 5 秒一行的统计：
 
 ## 6. 每个 pass 的 GPU 时间
 
-读法：backboardd 的任务环境变量加 `REDWOOD_PASS_TIMES=1`，tracepoint 取 `render_pass`、`compute`、`blit`、`nondraw`、`tile_loads`、`tile_stores`（命令见 [k90auto 说明](../../tools/k90auto/README.md)），AIR 库带 `tools/mesa/rebase-26/0008`。日志每 5 秒按 pass 种类（画布尺寸、GMEM bin 数、颜色附件数、深度／模板格式）汇总一组 `pass times` 行，每行是一种 pass 的次数、合计与最长时间。附件的格式与读入、写回方式用 `REDWOOD_PASS_LOG=1` 记录。
+读法：backboardd 的任务环境变量加 `ANNIBALE_PASS_TIMES=1`，tracepoint 取 `render_pass`、`compute`、`blit`、`nondraw`、`tile_loads`、`tile_stores`（命令见 [k90auto 说明](../../tools/k90auto/README.md)），AIR 库带 `tools/mesa/rebase-26/0008`。日志每 5 秒按 pass 种类（画布尺寸、GMEM bin 数、颜色附件数、深度／模板格式）汇总一组 `pass times` 行，每行是一种 pass 的次数、合计与最长时间。附件的格式与读入、写回方式用 `ANNIBALE_PASS_LOG=1` 记录。
 
 hs1 整轮（1125×2436 画布）backboardd 的 GPU 时间：
 

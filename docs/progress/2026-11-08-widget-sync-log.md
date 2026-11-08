@@ -1,6 +1,6 @@
 # 2026-11-08 组件 sync draw 与首次黑化关联
 
-本轮在 dump-AIR 候选上只增加 `REDWOOD_SYNC_LOG=1`，保留同步 draw、缩略图和 AIR 设置。boot SHA-256 为 `afe5659307ee6c4a22ed7407a17b250e3756fe4cb9801c4ebf987731b35db0c4`，没有重编内核或修改生产 Metal/AIR 源码。
+本轮在 dump-AIR 候选上只增加 `ANNIBALE_SYNC_LOG=1`，保留同步 draw、缩略图和 AIR 设置。boot SHA-256 为 `afe5659307ee6c4a22ed7407a17b250e3756fe4cb9801c4ebf987731b35db0c4`，没有重编内核或修改生产 Metal/AIR 源码。
 
 ## 1. 真机状态
 

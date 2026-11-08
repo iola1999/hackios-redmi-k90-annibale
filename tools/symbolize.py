@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Turn a fault pc into a function name.
 
-The kernel prints `redwood: <comm> bad access at <addr> pc <pc>`; the driver prints
+The kernel prints `annibale: <comm> bad access at <addr> pc <pc>`; the driver prints
 `rwa metal: driver code at <addr>` once per process, which is the loaded address of rw_print.
 Neither number means anything on its own: the dylib is position independent, so its slide differs
 per process, and the reader would have to do this subtraction by hand for every crash.
 
     tools/symbolize.py <dylib> <driver code at> <pc> [<pc> ...]
 
-Takes the dylib that was actually packaged (`out/ios26-resume/bbmetal-device/libredwoodmetal.dylib`
+Takes the dylib that was actually packaged (`out/ios26-resume/bbmetal-device/libannibalemetal.dylib`
 right after a pack, before the next pack overwrites it), finds rw_print in its symbol table, and
 reports the function containing each pc plus the offset inside it. A pc that falls outside the
 dylib is reported as such -- that is a reading too, and the one that says the fault was not in this

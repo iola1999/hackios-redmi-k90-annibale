@@ -18,7 +18,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 ## 2. 代码行数约定（必须遵守）
 
-代码类文件（C/Python/Shell 等）单文件控制在 **1200 行以内**，做好合理拆分（按层/按职责拆文件，私有声明走 `*_private.h` 之类的内部头）。确实无法拆分的（如生成表、结构上不可分的单入口状态机），要在文件头写明理由，禁止为了控制行数强行将代码写在一行。存量超标文件（红杉时代的大 `redwood_*.c` 等）不强制回溯，新文件与大改文件必须遵守；判定基准 = 新落地的文件和本次改动后净增长的越线文件。
+代码类文件（C/Python/Shell 等）单文件控制在 **1200 行以内**，做好合理拆分（按层/按职责拆文件，私有声明走 `*_private.h` 之类的内部头）。确实无法拆分的（如生成表、结构上不可分的单入口状态机），要在文件头写明理由，禁止为了控制行数强行将代码写在一行。存量超标文件不强制回溯，新文件与大改文件必须遵守；判定基准 = 新落地的文件和本次改动后净增长的越线文件。
 
 ## 3. 隐私信息提交约束（必须遵守）
 
@@ -58,7 +58,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 - **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需调用 `idalib-mcp` 做伪代码反编译、交叉引用与调用流分析）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
 - **明确禁止的做法。** 不得用方法交换（swizzling）强改 UI 视图背景色或伪造通知／权限授权返回值；不得在渲染管线编译失败时回退为固定纯色管线掩盖着色器错误；不得针对单个应用硬编码环境变量绕过通用容器目录初始化；不得用用户态定时轮询打包脚本代替内核块设备直写持久化。
-- **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区（[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)）：`darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex（支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`），`darwin_var`（`/dev/ufs_darwin_var`）由内核直写块持久化层（`RDWFS001`，`ramfs_disk.inc`）直接读写物理块并以双 32 MiB 乒乓元数据槽位实时落盘。内核 `IOKit`（`disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`）、`devfs`（`/dev/disk*`）与 `statfs`（`/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`，总容量按 128 GB 容器十进制口径计算并扣除系统卷、Cryptex 与 `/private/var` 实际已用空间）与 iPhone 真机保持一致。
+- **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区（[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)）：`darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex（支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`），`darwin_var`（`/dev/ufs_darwin_var`）由内核直写块持久化层（`ANNFS001`，`ramfs_disk.inc`）直接读写物理块并以双 32 MiB 乒乓元数据槽位实时落盘。内核 `IOKit`（`disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`）、`devfs`（`/dev/disk*`）与 `statfs`（`/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`，总容量按 128 GB 容器十进制口径计算并扣除系统卷、Cryptex 与 `/private/var` 实际已用空间）与 iPhone 真机保持一致。
 - **子 Agent 与团队成员模型选择。** 派发复杂排查、反汇编分析、内核／驱动编码或 Teamwork 成员任务时，指定使用高能力模型（`inherit`／Gemini 4 Argon 或 `pro`）。
 
 ## 7. 其他

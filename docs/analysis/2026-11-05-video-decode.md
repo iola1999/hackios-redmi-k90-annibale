@@ -29,10 +29,10 @@
   - `/System/Library/VideoDecoders/AVD.videodecoder` → `AVDRegister`
   - `/System/Library/VideoDecoders/AV1SW.videodecoder` → `AV1RegisterDecoder`
 - `VCPAVCRegisterDecoder`（0x29ffc9a74，一次性执行体 0x29ffc9aa0）无条件调用 `VTRegisterVideoDecoderWithInfo('avc1', {kVTVideoDecoder_IsHardwareAccelerated: kCFBooleanFalse}, 0x29ffc99a0)`（桩 0x2a2a57460 解析为 `_VTRegisterVideoDecoderWithInfo`）。字符串里有 `com.apple.coremedia.JVTlib`、`ThreadCountH264SWDecoder`，是一套带多线程的完整 H.264 软件解码器。
-- `AVDRegister`（0x2a03fb694）先调用 0x2a04191f4（内含 `AppleAVDCheckPlatform`），返回非 0 就跳过全部注册。我们的内核没有 AppleAVD（`xnu/files/iokit/Kernel/` 下只有 Mini*／Redwood* 替身），所以 AVD 不注册（推断：按控制流，未在设备上读注册表）。`avc1` 只剩 H264SW 可选。
+- `AVDRegister`（0x2a03fb694）先调用 0x2a04191f4（内含 `AppleAVDCheckPlatform`），返回非 0 就跳过全部注册。我们的内核没有 AppleAVD（`xnu/files/iokit/Kernel/` 下只有 Mini*／Annibale* 替身），所以 AVD 不注册（推断：按控制流，未在设备上读注册表）。`avc1` 只剩 H264SW 可选。
 - 解码确实发生了：fp1 的 `s070.log` 第 17024 行起，backboardd 的 Metal 驱动报 `no drawable (1): format 500 usage 0x1: surface 134 ('420v', 640x360, 1028 bytes a row): pixel format 500 is MTLPixelFormatYCBCR8_420_2P: YCbCr in TWO PLANES, and this import serves one`。这一行在 mediaplaybackd 启动（第 16862 行，07:25:48.987）之后、它的下一条日志（第 17693 行，07:25:49.911）之前。
-- 同一张 surface 134 的拒绝计数到 16384（驱动只在 2 的幂次打印，`redwoodmetal.m` 的 `RW_AGAIN`），全程没有出现第二个视频 surface。
-- 拒绝的出处：`userland/src/redwooddrawable.m` 第 425～448 行，缺三样东西：内核 `kRedwoodSurface` 只报平面数、不报每个平面的偏移和行长（`RedwoodGPU.cpp:849`），Gallium 侧没有对应的两平面格式，没有 YCbCr→RGB 转换。MiniIOSurface 本身已按 `IOSurfacePlaneInfo` 建平面（`MiniIOSurface.cpp` 第 510～534 行）。
+- 同一张 surface 134 的拒绝计数到 16384（驱动只在 2 的幂次打印，`annibalemetal.m` 的 `RW_AGAIN`），全程没有出现第二个视频 surface。
+- 拒绝的出处：`userland/src/annibaledrawable.m` 第 425～448 行，缺三样东西：内核 `kAnnibaleSurface` 只报平面数、不报每个平面的偏移和行长（`AnnibaleGPU.cpp:849`），Gallium 侧没有对应的两平面格式，没有 YCbCr→RGB 转换。MiniIOSurface 本身已按 `IOSurfacePlaneInfo` 建平面（`MiniIOSurface.cpp` 第 510～534 行）。
 - 推断的失败链：合成器拿不到纹理，图像队列的队头一直不被消费；解码输出池耗尽后流水线停在第一帧，时间停在 0，播放器最后报错，WebKit 把 AVPlayerItem 失败映射成 `MEDIA_ERR_DECODE`。videocodecd 在页面打开约 200 秒后只用了 0.05 秒 CPU、2 个线程，与「只解了很少几帧」相符。没有 mediaplaybackd／videocodecd 的 os_log，无法确认播放器报的具体错误码。
 - 另一个需要排除的干扰项：测试页由 `python3 -m http.server` 提供，Python 3.13 的这个服务器不支持 Range 请求（`http/server.py` 里没有 `Content-Range`），而 Apple 要求给 iOS 提供媒体的服务器支持字节范围请求。第一帧在 1 秒内就到了合成器，这次 H.264 失败的主因大概率在合成一侧（推断）；MSE 和拖动进度仍会受 Range 支持的影响。
 
@@ -136,7 +136,7 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
 - 做 AppleAVD 兼容的 IOKit 服务不可行：`AVD.videodecoder` 在用户态自己拼 Apple AVD 硬件的寄存器命令和补丁表（字符串如 `Failed to add %s %s buffer to patch list`、`decodeGetRenderTargetRef`），与 Iris「整段码流交给固件」的接口层次不同，翻译不过去。
 - 可行做法是自己的 VideoToolbox 解码插件，和 Apple 自带插件用同一个 SPI：`VTRegisterVideoDecoderWithInfo(codec, {kVTVideoDecoder_IsHardwareAccelerated: true, ...}, createInstance)`，解码类通过 `VTDecoderSessionEmitDecodedFrame`、`VTDecoderSessionCreatePixelBuffer` 等导出函数交帧（VideoToolbox 导出表里都有）。
 - 插件要在每个解码或查询能力的进程里注册：videocodecd（AVPlayer 与 MSE 的远端解码）、com.apple.WebKit.GPU（`VTIsHardwareDecodeSupported` 的结果决定 WebKit 是否认为有 VP9／AV1／HEVC 硬件）。`VTIsHardwareDecodeSupported` 只查本进程注册表里带 RequireHardware 规格的解码器（0x1903bc288 调 0x1901898f0），插件注册后它会返回 true（推断）。
-- 插件与内核之间：仿照现有 `/dev/redwood-*` 设备节点或 IOKit 用户客户端，提供打开会话、送码流（共享内存）、送输出 IOSurface（内核把页映射进 SMMU）、取事件这几个调用。
+- 插件与内核之间：仿照现有 `/dev/annibale-*` 设备节点或 IOKit 用户客户端，提供打开会话、送码流（共享内存）、送输出 IOSurface（内核把页映射进 SMMU）、取事件这几个调用。
 - 插件侧的工作：从 `avcC`／`hvcC`／`vpcC`／`av1C` 取参数集，H.264／HEVC 把长度前缀改成起始码，按呈现时间交帧，实现 `FinishDelayedFrames` 与刷新。解码类的方法表布局要从 H264SW 的 `createInstance`（0x29ffc99a0）反推。
 
 ### 4.5 最难的未知
@@ -158,7 +158,7 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
    - 测试页换成支持 Range 的服务器，先用 `curl --range 0-99` 确认只回 100 字节。
    - 给 `com.apple.mediaplaybackd`、`com.apple.videocodecd` 开 OSLOG，backboardd 保持安静，控制台能留下播放器的错误码。
    - 写一个 `vt_test`：带 `com.apple.videotoolbox.decode-in-process` 权限和不带各跑一次，对 `h264.mp4` 的样本做 `VTDecompressionSession` 解码，记录帧数、`UsingHardwareAcceleratedVideoDecoder`、每帧 CPU 时间。§3.3 的估算可以换成实测。
-1. YCbCr 两平面合成（`420v`／`420f`）。按 `redwooddrawable.m` 列的三项实现：`kRedwoodSurface` 报每个平面的偏移与行长，Gallium 侧拆成 R8＋R8G8 两个平面，着色器里做 YCbCr→RGB。CoreAnimation 对 500 号格式的采样期待 RGB 还是 YCbCr 原值，要先看它的着色器确认（未核对）。
+1. YCbCr 两平面合成（`420v`／`420f`）。按 `annibaledrawable.m` 列的三项实现：`kAnnibaleSurface` 报每个平面的偏移与行长，Gallium 侧拆成 R8＋R8G8 两个平面，着色器里做 YCbCr→RGB。CoreAnimation 对 500 号格式的采样期待 RGB 还是 YCbCr 原值，要先看它的着色器确认（未核对）。
    - 备选：在 mediaplaybackd 里把解码输出改成 `'BGRA'`，让 VideoToolbox 做格式转换，合成器就能用。转换可能走 VideoToolbox 的 Metal 计算核，同样会碰到 YCbCr 纹理，风险未评估。
 2. 调软件解码线程：`ThreadCountH264SWDecoder`、`com.apple.VideoProcessing` 的 `threading`／`max-threads`；看情况试 `cpus=7`。
 3. VP9 软件解码：在 MobileSafari 里打开 WebKit 内部开关 `SWVPDecodersAlwaysEnabled`，确认 GPU 进程注册了 libwebrtc 的 VP9 解码器，webm 能出帧（依赖第 1 步）。
@@ -173,7 +173,7 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
 - 设备日志：`docs/progress/evidence/k90auto/kernel-12377-rate10-fp1/run/s070.log`（第 16470、16862、17024、17693 行）、`s111.log`（`ps`）、`cmd-reply-*.json`（命令序号 58 打开测试页、80 执行 `ps`，相隔 204 秒）；`kernel-12377-rate8-app2`、`kernel-12377-rate8-app3` 的 `s001.log`（plist 大小）。
 - 共享缓存：VideoToolbox、H264SW.videocodec、VCPHEVC.videocodec、AVD.videodecoder、AV1SW.videodecoder、WebKit、WebCore、libwebrtc.dylib、SafariServices、MediaToolbox，地址见正文。
 - 系统文件：`hackios-xnu-kernel/ios26/rootfs/System/Library/FeatureFlags/Domain/CoreMedia.plist`、`.../LaunchDaemons/com.apple.videocodecd.plist`、`com.apple.mediaplaybackd.plist`、`ios26/rootfs.slt`。
-- 项目代码：`hackios-xnu-kernel/userland/src/redwooddrawable.m`、`redwoodmetal.m`、`inject_media.c`、`userland/mkjobs.py`、`userland/build.sh`、`xnu/files/iokit/Kernel/MiniIOSurface.cpp`、`xnu/files/bsd/dev/adreno8_zap.c`、`adreno8_clock.c`、`adreno8_rpmh.c`、`mhi_pcie.c`。
+- 项目代码：`hackios-xnu-kernel/userland/src/annibaledrawable.m`、`annibalemetal.m`、`inject_media.c`、`userland/mkjobs.py`、`userland/build.sh`、`xnu/files/iokit/Kernel/MiniIOSurface.cpp`、`xnu/files/bsd/dev/adreno8_zap.c`、`adreno8_clock.c`、`adreno8_rpmh.c`、`mhi_pcie.c`。
 - WebKit 主线源码（2026-11-05 取）：
   - [GPUProcess.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebKit/GPUProcess/GPUProcess.cpp)
   - [VP9UtilitiesCocoa.mm](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/platform/graphics/cocoa/VP9UtilitiesCocoa.mm)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""stubsym.py — 把 redwood dump 里的用户态 pc 解码成 libsystem_kernel 桩的系统调用名。
+"""stubsym.py — 把 annibale dump 里的用户态 pc 解码成 libsystem_kernel 桩的系统调用名。
 
 方法（对应 docs/plan/k90auto-run-protocol.md §「符号化 pc 走 stub 的系统调用号」）：
 - dump 保存的 pc 是返回地址，指向桩里 svc #0x80 之后的第一条指令。桩的固定形状是

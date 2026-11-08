@@ -4,7 +4,7 @@
 usage: tools/k90auto/tour.py ROUND_DIR STEP [STEP ...]
 
 Each STEP is LABEL=COMMAND@SETTLE*SHOTS, for example
-  settings=/redwood/bin/rwtouch tap 0.5 0.5@3*2
+  settings=/annibale/bin/rwtouch tap 0.5 0.5@3*2
   home@1*1                      (no command: only screenshots)
 COMMAND goes to the device through rsh.py (rwsh, so at most 119 characters); SETTLE is the seconds
 to wait after it; SHOTS is how many screenshots to take after that, one after another. With two or

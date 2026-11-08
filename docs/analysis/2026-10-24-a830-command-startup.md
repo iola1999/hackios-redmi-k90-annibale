@@ -52,7 +52,7 @@
 | 18～20 | zap、退出 secure、scratch | PAS 13 认证成功；`CP_MEM_WRITE` 写入 scratch，CPU 读回预期值 |
 | 21 | 诊断 | 故障、队列、电源和计数器状态可读 |
 | 22 | 标准 HWSCHED context | 两条非特权 IB 的 SOP／EOP 写回，timestamp 正确，注销成功 |
-| 23 | 服务发布 | 标准 context 自测成功后启用外部 BO 映射，`RedwoodGPU` 注册成功 |
+| 23 | 服务发布 | 标准 context 自测成功后启用外部 BO 映射，`AnnibaleGPU` 注册成功 |
 
 ## 4. 地址空间与页权限
 

@@ -17,7 +17,7 @@
 
 AIR 库与 Metal 驱动：
 
-- `tools/mesa/rebase-26/0008-u-trace-redwood-pass-times.patch`：任务环境变量 `REDWOOD_PASS_TIMES=1` 打开 Mesa 的 GPU 时间戳，按 pass 种类每 5 秒汇总一次。freedreno 的 tracepoint 类型全是 marker，补丁按 `start_`／`end_` 名称前缀配对。
+- `tools/mesa/rebase-26/0008-u-trace-annibale-pass-times.patch`：任务环境变量 `ANNIBALE_PASS_TIMES=1` 打开 Mesa 的 GPU 时间戳，按 pass 种类每 5 秒汇总一次。freedreno 的 tracepoint 类型全是 marker，补丁按 `start_`／`end_` 名称前缀配对。
 - `tools/mesa/rebase-26/0009-fd-resource-contents-undefined.patch` 与 AIR、Metal 驱动的配套改动：一个 pass 里 `MTLLoadActionDontCare` 的颜色附件，在这个 pass 的第一次绘制前标为内容无效，freedreno 不再把它读回 GMEM。没有开关，库里一直生效，dc2 起上机。
 - 这两份补丁、`0007` 与 AIR 源码在 `.userland.git` `c6f82c5f5` 提交，移植到用户态仓库 `76502ff`；Metal 驱动与内核改动在内核仓库 `ce6e0c2`。
 
@@ -33,21 +33,21 @@ AIR 库与 Metal 驱动：
 | gs14 | rate5 | `GPU_SPEED=14`（1100 MHz） | 92.9 | 94.5 | 92.4 |
 | bt0 | rate5 | `fb_beat=0` | 102.9 | 103.5 | 101.3 |
 | ff2 | rate5 | bt0 加 `fb_filter=2` | 104.5 | 99.2 | 98.4 |
-| pt2 | rate5 | bt0 的开关，tour 2，`REDWOOD_PASS_TIMES=1` | 106.5 | 105.6 | 92.9 |
+| pt2 | rate5 | bt0 的开关，tour 2，`ANNIBALE_PASS_TIMES=1` | 106.5 | 105.6 | 92.9 |
 | pf1 | rate5 | bt0 的开关，tour 2，处理器采样并转储 backboardd | — | — | — |
 | best1 | rate6 | `cycle.py` 新默认值，三组手势各重复三次 | 100.7 | 105.8 | 95.5 |
 | sk1 | rate6 | `sb_tl=1`（SpringBoard commit 探针），tour 2 | 104.6 | 104.2 | 89.0 |
 | pt3 | rate6 | sk1 去掉 `sb_tl`，加 pass 时间 | 108.4 | 105.8 | 87.4 |
 | hs1 | rate7 | 整屏动画跳过逐行哈希 | 106.5 | 105.6 | 90.4 |
 | sm1 | rate7 | backboardd `FD_MESA_DEBUG=sysmem` | 105.7 | 106.3 | 95.5 |
-| dc1 | rate7 | `REDWOOD_DONTCARE_CLEAR=1`；画布 1206×2622 | 87.9 | 98.8 | 92.1 |
+| dc1 | rate7 | `ANNIBALE_DONTCARE_CLEAR=1`；画布 1206×2622 | 87.9 | 98.8 | 92.1 |
 | ft3 | rate7 | dc1 加 `fb_threads=3` | 88.3 | 98.1 | 92.6 |
-| c7 | rate7 | dc1 加 `cpus=7`，backboardd `REDWOOD_PASS_LOG=1` | 85.6 | 99.3 | 91.2 |
+| c7 | rate7 | dc1 加 `cpus=7`，backboardd `ANNIBALE_PASS_LOG=1` | 85.6 | 99.3 | 91.2 |
 | dc2 | rate7 | dc1 的开关，AIR 库换成带 `0009` 的一份，11-05 | 95.5 | 100.2 | 89.8 |
 
 - tour 2 修正了设置图标的位置（0.385, 0.70），在手势段前后开关处理器采样，最后 `dump backboardd` 取共享缓存偏移。sk1 起各轮都用 tour 2。
 - dc1 起画布是 1206×2622（`cycle.py` 的默认值，见[状态栏布局分析](../analysis/2026-11-02-status-bar-layout.md)），帧率只能与同画布的轮次比较。
-- hs1、sm1、dc1、ft3 的 backboardd 都带 pass 时间（`REDWOOD_PASS_TIMES=1`）。
+- hs1、sm1、dc1、ft3 的 backboardd 都带 pass 时间（`ANNIBALE_PASS_TIMES=1`）。
 
 ## 3. 读数
 
@@ -57,7 +57,7 @@ AIR 库与 Metal 驱动：
 - best1：手势窗口里 3830 帧，88% 用一个节拍；GPU 最高 56.3 °C，CPU 簇最高 59.3 °C，最热的传感器 71.3 °C，CPU 温控上限触发 1～3 次。
 - best1 的崩溃条目比 pt2 多，按时长折算后持平：usertrap「called from」每分钟 bt0 38 条、pt2 46 条、best1 43 条。新出现的 MessagesBlastDoor 断言与基线已有的 icloudmailagent 断言 pc 低位相同（`…878`）。
 - hs1：每 5 秒最多 129 帧跳过哈希。sm1：GPU 最高 56.7 °C。c7：GPU 最高 57.5 °C，最热的传感器 70.2 °C。
-- dc1：tile load 次数与 hs1 相当，`REDWOOD_DONTCARE_CLEAR=1` 对整屏 pass 没有作用。
+- dc1：tile load 次数与 hs1 相当，`ANNIBALE_DONTCARE_CLEAR=1` 对整屏 pass 没有作用。
 - dc2：整屏 pass 每次 907 → 795 µs；tile load 次数相当（72692 对 67911），每次 51 → 18 µs，合计 3.46 → 1.30 s。控制中心下拉 5 次的帧率是 90.1、112.5、81.5、80.1、114.1，dc1 是 85.8、110.4、64.0、71.5、110.5。截图与 dc1 逐张一致，崩溃条目不多于 dc1，最热的传感器 72.1 °C（dc1 为 75.2 °C）。
 
 ## 4. 默认值的变化

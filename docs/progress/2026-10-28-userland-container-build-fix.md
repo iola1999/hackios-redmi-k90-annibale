@@ -5,7 +5,7 @@
 ## 1. 为什么需要 arm64e
 
 - 26 线镜像只带 arm64e 的共享缓存：`hackios-xnu-kernel/ios26/23G90__iPhone18,3/` 下只有 `dyld_shared_cache_arm64e*`，系统进程都是 arm64e。
-- 加载进 arm64e 进程的库（dylib、bundle）必须是 arm64e 切片，dyld 丢弃 arm64 切片且不打印任何行。两次实测：AIR 库为 arm64 时着色器不翻译、GPU 收不到提交，桌面 9～11 帧／秒，换 arm64e 后 60 帧／秒（`build.sh` 的 AIR 架构检查注释）；2026-10-29 `libredwood.dylib` 为 arm64 时 backboardd 里这个库的功能都没有生效（`tools/k90auto/package.py` 的断言注释）。
+- 加载进 arm64e 进程的库（dylib、bundle）必须是 arm64e 切片，dyld 丢弃 arm64 切片且不打印任何行。两次实测：AIR 库为 arm64 时着色器不翻译、GPU 收不到提交，桌面 9～11 帧／秒，换 arm64e 后 60 帧／秒（`build.sh` 的 AIR 架构检查注释）；2026-10-29 `libannibale.dylib` 为 arm64 时 backboardd 里这个库的功能都没有生效（`tools/k90auto/package.py` 的断言注释）。
 - Apple clang 编出的 arm64e 切片 `cpusubtype` 为 `0x80000002`（LIB64 位 `0x80000000` 加 ARM64E 的 2）；容器 clang 18 编出 `0x00000002`，arm64 为 `0x0`。
 
 容器 clang 18 编不出可用的 26 线产物，原因有两条，都在容器里实测过：
@@ -36,9 +36,9 @@ build.sh: why this image needs arm64e, and what would falsify it: docs/progress/
 
 2026-10-28 对当时装车的根盘（`hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root`）跑一遍：39 个拒绝、8 个通过。39 个都是 arm64（cpusubtype `0x0`）：
 
-- `root/lib` 下 9 个：`libredwood-app`、`-fairplay`、`-media`、`-sb`、`-store`、`-tweaks`、`libredwood.dylib`、`RedwoodMetal.bundle/RedwoodMetal`、`RedwoodAudio.driver/RedwoodAudio`。
+- `root/lib` 下 9 个：`libannibale-app`、`-fairplay`、`-media`、`-sb`、`-store`、`-tweaks`、`libannibale.dylib`、`AnnibaleMetal.bundle/AnnibaleMetal`、`AnnibaleAudio.driver/AnnibaleAudio`。
 - `root/bin` 下 30 个程序。
-- 通过的 8 个：`libredwoodair.dylib`、`libredwoodmetal.dylib`、`libredwood-sb26.dylib`、`libredwood-sbmetal-experiment.dylib`、`input26-service`、`lsprobe`、`framewatch`、`mg_test`。
+- 通过的 8 个：`libannibaleair.dylib`、`libannibalemetal.dylib`、`libannibale-sb26.dylib`、`libannibale-sbmetal-experiment.dylib`、`input26-service`、`lsprobe`、`framewatch`、`mg_test`。
 
 ## 3. 哪些观察能推翻这个要求
 
@@ -53,6 +53,6 @@ build.sh: why this image needs arm64e, and what would falsify it: docs/progress/
 - `docker/dev.sh` 用 `readlink` 求出这个 SDK 的根，以同一绝对路径只读挂进容器；解析不出或不是目录时打印一行并照原参数启动。`build.sh` 在编译前检查 SDK 能否解析，不能时报 `build.sh: the iOS 26 SDK has no frameworks in this environment`，并说明要以同一绝对路径只读挂载。
 - 挂上 SDK 之后，容器构建停在 `src/inject_sb26.c:11` 的 `'ptrauth.h' file not found`，这是 §1 的预期结果。
 - `xnu-deps/host/bin/ld64`：`hackios-xnu-kernel/tools/mk-mesa.sh` 用 `[ -e "$LD64" ] || ln -sfn "$THEOS/toolchain/linux/iphone/bin/ld" "$LD64"` 建这个链接。`-e` 跟随符号链接，链接失效时会被改写；宿主和容器的 `$THEOS` 不同，在同一工作区跑过容器构建后，链接指向容器内的路径。该目录被 `.gitignore` 忽略，没有历史可查。这个问题只记录，没有做结构性修复。
-- `PREBUILT=1` 静默生效：`build.sh` 在 `PREBUILT` 未设且 PATH 上没有 `ld64` 时自动设为 1，跳过整段编译，改用 `prebuilt/userland`。`libredwoodmetal.dylib` 与 `lsprobe` 有「存在且比源文件新」的断言（`lsprobe` 的断言还没有被真实构建触发过）；其余程序按 `if [ -f obj/$t ]` 装进镜像，缺了不装，旧了装旧的。
+- `PREBUILT=1` 静默生效：`build.sh` 在 `PREBUILT` 未设且 PATH 上没有 `ld64` 时自动设为 1，跳过整段编译，改用 `prebuilt/userland`。`libannibalemetal.dylib` 与 `lsprobe` 有「存在且比源文件新」的断言（`lsprobe` 的断言还没有被真实构建触发过）；其余程序按 `if [ -f obj/$t ]` 装进镜像，缺了不装，旧了装旧的。
 - `ldid`：26 分支有三处无条件调用 `${LDID:-ldid}`，`set -e` 下找不到就停。容器里 `ldid` 在 `$THEOS/toolchain/linux/iphone/bin/ldid`，不在 PATH；`build.sh` 在 `LDID` 未设且 PATH 上没有时取这个路径并 `export`，因为后面的 python 段从环境读 `LDID`。
 - `docker/dev.sh` 的参数展开写成 `${SDK_ARGS[@]+"${SDK_ARGS[@]}"}`：宿主 bash 3.2.57 在 `set -u` 下直接展开空数组会报 unbound variable。`dev.sh` 带 `-it`，没有 pty 的 shell 里会报 `openpty: Operation not permitted`，与挂载是否生效无关。

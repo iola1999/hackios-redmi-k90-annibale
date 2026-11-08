@@ -89,7 +89,7 @@ for path in paths:
     for name in counts:
         counts[name] += text.count(name)
     for name in ("SpringBoard", "backboardd"):
-        for match in re.finditer(rf"redwood: proc {name} pid (\d+)([^\n]*)", text):
+        for match in re.finditer(rf"annibale: proc {name} pid (\d+)([^\n]*)", text):
             processes.setdefault(name, set()).add(f"pid {match.group(1)}{match.group(2)}".strip())
 
 frames.sort(key=lambda row: row[2])
@@ -117,5 +117,5 @@ else:
 print(f"framewatch quiet: {quiet} s")
 print("counts: " + ", ".join(f"{name}={value}" for name, value in counts.items()))
 for name in ("SpringBoard", "backboardd"):
-    print(f"{name}: " + ("; ".join(report["processes"].get(name, [])) or "no redwood: proc line"))
+    print(f"{name}: " + ("; ".join(report["processes"].get(name, [])) or "no annibale: proc line"))
 print(f"report: {report_path}")

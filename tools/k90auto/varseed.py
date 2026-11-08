@@ -26,7 +26,7 @@ HARDLINK = 4
 def read(path):
     data = Path(path).read_bytes()
     magic, version, slot, generation, size, count, seconds, crc, head_crc = HEAD.unpack_from(data)
-    assert magic == b"RDWVAR\0\0" and version == 1, f"{path} is not a var_store archive"
+    assert magic == b"ANNVAR\0\0" and version == 1, f"{path} is not a var_store archive"
     archive = data[4096:4096 + size]
     assert len(archive) == size and zlib.crc32(archive) == crc, f"{path}: the contents do not check out"
     entries, at = [], 0
@@ -74,7 +74,7 @@ def main():
     kept = [e for e in entries if not under(e["path"], prefixes)
             and not (e["kind"] == HARDLINK and under(e["first"], prefixes))]
     archive = b"".join(e["raw"] for e in kept)
-    head = HEAD.pack(b"RDWVAR\0\0", 1, 0, generation, len(archive), len(kept), int(time.time()),
+    head = HEAD.pack(b"ANNVAR\0\0", 1, 0, generation, len(archive), len(kept), int(time.time()),
                      zlib.crc32(archive), 0)
     head = HEAD.pack(*HEAD.unpack(head)[:-1], zlib.crc32(head))
     # whole blocks, as var_store's own save leaves them: its load reads the archive block by block

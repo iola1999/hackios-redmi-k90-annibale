@@ -1,10 +1,10 @@
 # interactive: no synthetic touches, for a person holding the phone.
 #
-# The lock screen is dismissed by libredwood-sb26.dylib inside SpringBoard. rwsh runs what the host
+# The lock screen is dismissed by libannibale-sb26.dylib inside SpringBoard. rwsh runs what the host
 # sends with tools/k90auto/rsh.py (kernel 12377-cmd1 or later, loader v10, PAYLOAD_PROGRAMS naming
 # the rwsh binary). lsprobe answers which applications LaunchServices knows, framewatch prints frame
 # counts every 20 s, and nothing else touches the screen, so every gesture in the log is the
 # person's own. appinst installs each .ipa that Safari saves to the Downloads folder. A line whose
 # program is not in the image fails on its own and the rest still run.
-/redwood/bin/rwsh &
-/redwood/bin/appinst watch &
+/annibale/bin/rwsh &
+/annibale/bin/appinst watch &

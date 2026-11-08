@@ -13,7 +13,7 @@
 | 部件 | 现状 | 出处 |
 |---|---|---|
 | 归档格式 | 两个槽位轮流写，先清零槽头，再写归档，最后写槽头；`load` 先校验 CRC-32 再展开，归档损坏时保持空白的 `/private/var` | `hackios-xnu-kernel/userland/src/var_store.c` 文件头 |
-| 停轮时保存 | `var_store watch` 向内核登记，回到 loader 前内核等它保存，有超时 | `var_store.c`、内核 `redwood_ufs.c` 的 `redwood_var_save_on_return` |
+| 停轮时保存 | `var_store watch` 向内核登记，回到 loader 前内核等它保存，有超时 | `var_store.c`、内核 `annibale_ufs.c` 的 `annibale_var_save_on_return` |
 | 开机展开 | `var_store=1` 时 init 用根镜像里的 `etc/var.seed` | `tools/k90auto/package.py` 的 `SEED` |
 | loader 写闪存 | 只在命令行有 `ufs_write=1` 时服务写请求，范围限定在 POCO X5 Pro 的 `darwin` 分区，写后回读比较 | `xnuloader/loader_03_ufs_block_watch.inc` |
 | DSU 读取 | 从 `/metadata` 里 `lp_metadata` 的 `system_gsi` 表项取扩展区（userdata 的扇区号），整份读进常驻内存 | `xnuloader/loader_dsu.inc` |
@@ -74,7 +74,7 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 
 ## 7. 实测（2026-11-05）
 
-代码在内核仓库 `xnuloader/loader_dsu.inc`、`xnuloader/loader_02_platform_cpu_ufs_survey.inc`、`xnuloader/loader_03_ufs_block_watch.inc`、`xnu/files/bsd/dev/redwood_ufs.c` 与用户态 `userland/src/var_store.c`、`userland/src/init.c`。
+代码在内核仓库 `xnuloader/loader_dsu.inc`、`xnuloader/loader_02_platform_cpu_ufs_survey.inc`、`xnuloader/loader_03_ufs_block_watch.inc`、`xnu/files/bsd/dev/annibale_ufs.c` 与用户态 `userland/src/var_store.c`、`userland/src/init.c`。
 
 - 布局与范围检查：`loader_dsu.inc` 在 `system_gsi` 达到 16 GiB 时把最后 4 GiB（偏移 12 GiB 起，共 1,048,576 个 4096 字节块）登记为合成块区 `dsu_store`，内核露出 `/dev/rufs_dsu_store`。`dsu_store_write()` 逐段将逻辑偏移换算为 `system_gsi` 扩展区内的 userdata 扇区，越界或 `dsu_store` 未就绪时拒绝写入，写前先读原块，内容相同则跳过，不同则写入后回读校验。
 - 只读核对（`kernel-12377-st2-r1`）：loader 报 `dsu: dsu_store: 4096 MB from 12288 MB of the DSU slot (1048576 blocks of 4096)`，`var_store show` 读出 `slot 0: empty`、`slot 1: empty`。

@@ -19,9 +19,9 @@
 - 默认的 `IOS_JOBS` 是 21 条（`notifyd`、`cfprefsd`×2、`logd`、`syslogd`、`distnoted`、`diagnosticd`、`fseventsd`、`containermanagerd`×2、`runningboardd`、`backboardd`、`mobile.usermanagerd`、`mobilegestalt.xpc`、`lsd`、`powerd`、`analyticsd`、`logd_helper`、`iconservicesagent`、`pluginkit.pkd`、`SpringBoard`），加 `wifid` 是 22 条。
 - `--rest` 把 491 个 LaunchDaemon 与 12 个 LaunchAngel 里剩下的、带 MachServices 且程序在盘的全部加上，产物是 388 条。
 
-出处是 `docs/progress/evidence/2026-10-25-codex-gpu-resume/kernel-queue-wait-s23-auto-default/run/s002.log`：启动时会打印 `/redwood/LaunchDaemons` 的内容，去重后 388 个 `.plist`。同一份日志里 `com.apple.mobile.installd` 是 `launching: ipc (mach)` 拉起在 `user/501` 域，它不在那 21 条显式清单里，是被 `lsd` 或别的进程查找时才启动的。`--rest` 保留 MachServices、删掉 `RunAtLoad`／`KeepAlive`／`StartInterval` 与其余启动触发器，所以「388 条」只说明登记条目数，说明不了同时运行的进程数。
+出处是 `docs/progress/evidence/2026-10-25-codex-gpu-resume/kernel-queue-wait-s23-auto-default/run/s002.log`：启动时会打印 `/annibale/LaunchDaemons` 的内容，去重后 388 个 `.plist`。同一份日志里 `com.apple.mobile.installd` 是 `launching: ipc (mach)` 拉起在 `user/501` 域，它不在那 21 条显式清单里，是被 `lsd` 或别的进程查找时才启动的。`--rest` 保留 MachServices、删掉 `RunAtLoad`／`KeepAlive`／`StartInterval` 与其余启动触发器，所以「388 条」只说明登记条目数，说明不了同时运行的进程数。
 
-2026-10-28 时 iOS 26 侧跑 31 条：`build.sh` 的 23 条（21 条加 `systemstatusd`、`wifid`）加 4 条 `com.redwood.*` 加 `package.py` 的 4 条（`chronod`、`PosterBoard`、`replicatord`、`mobile.installd`）。把同一份 `mkjobs.py --rest` 套 iOS 26 的 628 个 LaunchDaemon 与 32 个 LaunchAngel，得到 535 条。
+2026-10-28 时 iOS 26 侧跑 31 条：`build.sh` 的 23 条（21 条加 `systemstatusd`、`wifid`）加 4 条 `com.annibale.*` 加 `package.py` 的 4 条（`chronod`、`PosterBoard`、`replicatord`、`mobile.installd`）。把同一份 `mkjobs.py --rest` 套 iOS 26 的 628 个 LaunchDaemon 与 32 个 LaunchAngel，得到 535 条。
 
 这条差集成立，但 26 上桌面空另有原因（§1）。缺少的服务后来造成了处理器占用，`package.py` 现在默认 `REST=1`，按需登记其余任务，见[开机后的处理器占用与 launchd 任务集](2026-10-31-launchd-jobs-and-boot-cpu.md)。
 
@@ -36,7 +36,7 @@
 
 ## 4. 探针 `lsprobe`
 
-- 源码 `hackios-xnu-kernel/userland/src/lsprobe.m`。`PROBE=1` 时 `package.py` 把它编成 `/bin/lsprobe`，并在 `etc/rc.jobs` 开头加两行 `/redwood/bin/lsprobe 60 &` 与 `/redwood/bin/lsprobe 300 &`。它只读，不改系统镜像。
+- 源码 `hackios-xnu-kernel/userland/src/lsprobe.m`。`PROBE=1` 时 `package.py` 把它编成 `/bin/lsprobe`，并在 `etc/rc.jobs` 开头加两行 `/annibale/bin/lsprobe 60 &` 与 `/annibale/bin/lsprobe 300 &`。它只读，不改系统镜像。
 - 两行必须在文件开头且以 `&` 结尾：`init` 逐行执行 `rc.jobs`、每行等结束，追加在手势脚本之后的探针要等手势跑完才启动。
 - 打印内容：`LSApplicationWorkspace allApplications` 的应用数与每个 bundle id（括号里是那个 proxy 携带的扩展记录数）、`MobileInstallationLookup` 的条数、`/Applications` 与 `/private/var/staged_system_apps` 的目录项数、`/private/var/mobile/Library/MobileInstallation` 的目录项数、`/private/var/mobile/Library/SpringBoard/IconState.plist` 是否存在，以及进程表与各进程的处理器时间。
 

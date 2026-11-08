@@ -10,7 +10,7 @@
 
 - loader：`hackios-xnu-kernel/out/handoff-loader-v17.img`（`LOADER`），2026-11-05 起刷在 `boot_a`。Wi-Fi 需要 v16 起的 loader，它在 4 GB 以下给 Wi-Fi 卡留 128 MB 内存；v17 沿用 v16 的 loader，换了 UEFI。`cycle.py` 按 `getvar build-id` 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的 loader；不含时经 LK 用 `fastboot boot` 起 v17，不刷写分区。
 - 内核：`12377-rate10`（`KERNEL`），由 `make-payload.py` 和根盘打包成载荷，构建方法见 k90auto 说明。
-- 系统卷：部署在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。`userland/flashboot.apfs` 是本轮构建为 4 MiB 的启动卷，作为 `md0`；`root.apfs` 是辅助盘 `md1`，挂载到 `/redwood`。部署见[双系统分区与持久化部署手册](dual-boot-setup.md)。
+- 系统卷：部署在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。`userland/flashboot.apfs` 是本轮构建为 4 MiB 的启动卷，作为 `md0`；`root.apfs` 是辅助盘 `md1`，挂载到 `/annibale`。部署见[双系统分区与持久化部署手册](dual-boot-setup.md)。
 - 启动参数：`make-payload.py` 的固定一组加 `cycle.py` 的 `FIXED_ARGS`，见第 8 节与 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。
 
 每轮收尾的 PSCI 复位会重新启动 `boot_a` 里刷着的 loader。`boot_a` 里 loader 的 build-id 不含 `a48c7fb` 时，每一轮都要多走一次 LK 检查点，所以建议按第 3 节把 v17 刷进 `boot_a`。
@@ -117,18 +117,18 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 `make-payload.py` 固定带 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1` 与 `touchscreen=2 buttons=1 battery=1`，`cycle.py` 的 `FIXED_ARGS` 再加 GPU、120 Hz、触摸轮询和 Wi-Fi 一组，其余参数用 `cycle.py --boot-args` 追加。每轮只增加一个待测参数，先检查 USB 日志和对应的实际行为。触摸、震动、手电不带参数时不做任何动作，QEMU 也不需要它们。
 
 - `touchscreen=2`：annibale Goodix 触摸。先查芯片身份、报告模式和有效触点，再验证用户滑动与点击的坐标及延迟。`ready` 日志和自动操作脚本的手势都不足以完成手指操作验收。`cycle.py` 另带 `touch_poll_us=4000`，每 4 ms 读一次。
-- `buttons=1`：音量键与电源键，只读 PMIC，不写入（`annibale_buttons.c`）。音量上是 PMI GPIO slave 1 function `0x18d`，低有效带上拉；电源和音量下是 PMK8550 PON（KPDPWR／RESIN）。事件进 USB 日志的 `buttons:` 行和 `/dev/redwood-input`，`buttons_hv_steps=1..5` 分步诊断。验收依次查看 arbiter、通道表、TYPE/SUBTYPE、引脚状态和 `buttons:` 事件，再核对 iOS 行为。
-- `battery=1`：读取 I²C 地址 `0x55` 的 BQ27Z561，经 GPIO52/53 传输并在采样后恢复引脚（`annibale_battery.c`）。检查电量、电压、温度及 `RedwoodBattery` 发布结果；充电状态显示仍不准，见[默认参数与充电状态](../progress/2026-11-05-defaults-and-charging.md)，读法见[桌面交互案例](../analysis/2026-10-24-interactive-runtime.md) §4。
+- `buttons=1`：音量键与电源键，只读 PMIC，不写入（`annibale_buttons.c`）。音量上是 PMI GPIO slave 1 function `0x18d`，低有效带上拉；电源和音量下是 PMK8550 PON（KPDPWR／RESIN）。事件进 USB 日志的 `buttons:` 行和 `/dev/annibale-input`，`buttons_hv_steps=1..5` 分步诊断。验收依次查看 arbiter、通道表、TYPE/SUBTYPE、引脚状态和 `buttons:` 事件，再核对 iOS 行为。
+- `battery=1`：读取 I²C 地址 `0x55` 的 BQ27Z561，经 GPIO52/53 传输并在采样后恢复引脚（`annibale_battery.c`）。检查电量、电压、温度及 `AnnibaleBattery` 发布结果；充电状态显示仍不准，见[默认参数与充电状态](../progress/2026-11-05-defaults-and-charging.md)，读法见[桌面交互案例](../analysis/2026-10-24-interactive-runtime.md) §4。
 - `cpufreq=1`：按负载调频、空闲降档、触摸短时提频；CPU 达到 70 °C 后降到最低档，低于 60 °C 后恢复。`cpufreq=2` 只报告，`cpufreq=3` 为固定频率对照；日常交互使用模式 1。
 - `fbwidth=1206 fbheight=2622 fbpitch=460`：iPhone 17 的画布，`cycle.py` 默认追加在最后，原因见[状态栏布局分析](../analysis/2026-11-02-status-bar-layout.md)。内核缺省是 1125×2436，需要支持 `fbpitch` 的内核；`fbpitch=0` 保留按宽度缩放的密度。
 - `pcie=N`：Wi-Fi 卡（WCN7850）执行第 1～N 步，最多 10（`mhi_pcie.c` 文件头）。第 1～6 步是诊断读取，7～9 步启动卡上固件并与 WLFW 服务交换，第 10 步由 ath12k 驱动代替第 7～9 步。`cycle.py` 固定带 `pcie=10` 一组和 `wifi_station=1`，见 [Wi-Fi 驱动记录](../progress/2026-11-01-wifi-ath12k-driver.md)。
-- 手电（`annibale_torch.c`，需要内核 `4d6eee3` 及以后）：`torch_secs=3` 亮 3 秒后自动熄灭（驱动内最多 5 秒），`torch_ma=1..500` 调电流，默认 125；`torch=3` 提供 `/dev/redwood-torch` 给 iOS 的 AVFlashlight 与 mediaserverd，单次默认 30 秒，`torch_max_s` 最多 120 秒。驱动先验 TYPE/SUBTYPE 且无 fault 才写，每次写入都回读，遇到 fault 拒绝点亮。
-- 震动（`annibale_haptic.c`，需要内核 `5847dd3` 及以后）：`hv_haptic=3` 起内核后直驱马达 30 ms，靠手感验收，没感觉时加 `haptic_amp=128`，仍没有就读 USB 日志的 `haptic:` 行；`hv_haptic=4` 让 iOS 触感反馈经 `/dev/redwood-haptic` 驱动马达，单次最长 1 秒，出现 fault 后停用。
+- 手电（`annibale_torch.c`，需要内核 `4d6eee3` 及以后）：`torch_secs=3` 亮 3 秒后自动熄灭（驱动内最多 5 秒），`torch_ma=1..500` 调电流，默认 125；`torch=3` 提供 `/dev/annibale-torch` 给 iOS 的 AVFlashlight 与 mediaserverd，单次默认 30 秒，`torch_max_s` 最多 120 秒。驱动先验 TYPE/SUBTYPE 且无 fault 才写，每次写入都回读，遇到 fault 拒绝点亮。
+- 震动（`annibale_haptic.c`，需要内核 `5847dd3` 及以后）：`hv_haptic=3` 起内核后直驱马达 30 ms，靠手感验收，没感觉时加 `haptic_amp=128`，仍没有就读 USB 日志的 `haptic:` 行；`hv_haptic=4` 让 iOS 触感反馈经 `/dev/annibale-haptic` 驱动马达，单次最长 1 秒，出现 fault 后停用。
 - 更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。手电与震动在 iOS 16.5 上实测通过，iOS 26 上还不能用。
 
 ## 9. 启动卷与内存窗口检查
 
-在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，生成 `userland/flashboot.apfs`。本轮产物为 4 MiB，包含 `stage0` 与挂载目录。`stage0` 挂载辅助盘并执行 `/redwood/sbin/init`，后者从 UFS 挂载系统卷并切换根目录。
+在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，生成 `userland/flashboot.apfs`。本轮产物为 4 MiB，包含 `stage0` 与挂载目录。`stage0` 挂载辅助盘并执行 `/annibale/sbin/init`，后者从 UFS 挂载系统卷并切换根目录。
 
 - 启动卷上限为 64 MiB；完整 XNUP 容器上限为 `0x03700000` 字节（55 MiB），以未压缩长度校验。
 - `getvar ramdisk-protocol` 应返回 `1`；`getvar ramdisk-state` 返回状态、已接收长度、总长度和窗口长度，三个长度均为十六进制。

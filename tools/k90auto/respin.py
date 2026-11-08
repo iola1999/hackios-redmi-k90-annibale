@@ -4,9 +4,9 @@
 usage: tools/k90auto/respin.py ROUND_DIR [--env WORD ...] [--restart NAME ...] [--wait S]
                                [--until TEXT] [--tour STEP ...] [--stop]
 
---env sets kern.redwood.env to the words, each PROCESS:NAME=VALUE or PROCESS:-NAME, where PROCESS
+--env sets kern.annibale.env to the words, each PROCESS:NAME=VALUE or PROCESS:-NAME, where PROCESS
 is the process name (SpringBoard, iconservicesagent); `--env` with no words clears it.
-libredwoodmetal applies its process's words when the process loads it, so they take effect in
+libannibalemetal applies its process's words when the process loads it, so they take effect in
 the processes --restart kills and launchd starts again. --wait is the seconds to wait after that
 (default 30), --until waits instead for TEXT to appear in the log after the restart (at most
 --wait seconds). --tour runs tour.py's steps, appended to the round's tour.json.
@@ -14,7 +14,7 @@ the processes --restart kills and launchd starts again. --wait is the seconds to
 
 The round has to be running and has to stay up between calls: start it with cycle.py --hold. The
 commands go through rsh.py, one line of at most 119 characters each, so a long --env is sent as one
-"setenv" and as many "addenv" as it takes. Needs a kernel with kern.redwood.env (12377-cmd13 and
+"setenv" and as many "addenv" as it takes. Needs a kernel with kern.annibale.env (12377-cmd13 and
 later) and an image whose rwsh has setenv, addenv and restart.
 """
 import argparse

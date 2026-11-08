@@ -21,7 +21,7 @@ import time
 HERE = Path(__file__).resolve().parent
 DEFAULT_COMMANDS = (
     ("processes", ("ps",)),
-    ("installed_apps", ("/redwood/bin/appinst", "list")),
+    ("installed_apps", ("/annibale/bin/appinst", "list")),
     ("applications", ("ls", "/Applications")),
     ("downloads", ("ls", "/private/var/mobile/Library/Downloads")),
     ("ipa_staging", ("ls", "/private/var/tmp/ipa")),

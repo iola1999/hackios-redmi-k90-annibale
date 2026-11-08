@@ -13,7 +13,7 @@
 
 以 `kernel-12377-cmd43-bo20` 为例：
 
-- 第一次中止在今天视图里第二次向下滑结束后约 0.75 秒。之后约每秒 5 次，直到日志结束没有停，内核日志共 664 行 `redwood: proc Spotlight pid N died on signal 6`。
+- 第一次中止在今天视图里第二次向下滑结束后约 0.75 秒。之后约每秒 5 次，直到日志结束没有停，内核日志共 664 行 `annibale: proc Spotlight pid N died on signal 6`。
 - 同一时段键盘相关进程启动（kbd、InputUI、inputanalyticsd、StickerPickerService），内核多次报「corpse slots full」。
 - 两次 `ps` 之间全部进程的处理器时间增加 137.7 秒，其中 ReportCrash 72.5 秒。
 - 处理器集群温度在循环前 41～48 °C，循环开始后 66～69 °C，GPU 54～56 °C。

@@ -14,12 +14,12 @@
 ## 2. 启动路径
 
 1. loader 把小型启动卷发布为 `RAMDisk`，内核创建 `/dev/md0`。参数为 `rd=md0 rootdev=md0`。这个内存盘只包含启动卷，不包含系统镜像和用户数据。
-2. loader 把辅助盘发布为 `RAMDisk1`。`stage0` 将 `/dev/md1` 挂载到 `/redwood`，执行 `/redwood/sbin/init`。
-3. `root_apfs=ufs_darwin ufs=2 ufs_native=1` 使 `init` 从 `/dev/ufs_darwin` 只读挂载 APFS 系统卷，准备启动任务与驱动挂载点，再通过 `kern.redwood_switch_root` 切换根目录。
+2. loader 把辅助盘发布为 `RAMDisk1`。`stage0` 将 `/dev/md1` 挂载到 `/annibale`，执行 `/annibale/sbin/init`。
+3. `root_apfs=ufs_darwin ufs=2 ufs_native=1` 使 `init` 从 `/dev/ufs_darwin` 只读挂载 APFS 系统卷，准备启动任务与驱动挂载点，再通过 `kern.annibale_switch_root` 切换根目录。
 4. 原版三容器部署从 `darwin` 的后续容器挂载 OS/App Cryptex；合成 `system26.apfs` 使用卷内已有的 `/System/Cryptexes/OS` 与 `/System/Cryptexes/App`。
-5. `/private/var` 使用内核 `RDWFS001` 持久化层，数据保存在 `darwin_var`。块写入、同步和断电恢复的验收与系统卷读取分别执行。
+5. `/private/var` 使用内核 `ANNFS001` 持久化层，数据保存在 `darwin_var`。块写入、同步和断电恢复的验收与系统卷读取分别执行。
 
-初始根盘保留 `md0` 的原因是初始化顺序：`IOFindBSDRoot()` 查找初始根设备早于 devfs 挂载后的 `redwood_ufs_init()`，后者才创建 `/dev/ufs_darwin`。现有用户态切根路径可在这些设备节点创建后使用它们。
+初始根盘保留 `md0` 的原因是初始化顺序：`IOFindBSDRoot()` 查找初始根设备早于 devfs 挂载后的 `annibale_ufs_init()`，后者才创建 `/dev/ufs_darwin`。现有用户态切根路径可在这些设备节点创建后使用它们。
 
 `ufs_native=1` 请求原生 UFS 读取。内核仍会检查控制器、LUN 与 GPT；原生接管失败可能使用 loader 的块服务。真机验收需要记录实际选中的读取方式。
 
@@ -56,7 +56,7 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 ## 6. 验证结果与待办
 
-本轮离线验证已通过：主机工具 26 项测试、起轮状态 5 项测试、standalone 与启动安全 11 项测试、loader 接收与布局 887 项检查及 7 项故障注入、原有 loader 生命周期测试，以及切根、数据盘挂载和 RDWFS 恢复测试。RDWFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
+本轮离线验证已通过：主机工具 26 项测试、起轮状态 5 项测试、standalone 与启动安全 11 项测试、loader 接收与布局 887 项检查及 7 项故障注入、原有 loader 生命周期测试，以及切根、数据盘挂载和 ANNFS 恢复测试。ANNFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
 
 内核、loader、用户态、AIR 与辅助盘构建通过。APFS 读取工具确认启动卷包含一个 `stage0` 文件及七个目录。Linux `apfsck` 在本机 macOS 缺少所需头文件，完整文件系统检查未执行。最终启动镜像为 24,031,232 字节，SHA-256 为 `8a187c03a7a723a1c3d921e425bf157a019a76b02ed381918f083312f116ee17`；解压后的完整 XNUP、内核、辅助盘与启动卷均已逐项核对。
 
@@ -64,7 +64,7 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 - loader `build-id` 为 `b935d2e5` 对应的完整提交号，运行状态为 `running 0 0`。
 - `ramdisk-state` 为 `ready 400000 400000 300000000`：启动卷 4 MiB，XNU 内存窗口 12 GiB。辅助盘为 20,533,248 字节；窗口大小与系统当前可用内存分别记录。
-- 日志依次确认 `BSD root: md0`、`/dev/ufs_darwin` 只读挂载、`vfs_switch_root error 0`、OS/App Cryptex 与 `/redwood` 绑定成功。
+- 日志依次确认 `BSD root: md0`、`/dev/ufs_darwin` 只读挂载、`vfs_switch_root error 0`、OS/App Cryptex 与 `/annibale` 绑定成功。
 - 内核完成原生 UFS transfer list 切换和 TEST UNIT READY，LUN 0～5 的 GPT 与原读取结果一致；系统分区由内核 UFS 驱动读取，`darwin_var` 注册了硬件块写入范围。
 - `/private/var` 从槽位 1、代数 75024 恢复 21446 个节点与 73261 页，SpringBoard 和 backboardd 启动，锁屏截图已保存。
 - 临时启动停止前，`hw.memsize` 为 12 GiB，页大小为 16384 字节；空闲页 457628 页，约 6.98 GiB，wired 页 77614 页，约 1.18 GiB。完整系统镜像的 5.51 GiB 常驻分配已清除。
@@ -107,7 +107,7 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 备份前缀中的 64 MiB 元数据与独立副本一致，从有效检查点引用的数据块读出的 110 字节测试文件也与停止前逐字节一致。备份完成后再次读取主备 GPT，内容保持原值。主任务另行读取两份备份并重复校验长度、SHA-256、元数据和测试文件。
 
-`hackios-xnu-kernel/tools/rdwfs-inspect.py` 校验保存的元数据并计算有效块范围，`hackios-xnu-kernel/tools/darwin-expand-plan.py` 校验当前主备 GPT、分区相邻关系和目标容量，可将候选 GPT 输出到新建主机目录。两组各 21 项测试通过。真实候选主、备文件各改变 10 个字节，全部属于两个分区的边界及相关 CRC，其余字节保留。
+`hackios-xnu-kernel/tools/annfs-inspect.py` 校验保存的元数据并计算有效块范围，`hackios-xnu-kernel/tools/darwin-expand-plan.py` 校验当前主备 GPT、分区相邻关系和目标容量，可将候选 GPT 输出到新建主机目录。两组各 21 项测试通过。真实候选主、备文件各改变 10 个字节，全部属于两个分区的边界及相关 CRC，其余字节保留。
 
 迁移已完成。数据盘前缀与三个原始系统容器分别写入、同步并全范围读回，SHA-256 均与输入一致；随后按备份分区表、备份头、主分区表、主头的顺序更新 GPT，各项读回及完整 CRC 校验通过。两个分区的范围发生变化，其余 62 个条目，以及这两个条目的 GUID、属性和名称均保持原值。
 

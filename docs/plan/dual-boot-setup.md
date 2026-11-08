@@ -7,7 +7,7 @@
 UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表末尾的 `userdata`（`/dev/block/sda34`，经 `dm-default-key` 映射为 `/dev/block/dm-55` 挂载到 `/data`）一直延伸到磁盘末尾。双系统部署从 `userdata` 尾部无损缩容出一块空间，新增两个分区（类型 GUID 均为 APFS Container `7C3457EF-0000-11AA-AA11-00306543ECAC`）：
 
 - `darwin`（默认 `16 GiB`，Android 侧 `/dev/block/sda35`，XNU 侧 `/dev/ufs_darwin`）：存放原版未裁剪 iOS 26 系统镜像（`os.dmg` + `systemos.dmg` + `appos.dmg`，共 15.03 GB）或 `system26.apfs`，作为 iOS 26 只读系统盘挂载。
-- `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，由内核直写块持久化层（`RDWFS001`）经 `redwood_ufshc` 原生 `WRITE(10)` 实时落盘。
+- `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，由内核直写块持久化层（`ANNFS001`）经 `annibale_ufshc` 原生 `WRITE(10)` 实时落盘。
 
 不同整机存储容量可按需传入 `--var-gib` 调整划分大小；下文以 **256 GB 机型划分 120 GiB（16 GiB `darwin` + 104 GiB `darwin_var`）** 为例，512 GB／1 TB 等机型或不同空间分配需求请按实际情况填写 `--var-gib`，并以 `userdata-dual-carve.py` 根据本机 GPT 计算出的块数与 LBA 为准：
 
@@ -15,7 +15,7 @@ UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表�
 |---|---|---|---|---|---|
 | `userdata` | `/dev/block/sda34` | `/dev/ufs_userdata` | `3518464..32584698` | 110.879 GiB | Android `/data` 分区（56,415 个 2 MB 主段） |
 | `darwin` | `/dev/block/sda35` | `/dev/ufs_darwin` | `32584704..36779007` | 16.000 GiB | iOS 26 只读系统盘（存放 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`） |
-| `darwin_var` | `/dev/block/sda36` | `/dev/ufs_darwin_var` | `36779008..64041978` | 104.000 GiB | iOS 26 `/private/var` 可写数据盘（`RDWFS001` 直写持久化） |
+| `darwin_var` | `/dev/block/sda36` | `/dev/ufs_darwin_var` | `36779008..64041978` | 104.000 GiB | iOS 26 `/private/var` 可写数据盘（`ANNFS001` 直写持久化） |
 
 ## 2. 在线缩容与写入 GPT 分区表
 

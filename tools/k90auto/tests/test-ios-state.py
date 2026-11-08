@@ -35,14 +35,14 @@ class StateCollectionTests(unittest.TestCase):
         output = self.round_dir / "run" / "state.json"
         with mock.patch.object(ios_state.subprocess, "run", side_effect=answer):
             report, destination = ios_state.collect(
-                self.round_dir, extra_ls=("/tmp/custom",), sysctls=("kern.redwood.prof",),
+                self.round_dir, extra_ls=("/tmp/custom",), sysctls=("kern.annibale.prof",),
                 thread_pids=(17,), output=output)
 
         self.assertEqual(report["status"], "complete")
         self.assertEqual(destination, output)
         self.assertEqual(len(report["commands"]), 9)
         self.assertEqual(calls[0][3:], ["ps"])
-        self.assertIn("/redwood/bin/appinst", calls[1])
+        self.assertIn("/annibale/bin/appinst", calls[1])
         self.assertEqual(calls[-2][3:], ["threads", "17"])
         self.assertEqual(calls[-1][3:], ["dump", "17"])
         self.assertTrue(all(Path(call[1]).name == "rsh.py" for call in calls))

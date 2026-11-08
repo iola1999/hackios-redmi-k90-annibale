@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Assemble the iOS 26 root image (/redwood) that make-payload.py packs beside the kernel.
+"""Assemble the iOS 26 root image (/annibale) that make-payload.py packs beside the kernel.
 
 The base is hackios-xnu-kernel/userland/root, which `IOS=../ios26 bash build.sh` stages
 (COMPILE_ONLY=1 is enough: this script does not use the images build.sh writes). The base is copied,
 then this script puts in:
 
   - the libraries it builds from the current source: the Metal driver (tools/userland-driver/),
-    the SpringBoard shim, libredwood-sb26 and the optional injection libraries;
+    the SpringBoard shim, libannibale-sb26 and the optional injection libraries;
   - the AIR library tools/k90auto/build-air.py built and signed;
   - etc/inject.conf, the gesture script as etc/rc.jobs, and the launchd jobs from jobs/ (in the job
     plists and in the launchd cache, which must agree);
@@ -43,8 +43,7 @@ OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and t
 # can be built while somebody else has an edit in flight (and the manifest records which sources).
 SRC_ROOT = Path(os.environ.get("PAYLOAD_SRC_ROOT", str(WORKSPACE)))
 # PAYLOAD_PROGRAMS=path[:path] installs programs built outside build.sh into /bin of the root image.
-DEFAULT_PROGRAMS = [WORKSPACE / "out/ios26-resume/rwsh", WORKSPACE / "out/ios26-resume/var_store",
-                    WORKSPACE / "out/ios26-resume/appinst/appinst"]
+DEFAULT_PROGRAMS = [WORKSPACE / "out/ios26-resume/appinst/appinst"]
 EXTRA_PROGRAMS = ([Path(p) for p in os.environ["PAYLOAD_PROGRAMS"].split(":") if p]
                   if "PAYLOAD_PROGRAMS" in os.environ
                   else [p for p in DEFAULT_PROGRAMS if p.is_file()])
@@ -74,14 +73,14 @@ PROBE_FLAGS = ["-Os", "-Wall", "-Wextra", "-framework", "Foundation"]
 # Two processes, not one with two offsets: the t=60 side has been observed to disappear before it
 # reaches its second offset, and the answers at t=300 do not depend on the earlier ones. Each is
 # backgrounded so a slow probe cannot hold the rest of the boot script.
-PROBE_LINE = "/redwood/bin/lsprobe 60 &\n/redwood/bin/lsprobe 300 &\n"
+PROBE_LINE = "/annibale/bin/lsprobe 60 &\n/annibale/bin/lsprobe 300 &\n"
 # VARSTORE_SHOW=1 adds one line that reads both slots of the darwin partition. Saving is not part of
 # it: a save writes the partition and is its own variable, while this only answers whether a store
 # from an earlier boot exists at all -- the question that decides whether the data volume can carry
 # install records across boots. No boot argument is involved: var_store=1 is what restores a store
 # over the skeleton, and that one changes every later boot and cannot share a round.
 VARSTORE_SHOW = os.environ.get("VARSTORE_SHOW") == "1"
-VARSTORE_LINE = "/redwood/bin/var_store show\n"
+VARSTORE_LINE = "/annibale/bin/var_store show\n"
 # The Wi-Fi card's firmware goes into fw/ of the image, from the directory
 # hackios-xnu-kernel/tools/mk-fw-wifi.py extracted out of the phone's own modem partition (not in git).
 # By default, when that directory has them, only the four files the driver reads on the K90 go in
@@ -133,17 +132,12 @@ WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguratio
 # userland/build.sh's staging directory; xpc/launchd.plist is there only when it ran with IOS=../ios26
 BASE = SRC_ROOT / "userland/root"
 TOOLS = WORKSPACE / "tools/apfs"
-# XPCWATCH="NAME ..." inserts libredwood-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
+# XPCWATCH="NAME ..." inserts libannibale-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
 # with those file names: it puts the named services they connect to, with counts, into the kernel
 # log ("say PID NAME: xpcwatch ..."). For finding the clients that reconnect in a loop.
 XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
-# libredwood-fpvolume.dylib (userland/src/inject_fpvolume.c) goes into fileproviderd unless FPVOLUME=0.
-# fileproviderd keeps its domains only on a volume whose statfs type is apfs, and /private/var is ramfs:
-# without the library no domain exists, Files has no "On My iPhone" and Safari's downloads stay in
-# its own container.
-FPVOLUME = os.environ.get("FPVOLUME", "1") == "1"
-# libredwood-ax.dylib goes into these programs unless AX is set to the empty string. userland/src/ax.m:
-# on the notification com.redwood.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
+# libannibale-ax.dylib goes into these programs unless AX is set to the empty string. userland/src/ax.m:
+# on the notification com.annibale.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
 # which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
 # userland/src/statusbar26.m: the status bar's time and battery 12 points closer to the screen edges.
 # Each application lays out its own status bar, so one not named here keeps iOS's place
@@ -156,22 +150,21 @@ AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weathe
 # and without a device the wallpaper window hosts its context empty. It is an ExtensionKit service
 # with no launchd job, so the inserted library is the whole switch (sb_metal_registration_sequence.inc).
 POSTER_METAL = os.environ.get("POSTER_METAL", "1") == "1"
-# libredwood.dylib goes into backboardd for its run loop probe (tl: b). /dev/redwood-touch has one
+# libannibale.dylib goes into backboardd for its run loop probe (tl: b). /dev/annibale-touch has one
 # reader, input26-service, which is what userland/build.sh checks its own inject.conf for; the
 # library's touch thread stays off where that job exists (userland/src/inject.c). Before that, from
 # 2026-10-29 every round had two touch screens in backboardd and some swipes lost their lift.
 INJECT = (
-    "/redwood/lib/libredwood-sbmetal-experiment.dylib SpringBoard backboardd" +
+    "/annibale/lib/libannibale-sbmetal-experiment.dylib SpringBoard backboardd" +
     (" iconservicesagent" if os.environ.get("ICON_METAL", "1") == "1" else "") +
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n"
-    "/redwood/lib/libredwood.dylib backboardd\n"
-    "/redwood/lib/libredwood-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences lsd wifid\n"
-    "/redwood/lib/libredwood-media.dylib cameracaptured mediaserverd\n"
-    "/redwood/lib/libredwood-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
-    ("/redwood/lib/libredwood-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
+    "/annibale/lib/libannibale.dylib backboardd\n"
+    "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences lsd wifid\n"
+    "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd\n"
+    "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
+    ("/annibale/lib/libannibale-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
-    ("/redwood/lib/libredwood-fpvolume.dylib fileproviderd\n" if FPVOLUME else "") +
-    ("/redwood/lib/libredwood-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "")
+    ("/annibale/lib/libannibale-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "")
 )
 JOBS = "etc/rc.jobs"
 # JOBS_SOURCE=... runs a different touch script than the acceptance one. A diagnostic that has
@@ -209,8 +202,8 @@ MSAA_JOBS = ["com.apple.backboardd.plist", "com.apple.SpringBoard.plist"]
 # JOB_ENV="a.plist:KEY=VALUE b.plist:KEY=VALUE" adds one environment variable per item to a job, in
 # its plist and in the launchd cache. The ones in use: OS_ACTIVITY_DT_MODE=YES sends a job's os_log
 # to stderr and so to the console (backboardd, iconservicesagent and chronod have it already);
-# REDWOOD_SYNC_DRAWS=1 makes the driver wait after every draw and name the one the GPU did not
-# finish (redwoodmetal_diag.inc); FD_MESA_DEBUG is freedreno's own debug switch.
+# ANNIBALE_SYNC_DRAWS=1 makes the driver wait after every draw and name the one the GPU did not
+# finish (annibalemetal_diag.inc); FD_MESA_DEBUG is freedreno's own debug switch.
 JOB_ENV = []
 for item in os.environ.get("JOB_ENV", "").split():
     job_name, _, setting = item.partition(":")
@@ -219,7 +212,7 @@ for item in os.environ.get("JOB_ENV", "").split():
         raise SystemExit(f"JOB_ENV item {item!r} is not NAME.plist:KEY=VALUE")
     JOB_ENV.append((job_name, key, value.replace("~", " ")))
 # EXT_ENV="MercuryPosterExtension:KEY=VALUE ..." does the same for a process with no launchd job: the
-# items for one name go into /redwood/etc/env/NAME, one KEY=VALUE a line, and the inserted library
+# items for one name go into /annibale/etc/env/NAME, one KEY=VALUE a line, and the inserted library
 # sets them and starts the process again once, because libSystem reads OS_ACTIVITY_DT_MODE before any
 # inserted library runs (userland/src/inject_posterboard.c, which reads the file for
 # MercuryPosterExtension only).
@@ -320,15 +313,15 @@ REST_DIR = OUT / "rest-jobs"
 # descriptor push to it failed with -2222.
 # The audio server runs for the volume keys, the volume display and the volume slider before there is
 # any sound hardware (docs/analysis/2026-11-02-audio-and-volume.md §6, step 1): audiomxd and the other
-# audio jobs come in with the rest (DENY's word "audio" is let through), and RedwoodAudio.driver, the HAL
+# audio jobs come in with the rest (DENY's word "audio" is let through), and AnnibaleAudio.driver, the HAL
 # plug-in iOS routes the speaker port to, is rebuilt for arm64e from the current source; the arm64e
-# audiomxd does not load an arm64 one. kernel-12377-rate8-au1: the plug-in opened /dev/redwood-audio, the
+# audiomxd does not load an arm64 one. kernel-12377-rate8-au1: the plug-in opened /dev/annibale-audio, the
 # volume keys moved the volume bar and Control Center's slider, audiomxd stayed near idle. AUDIO=0 leaves
 # it out.
 AUDIO = os.environ.get("AUDIO", "1") == "1"
 AUDIO_SOURCES = ["userland/src/services/audio_plugin.c"]
 AUDIO_FLAGS = ["-Os", "-Wall", "-Wextra", "-bundle", "-framework", "CoreFoundation"]
-AUDIO_PLUGIN = "/lib/RedwoodAudio.driver/RedwoodAudio"
+AUDIO_PLUGIN = "/lib/AnnibaleAudio.driver/AnnibaleAudio"
 # BLUETOOTH=1 (on by default when BT_FW carries the WCN7850 firmware, or when REST_ALLOW names bluetooth)
 # builds userland/src/services/bluetool.c into /bin/bluetool, points com.apple.BlueTool at it, lets the bluetooth
 # jobs through mkjobs.py's DENY, and sets KeepAlive and BT_HCI_TRANSPORT/BT_CHIP on com.apple.bluetoothd.
@@ -353,37 +346,37 @@ SHIM_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation", 
 # userland/src/: that tree is excluded by the checkout's .gitignore, so a print added there has no
 # rebuildable origin. The library this pack ships is built from exactly these files, and the build
 # is reproducible: 241,488 bytes, sha256 9d66dd36… from clang 21.0.0 and SDK 27.1, provided the
-# output keeps the name libredwoodmetal.dylib -- the adhoc signature's identifier is
+# output keeps the name libannibalemetal.dylib -- the adhoc signature's identifier is
 # <filename>-<UUID>, so any other output name yields a different whole-file hash with the same
 # __text and LC_UUID. Steps are in docs/analysis/2026-10-28-arm64e-userland-build-path.md §1.1.
-DRIVER_SOURCES = ["tools/userland-driver/redwoodmetal.m",
-                  "tools/userland-driver/redwooddrawable.m"]
+DRIVER_SOURCES = ["tools/userland-driver/annibalemetal.m",
+                  "tools/userland-driver/annibaledrawable.m"]
 DRIVER_FLAGS = ["-O1", "-framework", "Foundation", "-framework", "IOKit", "-framework", "Metal"]
-# Everything the two driver sources include. The manifest used to name only redwoodmetal_blit.inc, and
+# Everything the two driver sources include. The manifest used to name only annibalemetal_blit.inc, and
 # when the shipped 827045e4… had to be traced to a commit the file that differed was
-# redwoodmetal_commandbuffer.inc, which no manifest recorded: the .m hashes matched and the product
+# annibalemetal_commandbuffer.inc, which no manifest recorded: the .m hashes matched and the product
 # hash did not, so the search could only end by rebuilding from candidate trees.
-DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
-                   "tools/userland-driver/redwoodmetal_archive.inc",
-                   "tools/userland-driver/redwoodmetal_blit.inc",
-                   "tools/userland-driver/redwoodmetal_commandbuffer.inc",
-                   "tools/userland-driver/redwoodmetal_completion.inc",
-                   "tools/userland-driver/redwoodmetal_console.inc",
-                   "tools/userland-driver/redwoodmetal_diag.inc",
-                   "tools/userland-driver/redwoodmetal_heap.inc",
-                   "tools/userland-driver/redwoodmetal_mesa.inc",
-                   "tools/userland-driver/redwoodmetal_pipecache.inc",
-                   "tools/userland-driver/redwoodmetal_state.inc",
-                   "tools/userland-driver/redwoodmetal_stitch.inc",
-                   "tools/userland-driver/redwoodmetal_texture.inc",
-                   "tools/userland-driver/redwoodmetal_yuv.inc",
-                   "tools/userland-driver/redwoodmetal_texture_layout.inc",
-                   "tools/userland-driver/redwoodmetal_timing.inc",
-                   "tools/userland-driver/redwoodmetal_work.inc",
-                   "tools/userland-driver/redwoodmetal_work_private.h"]
+DRIVER_INCLUDES = ["tools/userland-driver/annibale_drawable.h",
+                   "tools/userland-driver/annibalemetal_archive.inc",
+                   "tools/userland-driver/annibalemetal_blit.inc",
+                   "tools/userland-driver/annibalemetal_commandbuffer.inc",
+                   "tools/userland-driver/annibalemetal_completion.inc",
+                   "tools/userland-driver/annibalemetal_console.inc",
+                   "tools/userland-driver/annibalemetal_diag.inc",
+                   "tools/userland-driver/annibalemetal_heap.inc",
+                   "tools/userland-driver/annibalemetal_mesa.inc",
+                   "tools/userland-driver/annibalemetal_pipecache.inc",
+                   "tools/userland-driver/annibalemetal_state.inc",
+                   "tools/userland-driver/annibalemetal_stitch.inc",
+                   "tools/userland-driver/annibalemetal_texture.inc",
+                   "tools/userland-driver/annibalemetal_yuv.inc",
+                   "tools/userland-driver/annibalemetal_texture_layout.inc",
+                   "tools/userland-driver/annibalemetal_timing.inc",
+                   "tools/userland-driver/annibalemetal_work.inc",
+                   "tools/userland-driver/annibalemetal_work_private.h"]
 
 # SpringBoard's 23G90 adaptations: the local activation state, the software icon selection, the
-# lock screen dismissal after boot (com.redwood.unlock dismisses it again) and the frame rate readback
+# lock screen dismissal after boot (com.annibale.unlock dismisses it again) and the frame rate readback
 # with its boot-arg switches (inject_sb26_rate.c: dl_max, dl_log, ax_rt, ax_rm). The pack builds it
 # from the current source and injects it; without it the iOS 26 lock screen stays up. The same
 # library is injected into PosterBoard, where only inject_posterboard.c's constructor acts: it logs
@@ -394,8 +387,6 @@ SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundatio
               "-lMobileGestalt"]
 XPCWATCH_SOURCES = ["userland/src/inject/xpcwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
-FPVOLUME_SOURCES = ["userland/src/inject/inject_fpvolume.c"]
-FPVOLUME_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
 AX_SOURCES = ["userland/src/inject/ax.m", "userland/src/inject/statusbar26.m"]
 AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
             "-framework", "CoreGraphics"]
@@ -412,10 +403,10 @@ APP_FLAGS = ["-O1", "-fblocks"]
 # GPU_SPEED changes the GPU clock without changing the request. It is recorded here as well as in the
 # round manifest, and a note that names a different speed stops the pack.
 GPU_SPEED = int(os.environ.get("GPU_SPEED", "3"))
-# REDWOOD_DIAG=1 puts a diagnostic variable in the driver processes' environment. Diagnostic prints
+# ANNIBALE_DIAG=1 puts a diagnostic variable in the driver processes' environment. Diagnostic prints
 # (the driver's load address today, anything else added for one investigation later) are behind it,
 # so enabling one does not change the library. The manifest records whether this round carried them.
-REDWOOD_DIAG = os.environ.get("REDWOOD_DIAG") == "1"
+ANNIBALE_DIAG = os.environ.get("ANNIBALE_DIAG") == "1"
 # JOBS_DROP="a.plist b.plist" packs without those jobs. A round changes one thing, and EXTRA_JOBS
 # accumulates what earlier rounds proved: without a way to leave one out, adding the next job also
 # changes the previous one's result. The names dropped are recorded in the manifest, so a round says
@@ -479,7 +470,7 @@ def check_seed(path):
         "<8sIIQQQQII", data)
     head = bytearray(data[:56])
     head[52:56] = b"\0\0\0\0"
-    assert magic == b"RDWVAR\0\0" and version == 1 and slot == 0, f"{path} is not a var_store archive"
+    assert magic == b"ANNVAR\0\0" and version == 1 and slot == 0, f"{path} is not a var_store archive"
     assert zlib.crc32(bytes(head)) == head_crc, f"{path}: the header does not check out"
     assert len(data) >= 4096 + size and zlib.crc32(data[4096:4096 + size]) == crc, \
         f"{path}: the archive is not the {size} bytes its header describes"
@@ -527,7 +518,7 @@ def build(sources, install_name, flags, out, dynamic=True):
 
 
 def add_switch(root):
-    """REDWOOD_SB_METAL=1 for backboardd (and iconservicesagent with ICON_METAL=1), in the job
+    """ANNIBALE_SB_METAL=1 for backboardd (and iconservicesagent with ICON_METAL=1), in the job
     plists and in the launchd cache. Returns backboardd's job."""
     cache_path = root / "xpc/launchd.plist"
     cache = plistlib.loads(cache_path.read_bytes())
@@ -536,7 +527,7 @@ def add_switch(root):
     for relative, key in targets:
         job_path = root / relative
         job = plistlib.loads(job_path.read_bytes())
-        job.setdefault("EnvironmentVariables", {})["REDWOOD_SB_METAL"] = "1"
+        job.setdefault("EnvironmentVariables", {})["ANNIBALE_SB_METAL"] = "1"
         if relative == JOB and not DIRTY_REGIONS:
             job["EnvironmentVariables"]["CA_DISABLE_DIRTY_REGIONS"] = "1"
         blob = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
@@ -549,7 +540,7 @@ def add_switch(root):
 
 
 def add_diag(root, cache):
-    """REDWOOD_DIAG=1 for the two processes that load the driver, when REDWOOD_DIAG=1 asks.
+    """ANNIBALE_DIAG=1 for the two processes that load the driver, when ANNIBALE_DIAG=1 asks.
 
     Diagnostic prints sit behind this variable so a round can turn them on without a different
     library, and the manifest records whether the round carried them. Without the variable the driver
@@ -558,7 +549,7 @@ def add_diag(root, cache):
         job_path = root / "LaunchDaemons" / name
         job = plistlib.loads(job_path.read_bytes())
 
-        job.setdefault("EnvironmentVariables", {})["REDWOOD_DIAG"] = "1"
+        job.setdefault("EnvironmentVariables", {})["ANNIBALE_DIAG"] = "1"
         blob = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         job_path.write_bytes(blob)
         cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + name] = job
@@ -579,7 +570,7 @@ def add_env(root, cache, settings):
 
 
 def add_msaa(root):
-    """REDWOOD_MSAA=1 for the two processes that encode render passes, when MSAA=1 asks."""
+    """ANNIBALE_MSAA=1 for the two processes that encode render passes, when MSAA=1 asks."""
     cache_path = root / "xpc/launchd.plist"
     cache = plistlib.loads(cache_path.read_bytes())
 
@@ -587,7 +578,7 @@ def add_msaa(root):
         job_path = root / "LaunchDaemons" / name
         job = plistlib.loads(job_path.read_bytes())
 
-        job.setdefault("EnvironmentVariables", {})["REDWOOD_MSAA"] = "1"
+        job.setdefault("EnvironmentVariables", {})["ANNIBALE_MSAA"] = "1"
         blob = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         job_path.write_bytes(blob)
         cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + name] = job
@@ -621,12 +612,12 @@ def add_rest_jobs(root, cache):
                 or (root / "LaunchDaemons" / path.name).exists()):
             continue
         if BLUETOOTH and path.name == "com.apple.BlueTool.plist":
-            job["ProgramArguments"] = ["/redwood/bin/bluetool"]
+            job["ProgramArguments"] = ["/annibale/bin/bluetool"]
             job.pop("Program", None)
             job["UserName"] = "root"
             data = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         elif BLUETOOTH and path.name == "com.apple.bluetoothd.plist":
-            job["ProgramArguments"] = ["/redwood/bin/bluetoothd"]
+            job["ProgramArguments"] = ["/annibale/bin/bluetoothd"]
             job.pop("Program", None)
             job["KeepAlive"] = True
             env = job.setdefault("EnvironmentVariables", {})
@@ -698,13 +689,13 @@ def main():
         f"{BASE} is not staged for iOS 26: run `IOS=../ios26 COMPILE_ONLY=1 bash build.sh` in "
         f"hackios-xnu-kernel/userland first")
 
-    shim = OUT / "libredwood-sbmetal-experiment.dylib"
-    driver = OUT / "libredwoodmetal.dylib"
-    air = OUT / "libredwoodair.dylib"
-    sb26 = OUT / "libredwood-sb26.dylib"
-    userland = OUT / "libredwood.dylib"
-    media = OUT / "libredwood-media.dylib"
-    app = OUT / "libredwood-app.dylib"
+    shim = OUT / "libannibale-sbmetal-experiment.dylib"
+    driver = OUT / "libannibalemetal.dylib"
+    air = OUT / "libannibaleair.dylib"
+    sb26 = OUT / "libannibale-sb26.dylib"
+    userland = OUT / "libannibale.dylib"
+    media = OUT / "libannibale-media.dylib"
+    app = OUT / "libannibale-app.dylib"
     assert air.is_file(), (f"{air} is missing; tools/k90auto/build-air.py writes it and signs it, "
                            "and ninja alone does not")
     # The ninja build leaves the library unsigned, and dyld refuses it: the image then boots,
@@ -712,42 +703,37 @@ def main():
     signed = subprocess.run(["/usr/bin/codesign", "-dv", str(air)], capture_output=True, text=True)
     assert "Signature=adhoc" in signed.stderr, (
         f"{air} is not signed adhoc, and dyld will refuse it. The file to pack is "
-        "out/ios26-resume/bbmetal-device/libredwoodair.dylib, which build-air.py signs with "
+        "out/ios26-resume/bbmetal-device/libannibaleair.dylib, which build-air.py signs with "
         "codesign --force --sign -; the copy ninja leaves under "
         "out/ios26-resume/mesa-arm64e/build/src/gallium/drivers/freedreno/ is unsigned by "
         "construction, so it can never pass this check. Run tools/k90auto/build-air.py")
-    commands = {"shim": build(SHIM_SOURCES, "/redwood/lib/libredwood-sbmetal-experiment.dylib",
+    commands = {"shim": build(SHIM_SOURCES, "/annibale/lib/libannibale-sbmetal-experiment.dylib",
                               SHIM_FLAGS, shim),
-                "driver": build(DRIVER_SOURCES, "/redwood/lib/libredwoodmetal.dylib",
+                "driver": build(DRIVER_SOURCES, "/annibale/lib/libannibalemetal.dylib",
                                 DRIVER_FLAGS, driver),
-                "sb26": build(SB26_SOURCES, "/redwood/lib/libredwood-sb26.dylib", SB26_FLAGS, sb26),
-                "userland": build(USERLAND_SOURCES, "/redwood/lib/libredwood.dylib", USERLAND_FLAGS, userland),
-                "media": build(MEDIA_SOURCES, "/redwood/lib/libredwood-media.dylib", MEDIA_FLAGS, media),
-                "app": build(APP_SOURCES, "/redwood/lib/libredwood-app.dylib", APP_FLAGS, app)}
-    xpcwatch = OUT / "libredwood-xpcwatch.dylib"
+                "sb26": build(SB26_SOURCES, "/annibale/lib/libannibale-sb26.dylib", SB26_FLAGS, sb26),
+                "userland": build(USERLAND_SOURCES, "/annibale/lib/libannibale.dylib", USERLAND_FLAGS, userland),
+                "media": build(MEDIA_SOURCES, "/annibale/lib/libannibale-media.dylib", MEDIA_FLAGS, media),
+                "app": build(APP_SOURCES, "/annibale/lib/libannibale-app.dylib", APP_FLAGS, app)}
+    xpcwatch = OUT / "libannibale-xpcwatch.dylib"
     if XPCWATCH_PROCESSES:
-        commands["xpcwatch"] = build(XPCWATCH_SOURCES, "/redwood/lib/libredwood-xpcwatch.dylib",
+        commands["xpcwatch"] = build(XPCWATCH_SOURCES, "/annibale/lib/libannibale-xpcwatch.dylib",
                                      XPCWATCH_FLAGS, xpcwatch)
-    fpvolume = OUT / "libredwood-fpvolume.dylib"
-    if FPVOLUME:
-        commands["fpvolume"] = build(FPVOLUME_SOURCES, "/redwood/lib/libredwood-fpvolume.dylib",
-                                     FPVOLUME_FLAGS, fpvolume)
-    audio = OUT / "RedwoodAudio"
+    audio = OUT / "AnnibaleAudio"
     if AUDIO:
         commands["audio"] = build(AUDIO_SOURCES, "", AUDIO_FLAGS, audio, dynamic=False)
     bluetool = OUT / "bluetool"
     if BLUETOOTH:
         commands["bluetool"] = build(BLUETOOL_SOURCES, "", BLUETOOL_FLAGS, bluetool, dynamic=False)
-    ax = OUT / "libredwood-ax.dylib"
+    ax = OUT / "libannibale-ax.dylib"
     if AX_PROCESSES:
-        commands["ax"] = build(AX_SOURCES, "/redwood/lib/libredwood-ax.dylib", AX_FLAGS, ax)
+        commands["ax"] = build(AX_SOURCES, "/annibale/lib/libannibale-ax.dylib", AX_FLAGS, ax)
     probe = OUT / "lsprobe"
     if PROBE:
         commands["probe"] = build(PROBE_SOURCES, "", PROBE_FLAGS, probe, dynamic=False)
     sources = {name: sha(SRC_ROOT / name)
                for name in [*SHIM_SOURCES, *DRIVER_SOURCES, *DRIVER_INCLUDES, *SB26_SOURCES,
                             *(XPCWATCH_SOURCES if XPCWATCH_PROCESSES else []),
-                            *(FPVOLUME_SOURCES if FPVOLUME else []),
                             *(AX_SOURCES if AX_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
@@ -788,7 +774,7 @@ def main():
     base_image = OUT / "base.apfs"
     with (OUT / "base-build.log").open("w") as log:
         subprocess.run([sys.executable, str(TOOLS / "mkapfs.py"), "-z", "--plain", "fw",
-                        "-o", str(base_image), "redwood=" + str(BASE)],
+                        "-o", str(base_image), "annibale=" + str(BASE)],
                        stdout=log, stderr=log, check=True, cwd=WORKSPACE)
     before, _ = records(base_image)
     protected = {str(base_image): sha(base_image)}
@@ -836,32 +822,30 @@ def main():
         assert required in skeleton.read_text(), (
             f"the packed etc/var.skel has no line for {required}: init will not create that "
             f"directory and the round cannot test anything that needs it")
-    shutil.copy2(shim, dest / "lib/libredwood-sbmetal-experiment.dylib")
-    shutil.copy2(driver, dest / "lib/libredwoodmetal.dylib")
+    shutil.copy2(shim, dest / "lib/libannibale-sbmetal-experiment.dylib")
+    shutil.copy2(driver, dest / "lib/libannibalemetal.dylib")
     # What lands in the image has to be the library that was just built: on 2026-10-29 a pack left
     # 9d66dd36… in the root while the staging copy was d296b5a4…, and nothing noticed.
-    assert sha(dest / "lib/libredwoodmetal.dylib") == sha(driver), \
+    assert sha(dest / "lib/libannibalemetal.dylib") == sha(driver), \
         "the driver in the image is not the one this pack built"
-    shutil.copy2(air, dest / "lib/libredwoodair.dylib")
-    shutil.copy2(sb26, dest / "lib/libredwood-sb26.dylib")
+    shutil.copy2(air, dest / "lib/libannibaleair.dylib")
+    shutil.copy2(sb26, dest / "lib/libannibale-sb26.dylib")
     if XPCWATCH_PROCESSES:
-        shutil.copy2(xpcwatch, dest / "lib/libredwood-xpcwatch.dylib")
-    if FPVOLUME:
-        shutil.copy2(fpvolume, dest / "lib/libredwood-fpvolume.dylib")
+        shutil.copy2(xpcwatch, dest / "lib/libannibale-xpcwatch.dylib")
     if AX_PROCESSES:
-        shutil.copy2(ax, dest / "lib/libredwood-ax.dylib")
+        shutil.copy2(ax, dest / "lib/libannibale-ax.dylib")
     if AUDIO:
         shutil.copy2(audio, dest / AUDIO_PLUGIN.lstrip("/"))
     if BLUETOOTH:
         shutil.copy2(bluetool, dest / "bin/bluetool")
         shutil.copy2(WORKSPACE / "ios26/rootfs/usr/sbin/bluetoothd", dest / "bin/bluetoothd")
-    shutil.copy2(userland, dest / "lib/libredwood.dylib")
-    shutil.copy2(media, dest / "lib/libredwood-media.dylib")
-    shutil.copy2(app, dest / "lib/libredwood-app.dylib")
-    assert sha(dest / "lib/libredwood.dylib") == sha(userland), \
-        "libredwood.dylib in the image is not the one this pack built"
-    assert cpusubtype(dest / "lib/libredwood.dylib") == ARM64E_WITH_LIB64, (
-        f"libredwood.dylib is cpusubtype {cpusubtype(dest / 'lib/libredwood.dylib'):#x}, and this "
+    shutil.copy2(userland, dest / "lib/libannibale.dylib")
+    shutil.copy2(media, dest / "lib/libannibale-media.dylib")
+    shutil.copy2(app, dest / "lib/libannibale-app.dylib")
+    assert sha(dest / "lib/libannibale.dylib") == sha(userland), \
+        "libannibale.dylib in the image is not the one this pack built"
+    assert cpusubtype(dest / "lib/libannibale.dylib") == ARM64E_WITH_LIB64, (
+        f"libannibale.dylib is cpusubtype {cpusubtype(dest / 'lib/libannibale.dylib'):#x}, and this "
         "image's processes are arm64e: rebuild it with -arch arm64e and an iOS 26 SDK, as build.sh "
         "does for its other libraries, then sign it")
     for dylib_file in sorted((dest / "lib").glob("*.dylib")):
@@ -873,16 +857,16 @@ def main():
     if SEED:
         seed_bytes = check_seed(SEED)
         shutil.copy2(SEED, dest / "etc/var.seed")
-    # /redwood programs must be present in the helper image before its jobs are packaged.
+    # /annibale programs must be present in the helper image before its jobs are packaged.
     for plist_path in sorted((dest / "LaunchDaemons").glob("*.plist")):
         plist_data = plistlib.loads(plist_path.read_bytes())
         program = (plist_data.get("ProgramArguments") or [plist_data.get("Program")])[0]
         # Programs under /usr, /bin and /System come from the system volume. mkjobs.py checks
         # their source files while generating jobs; this loop checks the helper image's files.
-        if not program or not program.startswith("/redwood/"):
+        if not program or not program.startswith("/annibale/"):
             continue
-        # this image is what mounts at /redwood, so /redwood/sbin/init is dest/sbin/init here
-        relative = program[len("/redwood"):] if program.startswith("/redwood/") else program
+        # this image is what mounts at /annibale, so /annibale/sbin/init is dest/sbin/init here
+        relative = program[len("/annibale"):] if program.startswith("/annibale/") else program
         assert (dest / relative.lstrip("/")).exists(), (
             f"{plist_path.name} runs {program}, which is missing from the helper image")
     if AIR_RECORD.is_file():
@@ -930,7 +914,7 @@ def main():
     rest_added = []
     if REST:
         cache, rest_added = add_rest_jobs(dest, cache)
-    if REDWOOD_DIAG:
+    if ANNIBALE_DIAG:
         cache = add_diag(dest, cache)
         # add_diag rewrote this job too; the assertion further down compares the packed plist with
         # what this variable holds, so it has to be read again rather than kept from add_switch.
@@ -938,10 +922,10 @@ def main():
     if JOB_ENV:
         cache = add_env(dest, cache, JOB_ENV)
         job = plistlib.loads((dest / JOB).read_bytes())
-    vs_file = dest / "LaunchDaemons/com.redwood.varstore.plist"
+    vs_file = dest / "LaunchDaemons/com.annibale.varstore.plist"
     if vs_file.exists():
         vs_file.unlink()
-    cache["LaunchDaemons"].pop("/System/Library/LaunchDaemons/com.redwood.varstore.plist", None)
+    cache["LaunchDaemons"].pop("/System/Library/LaunchDaemons/com.annibale.varstore.plist", None)
     (dest / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
     # What launchd will know this boot, names only: the cache is the authority (iOS 26 takes its jobs
     # from /System/Library/xpc/launchd.plist, not from the LaunchDaemons directory), so reading the
@@ -951,14 +935,14 @@ def main():
 
     with (OUT / "root-build.log").open("w") as log:
         subprocess.run([sys.executable, str(TOOLS / "mkapfs.py"), "-z", "--plain", "fw",
-                        "-o", str(OUT / "root.apfs"), "redwood=" + str(dest)],
+                        "-o", str(OUT / "root.apfs"), "annibale=" + str(dest)],
                        stdout=log, stderr=log, check=True, cwd=WORKSPACE)
 
     after, bodies = records(OUT / "root.apfs")
     # The staged root and the finished image are two different things: the check above reads the
     # directory this script filled, and only this one answers what the device will load.
-    for name, product in (("/lib/libredwood.dylib", userland),
-                          ("/lib/libredwoodmetal.dylib", driver)):
+    for name, product in (("/lib/libannibale.dylib", userland),
+                          ("/lib/libannibalemetal.dylib", driver)):
         assert after[name]["sha256"] == sha(product), \
             f"{name} in root.apfs is not what this pack built"
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
@@ -968,13 +952,12 @@ def main():
              | {"/fw/" + name for name in BT_FW_FILES}
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/etc/var.seed"} if SEED else set())
-             | ({"/lib/libredwood-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
-             | ({"/lib/libredwood-fpvolume.dylib"} if FPVOLUME else set())
-             | ({"/lib/libredwood-ax.dylib"} if AX_PROCESSES else set())
+             | ({"/lib/libannibale-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
+             | ({"/lib/libannibale-ax.dylib"} if AX_PROCESSES else set())
              | {"/LaunchDaemons/" + name for name in rest_added}
              | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set())
              # build.sh stages the AIR library only when build-air.py had already written it
-             | ({"/lib/libredwoodair.dylib"} - set(before)))
+             | ({"/lib/libannibaleair.dylib"} - set(before)))
     assert set(after) - set(before) == added, \
         f"unexpected files: {sorted(set(after) - set(before) - added)}"
     assert set(before) - set(after) == set(), sorted(set(before) - set(after))
@@ -982,12 +965,11 @@ def main():
                for n in before if before[n] != after[n]}
     for name in added:
         changes[name] = {"sha256": [None, after[name]["sha256"]]}
-    expected = {"/lib/libredwood-sbmetal-experiment.dylib", "/lib/libredwoodmetal.dylib",
-                "/lib/libredwoodair.dylib", "/lib/libredwood.dylib", "/lib/libredwood-sb26.dylib",
-                "/lib/libredwood-media.dylib", "/lib/libredwood-app.dylib",
-                *(["/lib", "/lib/libredwood-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
-                *(["/lib", "/lib/libredwood-fpvolume.dylib"] if FPVOLUME else []),
-                *(["/lib", "/lib/libredwood-ax.dylib"] if AX_PROCESSES else []),
+    expected = {"/lib/libannibale-sbmetal-experiment.dylib", "/lib/libannibalemetal.dylib",
+                "/lib/libannibaleair.dylib", "/lib/libannibale.dylib", "/lib/libannibale-sb26.dylib",
+                "/lib/libannibale-media.dylib", "/lib/libannibale-app.dylib",
+                *(["/lib", "/lib/libannibale-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
+                *(["/lib", "/lib/libannibale-ax.dylib"] if AX_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),
                 *(["/bin/bluetool", "/bin/bluetoothd"] if BLUETOOTH else []),
                 "/etc/inject.conf",
@@ -1009,7 +991,7 @@ def main():
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],
                 # the diagnostic switch rewrites the two jobs whose processes load the driver
-                *(["/LaunchDaemons/" + name for name in MSAA_JOBS] if REDWOOD_DIAG else []),
+                *(["/LaunchDaemons/" + name for name in MSAA_JOBS] if ANNIBALE_DIAG else []),
                 *{"/LaunchDaemons/" + name for name, _, _ in JOB_ENV},
                 # the skeleton is rewritten only when the base root is too old to carry a line that
                 # userland/var.skel.extra names, or with WIFI_FW (WIFI_CONTROL_LINES); an empty
@@ -1026,11 +1008,11 @@ def main():
     assert plistlib.loads(bodies["/" + JOB]) == job
     cache = plistlib.loads(bodies["/xpc/launchd.plist"])
     assert cache["LaunchDaemons"][CACHE_KEY] == job, "the launchd cache and the job plist disagree"
-    assert job["EnvironmentVariables"]["REDWOOD_SB_METAL"] == "1"
+    assert job["EnvironmentVariables"]["ANNIBALE_SB_METAL"] == "1"
     if ICON_METAL:
         icon_job = plistlib.loads(bodies["/" + ICON_JOB])
         assert cache["LaunchDaemons"][ICON_CACHE_KEY] == icon_job, "iconservicesagent: cache and plist disagree"
-        assert icon_job["EnvironmentVariables"]["REDWOOD_SB_METAL"] == "1"
+        assert icon_job["EnvironmentVariables"]["ANNIBALE_SB_METAL"] == "1"
     for name in EXTRA_JOBS:
         if name in JOBS_DROP:
             continue
@@ -1045,9 +1027,9 @@ def main():
         else:
             assert extra["RunAtLoad"] is True, name
         assert cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + name] == extra, name
-    for name, path in [("/lib/libredwood-sbmetal-experiment.dylib", shim),
-                       ("/lib/libredwoodmetal.dylib", driver),
-                       ("/lib/libredwoodair.dylib", air),
+    for name, path in [("/lib/libannibale-sbmetal-experiment.dylib", shim),
+                       ("/lib/libannibalemetal.dylib", driver),
+                       ("/lib/libannibaleair.dylib", air),
                        *[("/bin/" + program.name, program) for program in EXTRA_PROGRAMS],
                        *([("/bin/lsprobe", probe)] if PROBE else [])]:
         assert hashlib.sha256(bodies[name]).hexdigest() == sha(path), name
@@ -1080,7 +1062,7 @@ def main():
         "jobs_effective": jobs_effective, "jobs_effective_count": len(jobs_effective),
         "rest": REST, "rest_added_count": len(rest_added), "rest_allow": REST_ALLOW, "rest_deny": REST_DENY,
         "seed": {"path": str(SEED), "sha256": sha(SEED), "bytes": seed_bytes} if SEED else None,
-        "redwood_diag": REDWOOD_DIAG,
+        "annibale_diag": ANNIBALE_DIAG,
         "wifi_fw": {name: sha(WIFI_FW_DIR / name) for name in WIFI_FW_FILES}
                    if WIFI_FW else None,
         "bt_fw": {name: sha(BT_FW_DIR / name) for name in BT_FW_FILES} if BT_FW else None,
@@ -1091,9 +1073,9 @@ def main():
         "round_notes": [note.strip() for note in os.environ.get("ROUND_NOTES", "").split(";") if note.strip()],
         "gpu_speed": GPU_SPEED, "dirty_regions": DIRTY_REGIONS,
         "root_sha256": sha(OUT / "root.apfs"), "root_bytes": (OUT / "root.apfs").stat().st_size,
-        "expected_runtime_log": ["redwoodmetal[SpringBoard", "redwoodmetal[backboardd",
+        "expected_runtime_log": ["annibalemetal[SpringBoard", "annibalemetal[backboardd",
                                  "sbmetal26: registration completed device=1",
-                                 "MiniIOMobileFramebuffer:", "RedwoodGPU: submission"],
+                                 "MiniIOMobileFramebuffer:", "AnnibaleGPU: submission"],
         "must_not_appear": ["incompatible architecture", "unrecognized selector",
                             "OS_REASON_COREANIMATION", "nowhere for that store to go"],
         "protected_verified": protected,

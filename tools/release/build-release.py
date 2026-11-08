@@ -69,7 +69,7 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/tools/mk-fw-wifi.py", "hackios-xnu-kernel/tools/mk-fw-bt.py",
                  "hackios-xnu-kernel/tools/userdata-dual-carve.py",
                  "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py"]
-LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "prebuilt/NOTICES.md",
+LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
             "hackios-xnu-userland.LICENSE": REPO / "hackios-xnu-userland/LICENSE",
             "qualcomm-gpu-firmware.LICENSE.txt": REPO / "hackios-xnu-userland/firmware-gen8/LICENSE.qcom.txt"}
 ANDROID_TOOLS = ["f2fs-resize", "blkpg-tool"]

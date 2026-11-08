@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build libredwoodair.dylib from the kernel repo's AIR sources, for the arm64e iOS 26 tree.
+"""Build libannibaleair.dylib from the kernel repo's AIR sources, for the arm64e iOS 26 tree.
 
 The arm64e build only reads its own copy of the sources, at
 out/ios26-resume/mesa-arm64e/mesa-26.2.5/src/compiler/air/, so an edit under
@@ -26,10 +26,10 @@ SRC = WORKSPACE / "tools/mesa/air"
 TREE = WORKSPACE / "out/ios26-resume/mesa-arm64e"
 MESA = TREE / "mesa-26.2.5/src/compiler/air"
 BUILD = TREE / "build"
-LIB = BUILD / "src/gallium/drivers/freedreno/libredwoodair.dylib"
-OUT = WORKSPACE / "out/ios26-resume/bbmetal-device/libredwoodair.dylib"
+LIB = BUILD / "src/gallium/drivers/freedreno/libannibaleair.dylib"
+OUT = WORKSPACE / "out/ios26-resume/bbmetal-device/libannibaleair.dylib"
 RECORD = TREE / "air-build-record.json"
-TARGET = "src/gallium/drivers/freedreno/libredwoodair.dylib"
+TARGET = "src/gallium/drivers/freedreno/libannibaleair.dylib"
 # The header a driver-side change is allowed to touch, the C file itself and the two files it
 # includes that carry library entry points (copies and compute). Everything else in tools/mesa/air/
 # is shared with the iOS 16.5 line and is not part of this library.

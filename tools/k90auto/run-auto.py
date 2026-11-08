@@ -12,7 +12,7 @@ from, so the default spends the channel on logs. SHOT_EVERY>0 still takes a shot
 seconds from SHOT_FROM on, for a round that wants a time series instead of the log.
 
 Commands for the running iOS go the same way: tools/k90auto/rsh.py drops RUN_DIR/run/cmd-request-*.txt,
-the run sends each one with `oem sh` (to /redwood/bin/rwsh, which must be in the round's rc.jobs),
+the run sends each one with `oem sh` (to /annibale/bin/rwsh, which must be in the round's rc.jobs),
 writes the loader's answer to cmd-reply-*.json and reads the log a few times over the next 18 s
 into cmd-SEQ.log, which is where rsh.py finds the output. A file for the running iOS goes the same
 way: RUN_DIR/run/push-request-*.txt names a host file of at most 16 MB, the run sends it with
@@ -437,7 +437,7 @@ def teardown():
             if staged["rc"] == 0 and "FAILED" not in staged["output"]:
                 call(["get_staged", run / f"{label}.bin"], 120, False)
         # A kernel that came back ("returned"; one that held the GPU never does) leaves its file for
-        # the host (rwsh "outbox", kern.redwood.outbox) as the run's recording; without one: FAIL.
+        # the host (rwsh "outbox", kern.annibale.outbox) as the run's recording; without one: FAIL.
         staged = call(["oem", "recording"], 8, False) if name == "returned" else None
         if staged and staged["rc"] == 0 and "FAILED" not in staged["output"]:
             call(["get_staged", run / "outbox.bin"], 300, False)

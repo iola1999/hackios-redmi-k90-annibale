@@ -36,10 +36,10 @@
 
 ## 4. 我们现在有什么
 
-- `hackios-xnu-kernel/xnu/files/bsd/dev/redwood_bt_probe.c`（boot-arg `bt_probe=1`）：注册两个控制套接字名，只记日志，getopt 回零（:131-144），所以 `bluetoothd` 拿到的是空的 nexus UUID。已编进内核，没有上机跑过。
+- `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_probe.c`（boot-arg `bt_probe=1`）：注册两个控制套接字名，只记日志，getopt 回零（:131-144），所以 `bluetoothd` 拿到的是空的 nexus UUID。已编进内核，没有上机跑过。
 - BT_EN：`mhi_pcie_power.c:419-442,771-774`（`pcie_bt_en=1`，`cycle.py` 的默认参数带着它），wd11 读回为高（[驱动接入记录](../progress/2026-11-01-wifi-ath12k-driver.md) 3.2）。
 - 电源轨：`mhi_pcie_power.c:199-210` 的 Wi-Fi 电源表已经覆盖蓝牙的各路供电和 RF_CLK1。
-- 可复用：固件读取 `redwood_image_file("fw", …)`（`mhi_pcie_fw.c:48`）；QUP1 上轮询的 GENI SPI 驱动（`redwood_touch_bus_private.h:253-260`）；loader 已经传入 `mac-address-bluetooth0`（`xnuloader/loader_05_layout_run_kernel.inc:724,731`）。
+- 可复用：固件读取 `annibale_image_file("fw", …)`（`mhi_pcie_fw.c:48`）；QUP1 上轮询的 GENI SPI 驱动（`annibale_touch_bus_private.h:253-260`）；loader 已经传入 `mac-address-bluetooth0`（`xnuloader/loader_05_layout_run_kernel.inc:724,731`）。
 - iOS 一侧的阻碍：
   - `bluetoothd` 不在系统盘上（§1）。
   - `hackios-xnu-userland/userland/mkjobs.py:218` 的 DENY 含 `bluetooth`。
@@ -57,7 +57,7 @@
 
 | 步 | 内容 | 成功判据 | 设备 |
 |---|---|---|---|
-| 0 | 离线：固件按 `BT_FW=1` 打进 RAM 盘 `fw/`（约 0.9 MB）；新文件 `annibale_bt_uart.c`（取 P:12488-12974、13651-13745，改用我们的 `pmic_gpio`、SPMI 锁和 `redwood_image_file`）、`annibale_bt_ios.c`（P:13043-13649）、`annibale_btsk.c`（P:3689-3965）、`RedwoodBT.cpp`；BlueTool 替身 | 能编译，Skywalk 符号能链接 | 否 |
+| 0 | 离线：固件按 `BT_FW=1` 打进 RAM 盘 `fw/`（约 0.9 MB）；新文件 `annibale_bt_uart.c`（取 P:12488-12974、13651-13745，改用我们的 `pmic_gpio`、SPMI 锁和 `annibale_image_file`）、`annibale_bt_ios.c`（P:13043-13649）、`annibale_btsk.c`（P:3689-3965）、`AnnibaleBT.cpp`；BlueTool 替身 | 能编译，Skywalk 符号能链接 | 否 |
 | 1 | 只起硬件：`bt=3`，叠在 `pcie=10 pcie_power=1 pcie_bt_en=1` 之上 | SE14 协议寄存器读出 2（UART）；ROM 版本 0x20；板号对应到现有的 `hmtnv20.b*`；补丁下发后版本串与 `hmtbtfw20.ver` 一致；Reset 成功；厂商号 0x1d；内核自己的 LE 扫描看到至少一台设备 | 是 |
 | 2 | 接上 iOS：`bt=4`；`ALLOW=bluetooth`；`bluetoothd` 任务带 KeepAlive 和两个环境变量；BlueTool 指向替身；关掉低功耗扫描的偏好设置；开机时用 loader 的 MAC 设 `local-mac-address`，同一 MAC 写进 NVM tag 2 | 日志出现 `connected to com.apple.uart.sk.bluetooth`、`btsk: channel is connected`、`iOS sends (channel): 01 03 0c 00`；`bluetoothd` 不退出；设置里蓝牙开关为开（截图）。日志里的 `chip refuses 0x…` 行补进下一轮的代答表 | 是，最多 3 轮一批 |
 | 3 | 配对一台 BLE 设备（如 HID 键盘）；提速到 3 Mbaud（0xFC48 加 GENI 时钟），收端改中断（GIC SPI 0x1cd） | 配对成功，按键进 iOS | 是 |
@@ -78,7 +78,7 @@
 
 ## 8. 实测（2026-11-05）
 
-第 0～2 步已在 K90 真机走通。实现文件包括内核侧 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`（`RedwoodBT` IOService），用户态 `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`（补入 `usr/sbin/bluetoothd` 并更新 DSU 系统盘），以及打包脚本 `tools/k90auto/package.py` 与 `tools/k90auto/cycle.py`（默认带 `bt=4`）。
+第 0～2 步已在 K90 真机走通。实现文件包括内核侧 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`（`AnnibaleBT` IOService），用户态 `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`（补入 `usr/sbin/bluetoothd` 并更新 DSU 系统盘），以及打包脚本 `tools/k90auto/package.py` 与 `tools/k90auto/cycle.py`（默认带 `bt=4`）。
 
 ### 8.1 第 1 步硬件起机（`kernel-12377-st2-r1`）
 
@@ -89,7 +89,7 @@
 
 ### 8.2 第 2 步接入 iOS 26 与 `0x204a` 扩展广播锁定问题（`st3-r1`、`st4-r1`、`st4-r2`）
 
-- `package.py` 在 `out/fw-bt` 存在时默认开启 `BLUETOOTH=1`：编译 `/redwood/bin/bluetool` 替身并替换 `com.apple.BlueTool.plist`，放行 `mkjobs.py` 的 `bluetooth` 任务，为 `com.apple.bluetoothd.plist` 设置 `KeepAlive=true` 与 `BT_HCI_TRANSPORT=H4:POSIX`、`BT_CHIP=ACI BT`。不必依赖内核 exec 环境注入，launchd 缓存里的 `EnvironmentVariables` 直接生效。
+- `package.py` 在 `out/fw-bt` 存在时默认开启 `BLUETOOTH=1`：编译 `/annibale/bin/bluetool` 替身并替换 `com.apple.BlueTool.plist`，放行 `mkjobs.py` 的 `bluetooth` 任务，为 `com.apple.bluetoothd.plist` 设置 `KeepAlive=true` 与 `BT_HCI_TRANSPORT=H4:POSIX`、`BT_CHIP=ACI BT`。不必依赖内核 exec 环境注入，launchd 缓存里的 `EnvironmentVariables` 直接生效。
 - `st3-r1` 首次跑 `bt=4` 时，`bluetoothd` 连上 `com.apple.uart.sk.bluetooth` 与 Skywalk 通道，完成协议栈初始化（`Stack initialization complete`），但在启动扫描时连续报 `STATUS 712`（HCI 状态码 `0x0c` Command Disallowed），日志记录 `bt: the chip refuses 0x2007 with status 0x0c` 与 `0x200b with status 0x0c`。
 - 根因定位：`bluetoothd` 在初始化阶段发送 `0x204a`（`HCI_LE_Read_Periodic_Advertiser_List_Size`）。按 Bluetooth Core Spec Vol 4 Part E §3.1.1，`0x204a` 属于扩展广播命令表（Table 3.2，`0x2035`～`0x204a`）；WCN7850 收到任一扩展广播命令后即将当前会话锁定为 Extended Advertising 模式，拒绝后续传统广播与扫描命令（Table 3.1 的 `0x2007`、`0x200b` `LE_Set_Scan_Parameters`、`0x200c` `LE_Set_Scan_Enable`）。
 - 修复与验证：在 `annibale_bt_ios.c` 的 `bt_answer_vendor()` 代答表中加入 `0x204a`（带 1 字节附加载荷 `0x00`，完整代答 `04 0e 05 01 4a 20 00 00`），不向芯片转发该命令。`kernel-12377-st4-r1` 重测后，`0x2007`、`0x200b`、`0x200c` 全部返回状态 0，`bluetoothd[47]` 全程无重启（`pid 47`），扫描状态进入 `Starting(2) --> Scanning(3)`，发现 9 台 BLE 设备并解析出 Apple Continuity 广播（`id:4C`）；控制中心蓝牙按钮高亮为开启，设置主页显示 `Bluetooth On`，点入 `Settings -> Bluetooth` 页面开关为绿色开启、底部显示 `This iPhone is discoverable as "iPhone" while Bluetooth Settings is open.` 与 `Devices` 扫描动画（`kernel-12377-st4-r1/run/tour-sheet.png`）。

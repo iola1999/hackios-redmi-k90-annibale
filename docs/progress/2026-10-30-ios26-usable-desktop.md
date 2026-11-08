@@ -6,7 +6,7 @@
 
 - `homecycle1` 的两次自动上划都在锁屏可操作之前：一次落在开机 logo 层上，一次落在背光关闭期间（backboardd 记 `canceling events for suppression reason: backlight dim/off`）。用户手动上划一次即解锁，iOS 26 的解锁路径正常。
 - `init` 每行只解析前 63 个词（`userland/src/init.c` 的 `run_command()`），超长的 rwtouch 行在第 63 个词处报 `bad step "swipe"` 退出。`rc.jobs.home-cycle` 每行不超过 49 个词。
-- 修复：`userland/src/inject_sb26.c` 从 SpringBoard 启动第 10 秒起每 3 秒查一次 `isUILocked` 并调用 `-[SBLockScreenManager unlockUIFromSource:withOptions:]`，见过锁屏且解锁后停止，最多 60 次。Darwin 通知 `com.redwood.unlock`（`rwtouch notify com.redwood.unlock`）再解锁一次；启动参数 `autounlock=0` 保留锁屏。`package.py` 编这个库并注入 SpringBoard。
+- 修复：`userland/src/inject_sb26.c` 从 SpringBoard 启动第 10 秒起每 3 秒查一次 `isUILocked` 并调用 `-[SBLockScreenManager unlockUIFromSource:withOptions:]`，见过锁屏且解锁后停止，最多 60 次。Darwin 通知 `com.annibale.unlock`（`rwtouch notify com.annibale.unlock`）再解锁一次；启动参数 `autounlock=0` 保留锁屏。`package.py` 编这个库并注入 SpringBoard。
 - 验证：`interactive1` 日志 `sb26: unlock boot: answer=1 locked_after=0`。
 
 ## 2. 着色器编译卡住 SpringBoard
@@ -26,14 +26,14 @@
 ## 3. backboardd 在 fd6 绘制代码里崩溃
 
 - 现象（`ffma1`、`lock1`）：SIGSEGV 在 `fd6_vsc_update_sizes` 一带，`x0` 为 0；`fd_draw_vbo()` 刚确认过 `ctx->batch`，`fd6_draw_vbos` 读到的却是 NULL。`ffma1` 的崩溃前有并发提交（`commit N started while commit N-1 was still running`），`lock1` 没有，推断是 `-commit` 之外的入口（纹理上传与读回、缓冲纹理刷新）从别的线程刷掉了当前 batch。
-- 修复：驱动在 `-commit` 进入时取进程内递归锁，`redwoodReturnSlot` 之后释放，完成回调在锁外执行。AIR 库 `air_metal.c` 加进程级递归锁 `rwa_lock`，碰 pipe_context 的 `rwa_*` 入口第一句是 `RWA_LOCKED`，用 `__attribute__((cleanup))` 解锁。`air_metal_copy.inc`、`air_metal_compute.inc` 里也有入口，必须列在 `tools/k90auto/build-air.py` 的 `FILES` 里。
+- 修复：驱动在 `-commit` 进入时取进程内递归锁，`annibaleReturnSlot` 之后释放，完成回调在锁外执行。AIR 库 `air_metal.c` 加进程级递归锁 `rwa_lock`，碰 pipe_context 的 `rwa_*` 入口第一句是 `RWA_LOCKED`，用 `__attribute__((cleanup))` 解锁。`air_metal_copy.inc`、`air_metal_compute.inc` 里也有入口，必须列在 `tools/k90auto/build-air.py` 的 `FILES` 里。
 
 ## 4. GPU 挂起：A830 的提前预备代码
 
 ### 4.1 现象与归属
 
 - GMU 发 `HFI fatal message 150 data 0x1`（KGSL 编号里 150 是上下文出错，`0x1` 是 GPU 硬件挂起），内核报 `context EOP timeout failed; submissions closed`，GPU 停用到冷启动，CoreAnimation 退回软件合成。
-- 所有进程共用一个 GMU context（`adreno8_context_submit`），提交按顺序完成，归属以 HFI 150 里的时间戳和已完成时间戳为准（内核 `12377-cmd2` 起打印）。驱动的 `REDWOOD_SYNC_DRAWS=1`（由 `JOB_ENV` 加给指定任务）每个绘制后提交并等待，没完成的绘制连同两个模块打印出来（`AIRFAIL begin hung-vertex`／`hung-fragment`）。
+- 所有进程共用一个 GMU context（`adreno8_context_submit`），提交按顺序完成，归属以 HFI 150 里的时间戳和已完成时间戳为准（内核 `12377-cmd2` 起打印）。驱动的 `ANNIBALE_SYNC_DRAWS=1`（由 `JOB_ENV` 加给指定任务）每个绘制后提交并等待，没完成的绘制连同两个模块打印出来（`AIRFAIL begin hung-vertex`／`hung-fragment`）。
 - 内核在外部缓冲解除映射前等全部提交完成，原上限 200 毫秒（`CONTEXT_WAIT_NS`）超时也关闭提交，`render21` 因此误报一次挂起；`12377-cmd7` 起改为 2 秒，超时打印时间戳并转储 CP。
 - 有时间戳确认的挂起绘制都来自 RenderBox。不改着色器时，挂起的片段着色器都经 bindless 描述符 0x37、0x38 读帧缓冲，最常见的是 SpringBoard 的 `primitive__vertex+ffea2ba11dhmha4`。
 - CP 转储（`render15`）：IB1 与 IB2 的 `REM_SIZE` 都是 0，CP 已取完全部命令；最后一个包是 `CACHE_FLUSH_TS`，时间戳没有写出。`RBBM_STATUS` 为 0xfe1007：CP、`HLSQ_BUSY`、slice 忙，`PC_BUSY`、`VPC_BUSY`、`UCHE_BUSY`、`VSC_BUSY` 为 0，停住的是着色器一侧。
@@ -86,7 +86,7 @@
 | 覆盖率填充没有写出像素 | 常量 buffer 偏移原样交给 freedreno，A830 读不是 16 倍数的 UBO 地址时数据错位 | 偏移不是 16 的倍数时按 `air.buffer_size` 拷贝后绑定（`air_metal.c` 的 `bind_stage`） | `render69`、`render70` |
 | 图标上一条对角细线 | 翻译路径不跑 `nir_shader_gather_info`，ir3 不开 `PIXLODENABLE`、`LODPIXMASK`，边上的导数读到没有运行的辅助线程 | `air_gather_quad_helpers` 按 `nir_gather_info.c` 的规则补上 | `render71` |
 | 文字碎片与黑块 | RGB10A2 的纹理 buffer 对齐答 16、线性纹理答 64，客户端按 64 写 | `minimumTextureBufferAlignmentForPixelFormat:` 返回线性纹理的值 | `render77` |
-| 图形里的斜向条纹 | SpringBoard 的图形 IOSurface 行字节数按 32 对齐（50×83 为 224），A830 按 64 的倍数取行距；客户端按自己的行距写，内核补齐无效（`render88`） | 单平面二维、行距不是 64 倍数的 surface 经覆盖其内存的 buffer 纹理拷贝采样，GPU 写过的写回（`redwoodmetal_texture.inc` 的 `rw_surface_through_copy`） | `render89`、`render90` |
+| 图形里的斜向条纹 | SpringBoard 的图形 IOSurface 行字节数按 32 对齐（50×83 为 224），A830 按 64 的倍数取行距；客户端按自己的行距写，内核补齐无效（`render88`） | 单平面二维、行距不是 64 倍数的 surface 经覆盖其内存的 buffer 纹理拷贝采样，GPU 写过的写回（`annibalemetal_texture.inc` 的 `rw_surface_through_copy`） | `render89`、`render90` |
 | 黑色弧形与边缘黑点 | freedreno 新建资源不清零，距离与模糊滤镜读到所画区域以外的残留 | 新建颜色与深度目标先清零（`texture_start_zeroed`） | `render93` |
 
 ## 6. PosterBoard 的数据存储
@@ -98,8 +98,8 @@
 
 ## 7. 观测手段的要点
 
-- `REDWOOD_THUMBS=N` 把附件与纹理采成小图打进日志，`tools/k90auto/thumbs.py` 还原。通道截到 [0, 1]；两通道浮点纹理的 R、G 取绝对值，B 记符号（负 R 为 128，负 G 为 64）。深度附件的采样没有输出，原因未查。
-- `REDWOOD_DUMP_AIR` 打印设备上特化后的位码，`tools/k90auto/airdump.py` 还原。特化名把前三个常量字按 16 进制半字节从低到高编码，`a`～`p` 表示 0～15，后跟的数字是重复次数；变体名每次开机都变。
+- `ANNIBALE_THUMBS=N` 把附件与纹理采成小图打进日志，`tools/k90auto/thumbs.py` 还原。通道截到 [0, 1]；两通道浮点纹理的 R、G 取绝对值，B 记符号（负 R 为 128，负 G 为 64）。深度附件的采样没有输出，原因未查。
+- `ANNIBALE_DUMP_AIR` 打印设备上特化后的位码，`tools/k90auto/airdump.py` 还原。特化名把前三个常量字按 16 进制半字节从低到高编码，`a`～`p` 表示 0～15，后跟的数字是重复次数；变体名每次开机都变。
 - 日志快照是开机日志头加约 1 MB 的环，两次拉取之间输出过多就有缺口。SpringBoard 打开 os_log 会冲掉开机解锁那一行，`cycle.py` 随之跳过巡检。`systrace=1` 要配 `systrace_name=`，否则合并日志从 3 MB 涨到 20 MB。
 
 ## 8. 仍未解决

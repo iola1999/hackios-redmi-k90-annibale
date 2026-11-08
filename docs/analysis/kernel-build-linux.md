@@ -28,7 +28,7 @@ curl -sL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOST
 
 ```sh
 git clone -b k90-port file:///src /work/repo
-bash xnu/apply.sh            # 拉 apple-oss-distributions/xnu 的 xnu-8796.121.2 并打 redwood 补丁
+bash xnu/apply.sh            # 拉 apple-oss-distributions/xnu 的 xnu-8796.121.2 并打 annibale 补丁
 bash xnu-deps/setup.sh       # stage1 host 工具(mig/tcsh/unifdef) + SDK 缝合；stage2 两个静态库
 bash xnu-build.sh -j8 BUILD_DSYM=0 KEXT_CREATE_SYMBOL_SET=/bin/true
 ```
@@ -54,16 +54,6 @@ bash xnu-build.sh -j8 BUILD_DSYM=0 KEXT_CREATE_SYMBOL_SET=/bin/true
 ## 5. 换入 payload 的流程
 
 `tools/k90auto/build-kernel.py NAME` 自动完成这一步：在容器里构建内核子模块的 HEAD 提交（未提交的修改不进入内核），产物复制为 `hackios-xnu-kernel/out/handoff-mach-NAME`，再做两项构建后检查：每个改动的源文件都有比它新的目标文件，`EXPECT_STRINGS` 列出的字符串出现在内核里。脚本拒绝 `12377` 开头的名字。
-
-手工换入 `prebuilt/` 的做法（`prebuilt/mach.development.bcm2837` 原是上游交付物）：
-
-```sh
-docker cp kbuild:/work/repo/xnu-src/xnu-8796.121.2/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837 \
-  hackios-xnu-kernel/prebuilt/mach.development.bcm2837
-# 更新 prebuilt/SHA256SUMS 对应行 → 重跑 mkpayload/mkxnuimg → QEMU 回归（qemu/run-ios.sh）
-```
-
-已知差异：本项目构建 `BUILD_LTO=0`（构建脚本默认），上游交付物带 LTO，体积 15.2MB 对 15.6MB；功能是否等价以 QEMU 回归为准。
 
 ## 6. userland overlay 与版本核对
 

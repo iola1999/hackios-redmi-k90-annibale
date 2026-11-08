@@ -13,7 +13,7 @@
 ## 2. 判断依据：源码链
 
 1. 主机 `oem stop`：loader 把 `running_live->stop` 置 1 并回 OKAY（`xnuloader/loader_06_usb_entry.inc` 的 `oem stop` 分支，`lc_stop_action` 在 live 时返回 `LC_STOP_NOTIFY`），实测应答 0.001 秒返回。
-2. 内核每秒一次的 `loader_stop_poll`（`loader_return.c` L521）看到 stop：打印 `--- the host asked for the end of the run: back to the loader ---`（L526），依次调用 `redwood_var_save_on_return()`、`redwood_adreno_stop()`（L531）、`redwood_wifi_stop()`、`redwood_adsp_stop()`，然后 `loader_return()`（L534）。
+2. 内核每秒一次的 `loader_stop_poll`（`loader_return.c` L521）看到 stop：打印 `--- the host asked for the end of the run: back to the loader ---`（L526），依次调用 `annibale_var_save_on_return()`、`annibale_adreno_stop()`（L531）、`annibale_wifi_stop()`、`annibale_adsp_stop()`，然后 `loader_return()`（L534）。
 3. 返回路径进入 `adreno8_quiesce()`（`adreno8.c` L471）：`adreno8_reset_required || adreno8_memory_retained()` 为真时打印「GPU probe requires host cold reset before reusing kernel memory」，随后 `for (;;) wfe`（L476-L481），函数不返回。`adreno8=23 adreno8_keep=1` 的载荷每轮都满足这个条件。
 4. 内核不再自增心跳。心跳由每 10 秒的 `hv_wdt_pet` 加一（`loader_return.c` L556、L613-L632），park 之后不再执行。
 5. loader 的观察循环在 `seconds_since(last_beat_at) >= SILENCE_SECONDS` 时判 `OTHER_CPU_HUNG`（`xnuloader/loader_03_ufs_block_watch.inc` L852-L858；阈值 `SILENCE_SECONDS 50` 在 `loader_02_platform_cpu_ufs_survey.inc` L410）。资源仍被持有时结果记为 `hung-held`（`loader_05_layout_run_kernel.inc` L935-L941）。

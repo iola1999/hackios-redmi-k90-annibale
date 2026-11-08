@@ -64,13 +64,13 @@ SIGNATURES = [
     ("ir3", r"((?:Unhandled ALU op|ir3_context_error|nir_validate|NIR validation failed).*)",
      "the shader compiler hit an unsupported construct"),
     ("crash", r"(\b(?:userabort|usertrap): .*|exited due to .*|Assertion failed.*)", "a process died"),
-    ("stall", r"(redwood: stall.*)", "a commit waited past the driver's stall limit"),
+    ("stall", r"(annibale: stall.*)", "a commit waited past the driver's stall limit"),
 ]
 SIGNATURES = [(kind, re.compile(rx), cost) for kind, rx, cost in SIGNATURES]
 
 # Lines whose source is the graphics stack; only these feed "unclassified".
-GRAPHICS = re.compile(r"redwoodmetal\[|^rwa |AIR|\[Metal\]|QuartzCore|CoreAnimation|MiniIOSurface|"
-                      r"adreno|RedwoodGPU|IOSurface|ir3|freedreno|redwooddrawable|sbmetal")
+GRAPHICS = re.compile(r"annibalemetal\[|^rwa |AIR|\[Metal\]|QuartzCore|CoreAnimation|MiniIOSurface|"
+                      r"adreno|AnnibaleGPU|IOSurface|ir3|freedreno|annibaledrawable|sbmetal")
 FAILURE = re.compile(r"fail|refus|unsupport|not support|cannot|\bnil\b|declin|unhandled|error|invalid|"
                      r"dropped|gave up|not implemented", re.I)
 # The module dump that follows an AIRFAIL begin line: base64, one chunk a line.
@@ -88,7 +88,7 @@ BENIGN = re.compile(r"error 0$|default_before=nil|MTLCommandBufferStatus: |binar
                     r"smr \d+ invalid; s2cr not read")
 
 OSLOG = re.compile(r"^\d{4}-\d\d-\d\d (\d\d:\d\d:\d\d)\.\d+[+-]\d{4} ([^\[\s]+)\[(\d+):\d+\] (.*)")
-DRIVER = re.compile(r"^redwoodmetal\[(\S+) (\d+)\]: (.*)")
+DRIVER = re.compile(r"^annibalemetal\[(\S+) (\d+)\]: (.*)")
 PROC_PID = re.compile(r"^(?:MiniIOSurface: )?([A-Za-z][\w.-]*)\[(\d+)\]")
 WATCHED = ("SpringBoard", "backboardd", "Preferences", "iconservicesagent")
 

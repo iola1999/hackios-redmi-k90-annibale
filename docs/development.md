@@ -13,7 +13,7 @@
 |---|---|---|
 | 内核（XNU 12377 与 Wi-Fi 驱动） | Xcode | `xnu26/build-macos.sh` 用 Xcode 工具链 |
 | 用户态程序、Metal 驱动、注入库 | Xcode | iOS 26 的进程都是 arm64e，带指针认证的 arm64e 只有 Apple clang 能编，见 [arm64e 用户态构建](analysis/2026-10-28-arm64e-userland-build-path.md) |
-| AIR 库 `libredwoodair.dylib` | Xcode；补丁准备要 Docker | 同上 |
+| AIR 库 `libannibaleair.dylib` | Xcode；补丁准备要 Docker | 同上 |
 | 启动卷 `flashboot.apfs`、各程序的签名 | Xcode 的 `ld`、`codesign` | |
 | loader 镜像里的 UEFI | Docker | Mu-Silicium 在 Linux 容器里构建 |
 
@@ -72,12 +72,12 @@ FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh   # 只含 stage0 与
 
 - 第一条生成根盘基线目录 `userland/root/`；不加 `COMPILE_ONLY=1` 时还生成约 5.9 GB 的合成系统盘 `system26.apfs`。双系统部署直接写入原版三个镜像时只需要基线目录。
 - 根盘里会放进本机 `../ssh/authorized_keys` 等 ssh 密钥（存在时）。要分发的构建加 `SHARE=1`，`build-release.py` 发现 ssh 密钥会拒绝出包。
-- `absent: wifi` 是针对旧机型 `redwood`（`wpss.mdt`）的检查，K90 的 WCN7850 固件由下一步合并。
+- `absent: wifi` 是针对旧机型 POCO X5 Pro（`wpss.mdt`）的检查，K90 的 WCN7850 固件由下一步合并。
 - 系统卷部署在 UFS `darwin` 分区，启动过程见[根文件系统说明](analysis/rootfs-strategy.md)。
 
 ## 7. 打包根盘
 
-先按 [arm64e 用户态构建 §6](analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建) 运行 `python3 tools/k90auto/setup-mesa-arm64e.py` 与 `python3 tools/k90auto/build-air.py`，编译并签名 `libredwoodair.dylib`。再在工作区根目录执行 `python3 tools/k90auto/package.py`，打包开关见 [k90auto 说明](../tools/k90auto/README.md) §7。
+先按 [arm64e 用户态构建 §6](analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建) 运行 `python3 tools/k90auto/setup-mesa-arm64e.py` 与 `python3 tools/k90auto/build-air.py`，编译并签名 `libannibaleair.dylib`。再在工作区根目录执行 `python3 tools/k90auto/package.py`，打包开关见 [k90auto 说明](../tools/k90auto/README.md) §7。
 
 `package.py` 基于 `userland/root/` 编译并注入 Metal 驱动与各个注入库，合并 Wi-Fi、蓝牙固件，输出 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root/`（根盘目录）和同目录的 `root.apfs`。
 

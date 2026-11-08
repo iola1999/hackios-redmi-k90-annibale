@@ -10,7 +10,7 @@
 ## 2. 读寄存器的约束
 
 - 只在两个电源域都开、cfg_ahb／slv_axi／mstr_axi／aux 四个时钟都在运行时才读 RC0 的 parf、PHY、DBI 寄存器（`474d6e9` 起）。读未上电或未供时钟的模块可能让 SoC 挂死，USB 无法恢复。
-- K90 的 TLMM 引脚寄存器在 `0xf100000`（主线 `sm8750.dtsi`，`redwood_goodix.c` 的 `board_setup()` 也用这个地址）。原厂设备树 `tlmm` 节点的 reg 是 `0xf000000`，按它读 `0xf000000 + 16 × 0x1000` 时 SoC 停住、USB 无应答；`82b475c` 改用 `0xf100000` 后勘察正常结束，同一轮桌面正常运行。
+- K90 的 TLMM 引脚寄存器在 `0xf100000`（主线 `sm8750.dtsi`，`annibale_goodix.c` 的 `board_setup()` 也用这个地址）。原厂设备树 `tlmm` 节点的 reg 是 `0xf000000`，按它读 `0xf000000 + 16 × 0x1000` 时 SoC 停住、USB 无应答；`82b475c` 改用 `0xf100000` 后勘察正常结束，同一轮桌面正常运行。
 - `pcie_pause=N` 在每个读取阶段前先打印下一步，再等待 N 秒；主机每 4～5 s 拉一次日志，用最后一行定位停住的位置。
 
 ## 3. 上电前的读数（`kernel-pcie5-s23-auto-pins`）
@@ -55,6 +55,6 @@
 - 主线设备树把 RID `0`／`0x100` 映射到 SID `0x1400`／`0x1401`。
 - 厂商设备树 `msm-arm-smmu-sun-mi.dtsi`：apps SMMU 在 `0x15000000`，长 `0x100000`；PCIe QTB 在 `0x016cd000`，长 `0x1000`，覆盖 SID `0x1400..0x17ff`，IOVA 宽度 32 位；节点带 `qcom,opt-out-tbu-halting`。
 - RID→SID 表按 `qcom_pcie_config_sid_1_9_0()` 与厂商 `msm_pcie_config_sid()` 的格式：关 bypass，清零 256 项，按 CRC8-MSB（多项式 `0x07`）写 `RID[31:16] | relative_SID[15:8] | NEXT[7:0]`。SID base 为 `0x1400` 时，RID `0x100` 写在索引 `0x15`，值 `0x01000100`。
-- 旧机型 `redwood_wifi.c` 的 `wifi_smmu=1/2` 用的是 WCN6750 的 SID `0x1c00`，不适用于本机。
+- 旧机型 `annibale_wifi.c` 的 `wifi_smmu=1/2` 用的是 WCN6750 的 SID `0x1c00`，不适用于本机。
 
 本机最后的做法（写 SID 表、两个流在最后一个 context bank 上直通、loader 在 4 GB 以下预留 DMA 内存）见[固件启动记录](2026-10-31-wifi-firmware-boot.md) §1。

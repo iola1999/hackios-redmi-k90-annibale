@@ -46,7 +46,7 @@
 
 - `bo44` 起 `applog` 选中的程序能输出异常文本（`12377-cmd49`）：MobileSMS 缺 ChatKit 的 `Assets.car`，`com.apple.Safari.History` 抛 `NSInvalidArgumentException`。
 - 系统盘缺文件：`ios165/select-system.py` 的资源目录上限从 4 MB 提到 32 MB，XPC 服务的字符串表与图片按普通规则取，新增 191 个文件。`bo46` 起 MobileSMS 不再中止，屏幕仍黑。
-- 驱动缺纹理布局：backboardd 拒收挂着所有应用场景的 `SBMainSwitcherWindow` 的 commit（「CompressedImage port is MACH_PORT_NULL!」，`bo47`）。窗口里的 ATX 壁纸快照由 ImageIO 按驱动的 `newTextureLayoutWithDescriptor` 解码，驱动返回 nil 时数据长度为 0。`redwoodmetal_texture_layout.inc` 实现纹理布局与 `newTextureWithBytesNoCopy` 后（内核子模块 `6ece701`），`bo48` 起应用正常显示。
+- 驱动缺纹理布局：backboardd 拒收挂着所有应用场景的 `SBMainSwitcherWindow` 的 commit（「CompressedImage port is MACH_PORT_NULL!」，`bo47`）。窗口里的 ATX 壁纸快照由 ImageIO 按驱动的 `newTextureLayoutWithDescriptor` 解码，驱动返回 nil 时数据长度为 0。`annibalemetal_texture_layout.inc` 实现纹理布局与 `newTextureWithBytesNoCopy` 后（内核子模块 `6ece701`），`bo48` 起应用正常显示。
 
 ### 6.2 局部重绘留下旧内容
 
@@ -69,18 +69,18 @@
 
 - 现象（`bo57` 录屏）：从今天视图回首屏后，日历图标约 0.9 秒只有玻璃底，时钟约 1.05 秒只有指针。
 - 原因：iconservicesagent 的 `-[ISGPUIdleTimer armTimer]` 定 3 秒，到时 `+[RBDevice purgeResources]` 释放 RenderBox 的全部管线，回首屏时重建 48 条。重建期间约一半的样本在 MTLCompilerService，因为 Metal 着色器磁盘缓存要用的 `_iconservices` 主目录 `/var/empty/Library/Caches` 不存在；另一半在 AIR 翻译与 ir3 编译。
-- 修复：驱动按两个模块、入口名与附件形状保留渲染管线（`redwoodmetal_pipecache.inc`），48 条里 44 条复用（`bo59`）；`userland/var.skel.extra` 补上缓存目录，属主 `_iconservices`（`bo61`）。开始重画到导入图标纹理由约 1 秒降到 0.24～0.26 秒。
+- 修复：驱动按两个模块、入口名与附件形状保留渲染管线（`annibalemetal_pipecache.inc`），48 条里 44 条复用（`bo59`）；`userland/var.skel.extra` 补上缓存目录，属主 `_iconservices`（`bo61`）。开始重画到导入图标纹理由约 1 秒降到 0.24～0.26 秒。
 
 ### 6.6 手指拖动不跟手
 
 - 现象（`bo61`）：拖动时触摸采样相隔 36～90 毫秒。`rwtouch` 注入的手势不经过触摸芯片，手势帧率读数反映不出这一点。
 - 原因：驱动每 9 毫秒看一次中断线电平，芯片不会一直拉低中断线，多数报告是每 80 毫秒一次的定时读取读到的。
-- 修复：`12377-cmd53` 让 TLMM 把中断线的下降沿锁存在状态位里，驱动一并读它（`redwood_goodix.c`）。`bo62` 采样间隔中位数 9.3 毫秒，拖动期间帧率中位数 51.6 帧／秒（`bo61` 为 42.8）。
+- 修复：`12377-cmd53` 让 TLMM 把中断线的下降沿锁存在状态位里，驱动一并读它（`annibale_goodix.c`）。`bo62` 采样间隔中位数 9.3 毫秒，拖动期间帧率中位数 51.6 帧／秒（`bo61` 为 42.8）。
 - 剩余：`touch_poll_us=4000` 实测仍约 9.2 毫秒查看一次，内核线程的睡眠精度约 9 毫秒；芯片报告率按驱动注释是 240 Hz，没有实测。
 
 ### 6.7 控制中心切到音乐时重启
 
-- 现象（`bo62`）：backboardd 持有约 925 MB GPU 缓冲时内核报 `RedwoodGPU: no memory for a buffer`，Mesa 申请命令环失败，`fd_bo_heap_alloc` 没有检查空指针，backboardd 退出。
+- 现象（`bo62`）：backboardd 持有约 925 MB GPU 缓冲时内核报 `AnnibaleGPU: no memory for a buffer`，Mesa 申请命令环失败，`fd_bo_heap_alloc` 没有检查空指针，backboardd 退出。
 - 原因：内核从第一个进程起给数据分配加保护对象，大小按 2 的幂取整，GPU 的 2～8 MB 缓冲占用的地址空间是自身大小的两倍以上，到约 1 GB 时用完了 2267 MB 的数据地址区间。
 - 修复：1 MB 及以上的数据分配不加保护对象（`xnu26/patches/75-osfmk%vm%vm_map_store.c.patch`，`12377-cmd54`，内核子模块 `d62d3b6`），数据区间里不存指针。`bo63` 4 次打开控制中心并翻页，GPU 内存峰值 584 MB，没有崩溃。
 - 未改：`fd_bo_heap_alloc` 不检查空指针；驱动的 `setPurgeableState` 不做任何事，CoreAnimation 标成可清除的缓存纹理不会被回收；mediaremoted 反复以异常 6 退出，没有查。

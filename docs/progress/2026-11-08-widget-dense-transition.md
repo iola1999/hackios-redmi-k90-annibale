@@ -25,7 +25,7 @@
 
 ## 3. 目标 AIR 候选
 
-`tmua-air-candidate` 相对 sync-log 候选只把 `REDWOOD_DUMP_AIR` 改为上述完整 fragment 名。其他 helper 记录、内核、Metal/AIR、同步 draw 和缩略图设置保持一致。
+`tmua-air-candidate` 相对 sync-log 候选只把 `ANNIBALE_DUMP_AIR` 改为上述完整 fragment 名。其他 helper 记录、内核、Metal/AIR、同步 draw 和缩略图设置保持一致。
 
 - boot：`out/widget-render-1108/widget-trace/tmua-air-candidate/boot-direct.img`
 - boot SHA-256：`6b0ba5d33676ec2878c12099ee839ce3e5853c714844af9737595d9b00706a65`

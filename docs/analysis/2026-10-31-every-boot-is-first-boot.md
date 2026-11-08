@@ -7,7 +7,7 @@
 - `/private/var` 是 init 在每次开机时新挂的内存文件系统（`userland/src/init.c` 的 `mount_writable`），里面只有 `etc/var.skel` 列出的空目录。真机上 `/private/var` 跨重启保留，这里每次开机都相当于刷机后的第一次开机。`var_store` 的分区模式（把 `/private/var` 存进 darwin 分区）在 K90 上不用，开机种子用的是 §3 的文件模式。
 - 首次开机时 LaunchServices 要从头建数据库，iconservicesagent 要从头画图标缓存，PosterBoard 要做数据迁移。SpringBoard 主线程在启动阶段等 LaunchServices 的锁，主屏在这些数据就绪前就建好了，之后没有再取图标。
 - 图标缺失与 GPU 无关：不带 GPU 的 `seed2` 首个 SpringBoard 同样没有图标；重启 SpringBoard 后全部出现。
-- 改法是给 `/private/var` 一份开机种子：在一次已经稳定的开机里用 `var_store save FILE` 打包 `/private/var`，经新增的 `kern.redwood.outbox` 取回宿主机，打进根镜像的 `etc/var.seed`，下次开机由 init 解包到骨架之上。全程不写闪存。验证结果见 §4。
+- 改法是给 `/private/var` 一份开机种子：在一次已经稳定的开机里用 `var_store save FILE` 打包 `/private/var`，经新增的 `kern.annibale.outbox` 取回宿主机，打进根镜像的 `etc/var.seed`，下次开机由 init 解包到骨架之上。全程不写闪存。验证结果见 §4。
 
 ## 2. 读数与排除项
 
@@ -21,7 +21,7 @@
 ## 3. 改法
 
 - `var_store` 增加文件模式（`userland/src/var_store.c`）：`save FILE`、`load FILE`、`show FILE` 用文件代替 darwin 分区，单槽，头在文件开头。`load` 不带文件时，如果自己所在镜像里有 `etc/var.seed`，就从它解包，不读闪存。init 只在启动参数带 `var_store=1` 时调用 `var_store load`（`restore_var`）。
-- `kern.redwood.outbox`（`bsd/dev/redwood_threads.c`）：rwsh 的 `outbox PATH` 把文件分段写进一块物理连续的内存，写满后登记到 `loader_recording`。内核回到 loader 后，loader 把它当作录屏暂存，`run-auto.py` 在收尾时用 `oem recording` 加 `get_staged` 取回 `run/outbox.bin`。iOS 运行后找不到 328 MB 的连续内存（`seed2`），所以由启动参数 `outbox_mb=N` 在开机时预留。
+- `kern.annibale.outbox`（`bsd/dev/annibale_threads.c`）：rwsh 的 `outbox PATH` 把文件分段写进一块物理连续的内存，写满后登记到 `loader_recording`。内核回到 loader 后，loader 把它当作录屏暂存，`run-auto.py` 在收尾时用 `oem recording` 加 `get_staged` 取回 `run/outbox.bin`。iOS 运行后找不到 328 MB 的连续内存（`seed2`），所以由启动参数 `outbox_mb=N` 在开机时预留。
 - 带 GPU 的内核在收尾时停在 `adreno8_quiesce` 等冷复位，不会回到 loader，所以取种子的轮次不带 GPU（`make-payload.py` 的 `GPU_STAGE=0`）。
 - `tools/k90auto/varseed.py`：列出种子里各目录的大小，按路径前缀删掉不需要的部分，重写头部校验。`package.py` 的 `SEED=` 校验种子后放进根镜像的 `etc/var.seed`。
 - 取种子的轮次在保存前重启一次 SpringBoard，种子里的 SpringBoard 状态来自图标完整的那次启动。

@@ -59,7 +59,7 @@ dtc -I dtb -O dts -o annibale-merged.dts hackios-xnu-kernel/Mu-Silicium/Platform
 | SPI 引脚 | MOSI GPIO41（`qup1_se2_l1`）/ MISO GPIO40（`l0`）/ CLK GPIO42（`l2`）/ CS GPIO43（`l3`），组名 `mi_ts_spi_{mosi,miso,clk,cs}_active` |
 | IRQ GPIO | `goodix,irq-gpio = <&tlmm 162 0x2008>`（**GPIO_162**，下降沿+bias-pull-down；`interrupts=<162 0x2008>`，`goodix,irq-flags=2`，组 `ts_int_active/suspend`） |
 | 复位 GPIO | `goodix,reset-gpio = <&tlmm 161 0>`（**GPIO_161**），组 `ts_reset_active/suspend`；pinctrl-names `pmx_ts_active/pmx_ts_suspend` |
-| 电源 | `vdd-supply = <&rpmh_regulator_ldob12>`（iovdd，RPMh L12B）；`avdd-supply = <&touch_avdd_vreg>`（固定调节器「avdd」）；上电由内核驱动完成（`redwood_touch_bus_private.h`，`touch_hv_steps=1..5` 依次为命令数据库、GPIO、供电、时钟、面板） |
+| 电源 | `vdd-supply = <&rpmh_regulator_ldob12>`（iovdd，RPMh L12B）；`avdd-supply = <&touch_avdd_vreg>`（固定调节器「avdd」）；上电由内核驱动完成（`annibale_touch_bus_private.h`，`touch_hv_steps=1..5` 依次为命令数据库、GPIO、供电、时钟、面板） |
 | 坐标 | panel-max-x `0x1c390`=115600、panel-max-y `0x3d478`=251000（÷100 → 1156×2510，与 P11 面板一致，见 §4） |
 | Trusted-touch(TVM) | `qts,en`；`qts,trusted-touch-io-bases=<0xa88000>`、`qts,trusted-touch-spi-irq=0x28c`、gpio-list (tlmm 27,40–43)+(161,162)；本项目驱动直接访问 SPI，不经 TVM |
 | 其它 | `panel = <&dsi_p11_* … &dsi_nt37801_amoled_video>` 关联面板配置；`mi_tp,*` 游戏/边缘抑制参数群 |
@@ -271,7 +271,7 @@ iOS 侧关键：**splash_region 0xFC800000+0x2B00000（GOP framebuffer / 连续 
 | DISPCC | `/clock-controller@af00000`（`dispcc`） | `qcom,sun-dispcc` | `0xaf00000` | — | okay |
 | RPMh 电源 | 根层 `/rpmh-regulator-*` 系节点 | `qcom,rpmh-regulator` | 经 cmd-db（`aop_cmd_db_mem`）与 AOP 通信，无 MMIO 直控 | — | okay；本图谱引用：L11B/L13B/L4B（显示）、L2G（vddio）、L12B（触摸 iovdd）、SMPD1/G3/D4+LDOF2/3+LDO6K+SMPI7（Wi-Fi）等 |
 | PMIC GPIO | `/soc/qcom,spmi@c42d000/qcom,pmk8550@0/pinctrl@b800`、`…/qcom,pm8550ve@5/pinctrl@8800` 等 | `qcom,pmic-gpio` | SPMI 窗口 b800/8800 | SPMI 中断 | okay（BT reset/enable 用 pm8550ve_f pin3） |
-| UFS | `/soc/ufshc@1d84000`（alias ufshc1）+ UFS PHY @`0x1d80000`（qmp-v4-sun 系） | `qcom,ufs` 系 | HC `0x1d84000`（**与 redwood 同基址**） | — | okay；loader 对 annibale 设 `skip_ufs_arbitration`，不做 UFS 控制器交接；内核从 RAM 系统盘启动，不需要 UFS 驱动，见[根文件系统说明](rootfs-strategy.md) |
+| UFS | `/soc/ufshc@1d84000`（alias ufshc1）+ UFS PHY @`0x1d80000`（qmp-v4-sun 系） | `qcom,ufs` 系 | HC `0x1d84000`（**与 POCO X5 Pro 同基址**） | — | okay；loader 对 annibale 设 `skip_ufs_arbitration`，不做 UFS 控制器交接；内核从 RAM 系统盘启动，不需要 UFS 驱动，见[根文件系统说明](rootfs-strategy.md) |
 | SDHCI | `/soc/sdhci@8804000`（alias mmc1） | `qcom,sdhci-msm` | `0x8804000` | — | okay（SD 卡，非启动路径） |
 | HWSPINLOCK | `/soc/tcsr_mutex`（`tcsr_mutex`） | `qcom,tcsr-mutex` | 0x1fc0000 系 | — | okay |
 
@@ -288,16 +288,16 @@ iOS 侧关键：**splash_region 0xFC800000+0x2B00000（GOP framebuffer / 连续 
 | CSID-lite0/1 | `0xad6d000` / `0xad72000`（0xa00） | `qcom,csid-lite980` |
 | IFE0/1/2 | `0xac86000`/`0xac96000`/`0xaca6000`（各 64K） | 时钟名 tfe_0..2；UBWC static cfg |
 | IFE-lite0/1 | `0xad6d000+0x2800` / `0xad72000+0x2800` | 与 csid-lite 同窗打包 |
-| CAM-CPAS | `0xac13000` | cam_cpas_top/camnoc_nrt/camnoc_rt/rpmh/cesta；**titan 访问前必须先起 CPAS/CAMNOC（redwood 无此步）** |
+| CAM-CPAS | `0xac13000` | cam_cpas_top/camnoc_nrt/camnoc_rt/rpmh/cesta；**titan 访问前必须先起 CPAS/CAMNOC（POCO X5 Pro 无此步）** |
 | CCI0/1/2 | `0xac7b000` / `0xac7c000` / `0xac7d000` | 主摄走 CCI0 master1 |
-| CAM SMMU | `qcom,cam_smmu` 多 context（ife/icp/jpeg/cdm/secure） | redwood单 context 经验不通用 |
-| TPG13–15 | `0xad8b000`+（第二窗 `0xac04000`） | 与 redwood `cam=3` 等价的演示路径用它 |
+| CAM SMMU | `qcom,cam_smmu` 多 context（ife/icp/jpeg/cdm/secure） | POCO X5 Pro 的单 context 经验不通用 |
+| TPG13–15 | `0xad8b000`+（第二窗 `0xac04000`） | 与 POCO X5 Pro `cam=3` 等价的演示路径用它 |
 | RT-CDM | `cam-cdm-intf` + rt-cdm2_2×5（pid 0x18..0x1c） | IFE980 编程走 RT-CDM，非纯直写 |
 
-sensor 挂线：wide 主摄=CCI0 m1/CSIPHY3/MCLK1(GPIO90)/RESET GPIO6，轨 VIO1.8/VDIG1.15/ VANA2.8(`camera_wide_avdd_ldo`，GPIO127 开关)/VAF3.1/BOB2 2.7；tele=CCI1 m0/CSIPHY1；ultra=QUP SE8 I2C `0x880000`（0x7a）/CSIPHY2；front=SE9 `0x884000`（0x10）/CSIPHY4。供电轨都是 RPMH LDO（走 SPMI；redwood 是经 I2C 直接写 PM8008i）。主摄=光影猎人800 （OV50E 小米定制，50MP/1/1.55"/OIS）；chip ID 与上电序列在 vendor 的 sensormodule 文件里，还没有从真机取出（`adb pull /vendor/lib64/camera`）。
+sensor 挂线：wide 主摄=CCI0 m1/CSIPHY3/MCLK1(GPIO90)/RESET GPIO6，轨 VIO1.8/VDIG1.15/ VANA2.8(`camera_wide_avdd_ldo`，GPIO127 开关)/VAF3.1/BOB2 2.7；tele=CCI1 m0/CSIPHY1；ultra=QUP SE8 I2C `0x880000`（0x7a）/CSIPHY2；front=SE9 `0x884000`（0x10）/CSIPHY4。供电轨都是 RPMH LDO（走 SPMI；annibale 是经 I2C 直接写 PM8008i）。主摄=光影猎人800 （OV50E 小米定制，50MP/1/1.55"/OIS）；chip ID 与上电序列在 vendor 的 sensormodule 文件里，还没有从真机取出（`adb pull /vendor/lib64/camera`）。
 
 ## 13. 与其他文档和代码的对应
 
 1. [UEFI 构建说明](annibale-uefi-build.md)：合并 DTB 的生成方式（vendor_boot 基础 DT 加 dtbo，fdtoverlay，956,243 B）与本文数据源一致；面板 XML 节点 label `dsi_p11_42_0d_0a_p10_dsc_cmd` 被消费的字段都在 §4 表中。
 2. loader `platform_annibale`（`xnuloader/platform_private.h`）：GIC 各值（§1）与 fb_base 0xfc800000（§4）与 DT 一致，uart 有意为 0（§2）；`io_base=0x00400000 + 0x3FC00000` 的 IO 窗覆盖 TLMM/GCC/QUP/SPMI/GIC 全部 MMIO；`core_mpidr` 为 0、0x100～0x500、0x10000、0x10100，`small_cores = 0x3f`，CPU 地址的读法见[桌面交互案例](2026-10-24-interactive-runtime.md)。
-3. 内核触摸驱动 `xnu/files/bsd/dev/redwood_touch_bus_private.h` 的引脚、基址与时钟取自本文 §3、§8、§11 和主线 `gcc-sm8750.c`／`pinctrl-sm8750.c`。
+3. 内核触摸驱动 `xnu/files/bsd/dev/annibale_touch_bus_private.h` 的引脚、基址与时钟取自本文 §3、§8、§11 和主线 `gcc-sm8750.c`／`pinctrl-sm8750.c`。

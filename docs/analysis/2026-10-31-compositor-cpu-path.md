@@ -5,7 +5,7 @@
 ## 1. 结论
 
 - §3～§15 的改动之后，主屏翻页快档中位数从 `bo5` 的 49.3 帧／秒升到 52.8～56.2，今天视图慢档从 28.0 升到 37～40，backboardd 每帧处理器时间约 5.8 ms（`bo17`）。
-- 没有反应的滑动是 `/dev/redwood-touch` 有两个读者，backboardd 里的输入线程在有 `input26-service` 时不再起（§12）。
+- 没有反应的滑动是 `/dev/annibale-touch` 有两个读者，backboardd 里的输入线程在有 `input26-service` 时不再起（§12）。
 - GPU 在 607 MHz 时约一半时间空闲，今天视图慢档的瓶颈在 backboardd 的处理器时间（§16）。
 
 ## 2. 帧率的两档
@@ -22,14 +22,14 @@
 ## 4. 调用方内存的 buffer
 
 - 原来 `newBufferWithBytesNoCopy:` 的 buffer 是 AIR 另分配的拷贝，每次提交前 `buffer_mirror_pull` 用 `vm_read_overwrite` 读回调用方的整块内存并按行哈希。
-- 内核 `RedwoodGPUUserClient` 的 `kRedwoodMemory`（0x7c，`RedwoodGPUMemory.inc` 的 `memoryBuffer`）用 `IOMemoryDescriptor::withAddressRange` 包住调用方的地址范围，按只读方向 `prepare`（只读内存按读写方向会返回 `KERN_PROTECTION_FAILURE`），做成带 `MSM_BO_GPU_READONLY` 的 GEM buffer。AIR 的 `rwa_buffer_from_memory` 经 `resource_from_handle` 导入，`redwoodmetal.m` 的 `initWithBytesNoCopy` 失败时退回拷贝。
+- 内核 `AnnibaleGPUUserClient` 的 `kAnnibaleMemory`（0x7c，`AnnibaleGPUMemory.inc` 的 `memoryBuffer`）用 `IOMemoryDescriptor::withAddressRange` 包住调用方的地址范围，按只读方向 `prepare`（只读内存按读写方向会返回 `KERN_PROTECTION_FAILURE`），做成带 `MSM_BO_GPU_READONLY` 的 GEM buffer。AIR 的 `rwa_buffer_from_memory` 经 `resource_from_handle` 导入，`annibalemetal.m` 的 `initWithBytesNoCopy` 失败时退回拷贝。
 - 映射回同一进程用 `kIOMapGuardedSmall`（`12377-cmd36`）。不加标志时得到原地址，释放 buffer 会把调用方自己的内存解除映射（`bo7` backboardd 崩溃）；加 `kIOMapUnique` 时解除映射再走一次 `doMap`，内核 data abort（`bo8`）。
 - `bo9` 的处理器采样里没有 `buffer_mirror_pull`，慢档中位数 26.3 → 30.0 帧／秒。
 
 ## 5. 提交合并
 
 - freedreno 的 `fd_submit_sp_flush` 只在 `should_defer`（待提交的 buffer 不超过 30 个、命令不超过 128 条）成立且 `has_shared` 不成立（不引用共享 buffer，或管道设了 `no_implicit_sync`）时合并。backboardd 每帧引用 IOSurface，原来每次刷新都单独提交。
-- `tools/mesa/fd-submit-merge.patch`：Darwin 上不按共享 buffer 阻止合并，RedwoodGPU 不按共享 buffer 给提交排序；待合并的命令上限 64 条，内核单次提交最多接受 82 条（`GPU_A830_SUBMIT_CMDS`）。AIR 的 `rwa_flush` 用 0 超时的 `fence_finish` 交出提交，fence 留给 `rwa_finish` 等。
+- `tools/mesa/fd-submit-merge.patch`：Darwin 上不按共享 buffer 阻止合并，AnnibaleGPU 不按共享 buffer 给提交排序；待合并的命令上限 64 条，内核单次提交最多接受 82 条（`GPU_A830_SUBMIT_CMDS`）。AIR 的 `rwa_flush` 用 0 超时的 `fence_finish` 交出提交，fence 留给 `rwa_finish` 等。
 - 今天视图每个显示间隔的提交次数中位数 `bo9` 33、`bo10` 3。每帧驱动耗时 25.3 → 16.8 ms，其中 `fd_batch_resource_read_slowpath`（读正被另一个批次写的资源时先提交那个批次）从 9.3 降到 0.5 ms。
 
 ## 6. 探针的开销
@@ -45,8 +45,8 @@
 
 ## 8. freedreno 的 madvise
 
-- freedreno 的 buffer 缓存每次放入、取出 buffer 都经 IOKit 调一次 `madvise`，RedwoodGPU 保留所有 buffer，总是回答「保留」。`tools/mesa/fd-madvise-skip.patch` 在 Darwin 上直接返回「保留」，不进内核。
-- `redwood_drm.c` 每 4 秒按 ioctl 编号打印调用次数与耗时（`redwooddrm[PID]: calls in N ms, selector:calls/us ...`）。
+- freedreno 的 buffer 缓存每次放入、取出 buffer 都经 IOKit 调一次 `madvise`，AnnibaleGPU 保留所有 buffer，总是回答「保留」。`tools/mesa/fd-madvise-skip.patch` 在 Darwin 上直接返回「保留」，不进内核。
+- `annibale_drm.c` 每 4 秒按 ioctl 编号打印调用次数与耗时（`annibaledrm[PID]: calls in N ms, selector:calls/us ...`）。
 
 ## 9. 面板按行更新
 
@@ -69,11 +69,11 @@
 ## 12. 没有反应的手势
 
 - 现象：`bo16` 的 84 步里 7 次滑动没有出帧，内核记下了全部触摸采样，之后没有 `tl: Q`、`tl: s`、`tl: v`。停住的触点被当成长按，主屏或今天视图进入编辑模式。
-- 原因：`/dev/redwood-touch` 有两个读者，`input26-service` 与 `libredwood.dylib` 在 backboardd 里起的输入线程（`inject.c` 的 `input_start()`，2026-10-29 起随 `package.py` 的 `INJECT` 装进 backboardd，`00810fb`）。每个采样只被先拿到锁的一方读走，两边都丢弃没有见过按下的移动与抬起，按下与抬起落在不同读者时 backboardd 里的触点一直停在按下状态。
+- 原因：`/dev/annibale-touch` 有两个读者，`input26-service` 与 `libannibale.dylib` 在 backboardd 里起的输入线程（`inject.c` 的 `input_start()`，2026-10-29 起随 `package.py` 的 `INJECT` 装进 backboardd，`00810fb`）。每个采样只被先拿到锁的一方读走，两边都丢弃没有见过按下的移动与抬起，按下与抬起落在不同读者时 backboardd 里的触点一直停在按下状态。
 - 判读：backboardd 开机日志第二次「digitizer attached」带「*** already have a main display digitizer」；没有反应的滑动在 `TouchEvents` 里没有「contact 1 presence: none」，下一次按下记「range-in for pathIndex with existing contact -- using existing」。
-- 改法：`inject.c` 在 `/redwood/LaunchDaemons/com.redwood.input26.plist` 存在时不调用 `input_start()`，打印「redwood: input: input26-service reads the touch queue, so no service of ours」；`libredwood.dylib` 仍注入 backboardd，提供 `tl: b`。`userland/build.sh` 对 `inject.conf` 有同样的冲突检查，`package.py` 没有。
+- 改法：`inject.c` 在 `/annibale/LaunchDaemons/com.annibale.input26.plist` 存在时不调用 `input_start()`，打印「annibale: input: input26-service reads the touch queue, so no service of ours」；`libannibale.dylib` 仍注入 backboardd，提供 `tl: b`。`userland/build.sh` 对 `inject.conf` 有同样的冲突检查，`package.py` 没有。
 - `bo23`（`12377-cmd44`）：开机日志只有一块触摸屏，40 次翻页每次 30～33 帧，今天视图 16 次滚动每次 27～32 帧。
-- 看门狗（`12377-cmd42` 起）：手指采样开始一个手势 400 ms 后面板仍没有新帧，就转储 backboardd、SpringBoard 与 `input26-service` 的线程，并打印 `/dev/redwood-touch` 里没读走的采样数；`12377-cmd44` 起主屏键不触发，卡顿转储要求最后一个手指采样在 100 ms 以内。
+- 看门狗（`12377-cmd42` 起）：手指采样开始一个手势 400 ms 后面板仍没有新帧，就转储 backboardd、SpringBoard 与 `input26-service` 的线程，并打印 `/dev/annibale-touch` 里没读走的采样数；`12377-cmd44` 起主屏键不触发，卡顿转储要求最后一个手指采样在 100 ms 以内。
 
 ## 13. 探针的开销（二）
 
@@ -89,8 +89,8 @@
 ## 15. 计算着色器派发不等 GPU
 
 - 原来 `rwa_dispatch_threadgroup` 在 `launch_grid` 之后刷新并等这次派发的 fence，`bo19` 今天视图里每次派发 1.4～3.2 ms。
-- AIR 新增 `rwa_dispatch_nowait`（`tools/mesa/air/air_metal_dispatch.inc`），派发留在批次里，随命令缓冲的 `rwa_flush` 提交，命令缓冲在那次刷新的 fence 上完成（`redwoodmetal_completion.inc`）。`fd_context_flush` 把同一上下文的其他批次排在前面（`fd_bc_add_flush_deps`），所以这个 fence 也覆盖派发的批次。
-- 原有的三个派发入口仍然等待，AIR 测试程序和 `REDWOOD_SYNC_DRAWS` 走这些入口。
+- AIR 新增 `rwa_dispatch_nowait`（`tools/mesa/air/air_metal_dispatch.inc`），派发留在批次里，随命令缓冲的 `rwa_flush` 提交，命令缓冲在那次刷新的 fence 上完成（`annibalemetal_completion.inc`）。`fd_context_flush` 把同一上下文的其他批次排在前面（`fd_bc_add_flush_deps`），所以这个 fence 也覆盖派发的批次。
+- 原有的三个派发入口仍然等待，AIR 测试程序和 `ANNIBALE_SYNC_DRAWS` 走这些入口。
 - `bo23` 下拉搜索：每次派发 22～79 µs，没有 GPU 未完成的报错，模糊背景正常。
 
 ## 16. 未解决

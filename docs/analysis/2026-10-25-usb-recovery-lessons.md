@@ -88,7 +88,7 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 - 现象一：独立引导进度条走完停在 `SYSTEM READY`，约 3 分钟后手机自动重启。
 - 根因一：通过 `fastboot -s xnuloader oem log` 拉取 3602 行完整日志定位到两处原因：
-  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `hackios-xnu-kernel/userland/root/bin/var_store` 与 `userland/root/lib/libredwood*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起 `/redwood/bin/var_store` 触发 `userspace panic: unexpected exec of non-platform binary: /redwood/bin/var_store: com.redwood.varstore [48]`，此时 `SpringBoard` 尚未绘制首帧。
+  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `hackios-xnu-kernel/userland/root/bin/var_store` 与 `userland/root/lib/libannibale*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起 `/annibale/bin/var_store` 触发 `userspace panic: unexpected exec of non-platform binary: /annibale/bin/var_store: com.annibale.varstore [48]`，此时 `SpringBoard` 尚未绘制首帧。
   2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`；Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`；随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
 - 现象二：修复签名后，进度条走满 `5643 / 5643 MB` 且顶部白点仍在左右移动，但屏幕长时间停在 `SYSTEM READY`（`MiniIOSurface: 0 surfaces`）。
 - 根因二：

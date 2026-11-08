@@ -7,15 +7,15 @@
 - 跨开机保留 `/private/var`（`dsu_store`）：
   - `hackios-xnu-kernel/xnuloader/loader_dsu.inc`：在 16 GiB DSU 槽位的末尾 4 GiB（偏移 12 GiB 起，1,048,576 个 4096 字节块）登记合成块区 `dsu_store`，提供 `dsu_store_write()`，按 `system_gsi` 的扩展区换算 userdata 扇区并做越界检查、写前比对与写后回读校验。
   - `hackios-xnu-kernel/xnuloader/loader_02_platform_cpu_ufs_survey.inc`、`loader_03_ufs_block_watch.inc`：`ufs_crc32()` 改用 ARMv8 硬件指令 `crc32x`／`crc32b`（loader v19，`45d97a8`），`ufs_write=1` 放行 `dsu_store` 写入。
-  - `hackios-xnu-kernel/xnu/files/bsd/dev/redwood_ufs.c`、`hackios-xnu-userland/userland/src/var_store.c`：设备路径改为 `/dev/rufs_dsu_store`，双槽位每槽 2 GiB（`0x80000000` 字节）。
+  - `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_ufs.c`、`hackios-xnu-userland/userland/src/var_store.c`：设备路径改为 `/dev/rufs_dsu_store`，双槽位每槽 2 GiB（`0x80000000` 字节）。
 - 面板背光调节（DCS `0x51`／`0x52`）：
   - `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferFlip.inc`：通过 DSI0（`0x0ae94000`）DMA FIFO 发送 MIPI DCS `0x51`（`MIPI_DCS_SET_DISPLAY_BRIGHTNESS`，长包 `0x39`，大端 2 字节 DBV）并用 `0x52`（短包 `0x14`）回读校验；`IOMFBBrightnessLevel` 的毫尼特数换算为面板 DBV `1..0x1a5e`（6,750），默认开启 `DCS_DEFAULT = 4`。文件保持在 1,212 行。
-- 蓝牙接入（SE14 UART + Skywalk + `RedwoodBT`）：
-  - `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`：实现 SE14（`0x898000`）115200 波特 4 线 UART 驱动、WCN7850 TLV／NVM 下载、`com.apple.uart.sk.bluetooth` 控制套接字、Skywalk kernel pipe 通道、`RedwoodBT` IOService，并在 `bt_answer_vendor()` 代答厂商命令及 `0x204a`（避免芯片锁入扩展广播模式而拒绝 `0x2007`／`0x200b`）。
+- 蓝牙接入（SE14 UART + Skywalk + `AnnibaleBT`）：
+  - `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`：实现 SE14（`0x898000`）115200 波特 4 线 UART 驱动、WCN7850 TLV／NVM 下载、`com.apple.uart.sk.bluetooth` 控制套接字、Skywalk kernel pipe 通道、`AnnibaleBT` IOService，并在 `bt_answer_vendor()` 代答厂商命令及 `0x204a`（避免芯片锁入扩展广播模式而拒绝 `0x2007`／`0x200b`）。
   - `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`、`tools/k90auto/package.py`：新增 `bluetool` XPC 替身；系统盘选入 `usr/sbin/bluetoothd`（12.15 MB）与韩文字体 `AppleSDGothicNeo.ttc`（32.23 MB）并更新手机 DSU；`package.py` 默认开启 `BLUETOOTH=1`。
 - 其他修复与构建加固：
-  - `hackios-xnu-kernel/xnu/files/bsd/dev/redwood_adreno.c`：K90 GPU 温度传感器地址改为 `0x0c22a000`（tsens2），并在 `adreno8_gpu8_keep` 路径每秒调用 `redwood_adreno_minute()`。
-  - `hackios-xnu-userland/tools/mesa/rebase-26/0015-fd-bo-heap-null-check.patch`：`fd_bo_heap_alloc` 检查 `util_vma_heap_alloc` 返回 0 与 `bo_new` 返回 `NULL`，重编并签名 `libredwoodair.dylib`（`5a6a3cbabf49f6ff`）。
+  - `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_adreno.c`：K90 GPU 温度传感器地址改为 `0x0c22a000`（tsens2），并在 `adreno8_gpu8_keep` 路径每秒调用 `annibale_adreno_minute()`。
+  - `hackios-xnu-userland/tools/mesa/rebase-26/0015-fd-bo-heap-null-check.patch`：`fd_bo_heap_alloc` 检查 `util_vma_heap_alloc` 返回 0 与 `bo_new` 返回 `NULL`，重编并签名 `libannibaleair.dylib`（`5a6a3cbabf49f6ff`）。
   - `hackios-xnu-kernel/xnu26/xcrun`、`xnu26/build-macos.sh`：过滤 `-Werror` 下宿主 Clang 21 触发的 `-Wreserved-identifier`；剥离外层 GNU Make 传入的 `-j`；在运行 `config` 后夹紧 `DOCONFDEPS` 与生成 `Makefile`／`assym.s` 的时间戳，避免修改 `conf/files` 触发 2 小时全量重编。
   - `tools/k90auto/cycle.py`：默认内核更新为 `12377-st4`，`FIXED_ARGS` 默认包含 `ufs=2 ufs_write=1 var_store=1 var_save_ms=60000 bt=4`。
 

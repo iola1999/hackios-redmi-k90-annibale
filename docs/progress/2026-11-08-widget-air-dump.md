@@ -40,6 +40,6 @@ NIR 包含 `uses_fbfetch_output: true`，分别读取 coherent `FRAG_RESULT_DATA
 
 ## 4. 日志缺口与后续
 
-源码 `redwoodmetal_diag.inc:329-335` 表明，逐 draw 文本只在 `REDWOOD_SYNC_LOG` 开启或当前 commit 仍有逐 draw 缩略图预算时输出。`REDWOOD_SYNC_DRAWS` 单独只保留同步等待；288 张缩略图用完后，后续重绘不再输出目标行。
+源码 `annibalemetal_diag.inc:329-335` 表明，逐 draw 文本只在 `ANNIBALE_SYNC_LOG` 开启或当前 commit 仍有逐 draw 缩略图预算时输出。`ANNIBALE_SYNC_DRAWS` 单独只保留同步等待；288 张缩略图用完后，后续重绘不再输出目标行。
 
 后续 sync-log 轮已取得实际 draw，并在当前保留窗口内定位首个新黑采样，见[sync draw 与首次黑化关联](2026-11-08-widget-sync-log.md)。

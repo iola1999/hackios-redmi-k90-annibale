@@ -81,7 +81,7 @@ assert 0 < boot_bytes <= MAX_BOOT_IMAGE_BYTES, (
 cpu_args = os.environ.get("CPU_ARGS", "cpus=2 bootcpu=7 small_cores_after=0")
 gpu_speed = int(os.environ.get("GPU_SPEED", "3"))
 # GPU_STAGE=0 boots without the GPU: the kernel can then return to the loader (with the GPU it waits
-# for a cold reset, see adreno8_quiesce), which is what a file left in kern.redwood.outbox needs.
+# for a cold reset, see adreno8_quiesce), which is what a file left in kern.annibale.outbox needs.
 gpu_stage = int(os.environ.get("GPU_STAGE", "23"))
 memsize = os.environ.get("MEMSIZE", "")       # iOS 26 needs the RAM it is staged into: 300000000
 identity = os.environ.get("IDENTITY", "")     # and the loader identity of that iOS: v57

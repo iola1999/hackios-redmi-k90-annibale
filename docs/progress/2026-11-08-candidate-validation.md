@@ -33,7 +33,7 @@
 
 - AVAudioSession category 与 activation 成功。
 - `AudioQueueStart=0`，144000/144000 帧交给原生队列，HAL 记录 playing。
-- 直接写 `/dev/redwood-audio` 的对照也完成 144000 帧。
+- 直接写 `/dev/annibale-audio` 的对照也完成 144000 帧。
 
 实际回复远低于原 250 毫秒期限，本轮不能证明 5 秒期限消除了旧偶发超时，也不能把 AudioQueue 成功单独归因于期限变化。可以确认的是，本次 DSP 初始化成功后，旧 `-66681` 没有复现。
 

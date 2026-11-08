@@ -7,7 +7,7 @@ usage: tools/k90auto/ui.py ROUND_DIR dump
        tools/k90auto/ui.py ROUND_DIR wait TEXT [SECONDS]
        tools/k90auto/ui.py ROUND_DIR accessibility
 
-dump    posts com.redwood.ax: every process with libredwood-ax.dylib (package.py AX) writes the
+dump    posts com.annibale.ax: every process with libannibale-ax.dylib (package.py AX) writes the
         labels and frames of what it shows to /tmp/ax-NAME.txt; this fetches those files into
         ROUND_DIR/run/ax/ and prints them.
 tap     dumps, picks the element whose label or value contains TEXT (case-insensitive; --exact for
@@ -16,7 +16,7 @@ tap     dumps, picks the element whose label or value contains TEXT (case-insens
 shot    one screenshot, ROUND_DIR/run/NAME.png.
 wait    dumps every 2 s until TEXT is on the screen or SECONDS (default 30) passed.
 accessibility
-        turns application accessibility on (com.redwood.ax.on): SwiftUI screens such as Settings'
+        turns application accessibility on (com.annibale.ax.on): SwiftUI screens such as Settings'
         lists and Weather list their elements only in applications started after it.
 
 The touch panel and the screen have the same proportions, so a point's share of the screen is its
@@ -45,7 +45,7 @@ def dump(round_dir):
     names = lambda: re.findall(r"\bf\s+\d+\s+(ax-\S+\.txt)", rsh(round_dir, "ls", "/private/var/tmp"))
     for name in names():
         rsh(round_dir, "rm", f"/private/var/tmp/{name}")
-    rsh(round_dir, "notify", "com.redwood.ax")
+    rsh(round_dir, "notify", "com.annibale.ax")
     time.sleep(1.5)
     screens = {}
     for name in names():
@@ -108,10 +108,10 @@ def main():
         process, (x, y, w, h, cls, label, value), sw, sh = found[nth]
         nx, ny = (x + w / 2) / sw, (y + h / 2) / sh
         print(f"ui: tap {label or value!r} ({cls} in {process}) at {nx:.3f} {ny:.3f}")
-        rsh(round_dir, "/redwood/bin/rwtouch", "tap", f"{nx:.4f}", f"{ny:.4f}")
+        rsh(round_dir, "/annibale/bin/rwtouch", "tap", f"{nx:.4f}", f"{ny:.4f}")
         return 0
     if command == "accessibility":
-        rsh(round_dir, "notify", "com.redwood.ax.on")
+        rsh(round_dir, "notify", "com.annibale.ax.on")
         print("ui: application accessibility asked for; applications started from now on list SwiftUI elements")
         return 0
     if command == "wait" and rest:

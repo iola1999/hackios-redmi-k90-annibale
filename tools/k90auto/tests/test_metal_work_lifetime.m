@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 #include <assert.h>
-#include "redwoodmetal_work_private.h"
-#include "redwoodmetal_work.inc"
+#include "annibalemetal_work_private.h"
+#include "annibalemetal_work.inc"
 
 static unsigned destroyed;
 @interface TrackedTexture : NSObject
@@ -18,7 +18,7 @@ int main(void)
 {
     @autoreleasepool {
         TrackedTexture *texture = [[TrackedTexture alloc] init];
-        RedwoodMetalWork *work = [[RedwoodMetalWork alloc] init];
+        AnnibaleMetalWork *work = [[AnnibaleMetalWork alloc] init];
         work->colorCount = 2;
         work->color[0] = texture;
         work->color[1] = texture;
@@ -32,7 +32,7 @@ int main(void)
         [work release];
         assert(destroyed == 1);
 
-        work = [[RedwoodMetalWork alloc] init];
+        work = [[AnnibaleMetalWork alloc] init];
         texture = [[TrackedTexture alloc] init];
         work->color[0] = texture;
         work->colorCount = 1;

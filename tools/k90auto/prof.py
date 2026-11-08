@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Read the interrupt-sampled profile (kern.redwood.prof) of a round and name its places.
+"""Read the interrupt-sampled profile (kern.annibale.prof) of a round and name its places.
 
 usage: tools/k90auto/prof.py ROUND_DIR [--slide HEX] [--top N] [--threads PID]
 
 The kernel (12377-cmd23 and later) samples the interrupted context at every interrupt; rwsh
-"sysctl kern.redwood.prof_on=1" starts it and "sysctl kern.redwood.prof" prints it, which rsh.py
+"sysctl kern.annibale.prof_on=1" starts it and "sysctl kern.annibale.prof" prints it, which rsh.py
 leaves in ROUND_DIR/run/cmd-*.log. This takes the newest printout there and prints:
   - samples per process, user and kernel apart, with the process names from the newest "ps";
   - the most frequent places, a user pc and lr as image+offset in the shared cache (the slide is
@@ -45,8 +45,8 @@ def snapshots(run):
 
 
 def newest_profile(text):
-    """The lines of the last kern.redwood.prof printout: rwsh SEQ| lines after its first one."""
-    starts = [m for m in re.finditer(r"^rwsh (\d+)\| kern\.redwood\.prof = (samples .*)$", text, re.M)]
+    """The lines of the last kern.annibale.prof printout: rwsh SEQ| lines after its first one."""
+    starts = [m for m in re.finditer(r"^rwsh (\d+)\| kern\.annibale\.prof = (samples .*)$", text, re.M)]
     if not starts:
         return []
     last = starts[-1]
@@ -69,11 +69,11 @@ def process_names(text):
 
 
 # The driver and the compiler library are not in the shared cache. The driver says where each
-# process loaded them ("[NAME PID] images: driver 0x... air 0x...", redwoodmetal_console.inc), and
+# process loaded them ("[NAME PID] images: driver 0x... air 0x...", annibalemetal_console.inc), and
 # their symbols are read from the builds package.py left in OWN_IMAGES_DIR, which are the round's own
 # only until the next pack.
 OWN_IMAGES_DIR = WORKSPACE / "hackios-xnu-kernel/out/ios26-resume/bbmetal-device"
-OWN_IMAGES = {"driver": "libredwoodmetal.dylib", "air": "libredwoodair.dylib"}
+OWN_IMAGES = {"driver": "libannibalemetal.dylib", "air": "libannibaleair.dylib"}
 
 
 def own_image_bases(text):
@@ -194,7 +194,7 @@ def main():
         return 0
     lines = newest_profile(text)
     if not lines:
-        print("no kern.redwood.prof printout in the round's cmd logs")
+        print("no kern.annibale.prof printout in the round's cmd logs")
         return 1
     slides = re.findall(r"tl: td \d+ slide (0x[0-9a-f]+)", text)
     slide = args.slide if args.slide is not None else int(slides[-1], 16) if slides else 0

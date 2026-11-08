@@ -7,7 +7,7 @@
 - 默认锁屏海报是 `com.apple.MercuryPoster:configuration:space.dynamic`（PosterBoard 日志里的 `PosterActivated`）。它由 ExtensionKit 扩展 MercuryPosterExtension 用自己 bundle 里的 Metal 着色器（`default.metallib`、`Space.metallib`）和 KTX 纹理绘制，SpringBoard 用 `CALayerHost` 挂载扩展的 context（§2）。
 - 壁纸黑屏由一串依次出现的缺口叠成，前一个不去掉就看不到后一个。缺口与改法见 §4，翻译器与驱动的改动见 §5。
 - backboardd 拒收 SpringBoard 壁纸窗口的 commit（「CompressedImage port is MACH_PORT_NULL!」）：PosterUIFoundation 默认把海报快照存成 ATX 格式，SpringBoard 为它建的 memory entry 大小为 0。快照改存 PNG 后不再被拒，见 §6。
-- 扩展用 4 倍多重采样画壁纸，解析出的 drawable 全部为 0。驱动在没有 `REDWOOD_MSAA` 时把多重采样请求一律按单采样处理，主屏与锁屏随之显示壁纸，见 §7。
+- 扩展用 4 倍多重采样画壁纸，解析出的 drawable 全部为 0。驱动在没有 `ANNIBALE_MSAA` 时把多重采样请求一律按单采样处理，主屏与锁屏随之显示壁纸，见 §7。
 - 锁屏时钟由 backboardd 的 SDF 玻璃管线画出，依赖驱动按 mip 级别绘制、AIR 库接受尺寸不同的附件、AIR 翻译器支持指针存进局部再读回，见 §8。
 - 单采样与 `POSTER_METAL` 现在都是默认配置。默认配置下开机全程有壁纸，滑动帧率与温度和没有壁纸的 `bo23` 相当（`bo38`）。
 
@@ -20,12 +20,12 @@
 
 ## 3. 观测
 
-- 驱动在检测到标准输出是 `/dev/null` 时，把每行写进 `kern.redwood.say`（`redwoodmetal_console.inc`），每行间隔 5 毫秒，内核日志里是 `say PID MercuryPosterExtension: ...`。
-- os_log 要在 libSystem 初始化时读到 `OS_ACTIVITY_DT_MODE`，插入库的构造函数运行时已经晚了。`EXT_ENV="MercuryPosterExtension:OS_ACTIVITY_DT_MODE=YES"` 把变量写进根盘的 `/redwood/etc/env/MercuryPosterExtension`；`inject_posterboard.c` 读到文件后设置变量、重新执行一次进程，并把标准错误转进 `kern.redwood.say`。
+- 驱动在检测到标准输出是 `/dev/null` 时，把每行写进 `kern.annibale.say`（`annibalemetal_console.inc`），每行间隔 5 毫秒，内核日志里是 `say PID MercuryPosterExtension: ...`。
+- os_log 要在 libSystem 初始化时读到 `OS_ACTIVITY_DT_MODE`，插入库的构造函数运行时已经晚了。`EXT_ENV="MercuryPosterExtension:OS_ACTIVITY_DT_MODE=YES"` 把变量写进根盘的 `/annibale/etc/env/MercuryPosterExtension`；`inject_posterboard.c` 读到文件后设置变量、重新执行一次进程，并把标准错误转进 `kern.annibale.say`。
 - backboardd 的「serialization error from context X」之前还有一行 `进程路径 (pid) : 原因`，原因来自 QuartzCore 解码器的报错函数。用 `sb26 layer window N 类名 context X` 行把 context 对到 SpringBoard 的窗口。
-- 提交末尾的采样（`REDWOOD_THUMBS`）有 `res` 一项，采样颜色附件的 resolve 目标。多重采样的附件本身不能采样（`rwa_texture_thumbnail` 拒绝）。
+- 提交末尾的采样（`ANNIBALE_THUMBS`）有 `res` 一项，采样颜色附件的 resolve 目标。多重采样的附件本身不能采样（`rwa_texture_thumbnail` 拒绝）。
 - 宿主机上的 `air2nir --report` 有 `group_free=1` 字段（§5）。
-- 内核 `12377-cmd47` 起 `redwood_tl` 一行最长 319 字节，超长时截断并保留换行。原先的上限是 192 字节，`say` 行超长后丢掉换行、与下一行连在一起，64 像素宽的采样行读不出来。
+- 内核 `12377-cmd47` 起 `annibale_tl` 一行最长 319 字节，超长时截断并保留换行。原先的上限是 192 字节，`say` 行超长后丢掉换行、与下一行连在一起，64 像素宽的采样行读不出来。
 - 插入库的 `__interpose` 拦不到 QuartzCore 对 libsystem_kernel 的调用：共享缓存里这类调用走直接跳转的 stub（`adrp`、`add`、`br`），没有可供 dyld 改写的指针。SpringBoard 的 `mach_make_memory_entry_64` 失败最后由内核探针读到（§6）。
 
 ## 4. 缺口与改法
@@ -33,8 +33,8 @@
 | 缺口 | 读数 | 改法 |
 |---|---|---|
 | 扩展没有 Metal 设备 | 壁纸黑 | 插入 Metal 设备登记库（`POSTER_METAL`） |
-| 扩展的输出全部丢失 | 驱动行和 os_log 都不可见 | 驱动的 `/dev/null` 输出改走 `kern.redwood.say`；`EXT_ENV` 与重新执行（§3） |
-| AIR 拒绝管线 | 「couldn’t set up coordinator: Error Domain=RedwoodMetal Code=1」 | AIR 翻译器的改动（§5） |
+| 扩展的输出全部丢失 | 驱动行和 os_log 都不可见 | 驱动的 `/dev/null` 输出改走 `kern.annibale.say`；`EXT_ENV` 与重新执行（§3） |
+| AIR 拒绝管线 | 「couldn’t set up coordinator: Error Domain=AnnibaleMetal Code=1」 | AIR 翻译器的改动（§5） |
 | 库拒绝压缩格式 | `albedo-a.ktx` 是 `ASTC_6x6_sRGB`（像素格式 190） | ASTC 与 BC 格式（§5） |
 | 顶点阶段的纹理被丢弃 | `space::rasterizeMeshVertex` 在顶点阶段采样 | 驱动处理 `setVertexTexture:` 与 `setVertexSamplerState:`（§5） |
 | 绑定检查 | `space::rasterizeBackgroundFragment reads texture 3 and 9 textures were bound` | 运行时选择的纹理可不绑定（§5） |
@@ -74,25 +74,25 @@ AIR 翻译器（`tools/mesa/air/`）：
 
 ## 7. 多重采样的 drawable 为空
 
-- 快照改存 PNG 后，backboardd 导入了扩展的 1125x2436 surface（`redwooddrawable: backboardd import N: surface 12` 等），合成链路上没有报错，快照内容是不透明黑色（`mean 000000ff`）。
-- 在扩展里打开 `REDWOOD_SYNC_DRAWS` 与提交末尾的采样（`REDWOOD_THUMBS`，`REDWOOD_THUMB_ONLY=res0,out0`）后，1125x2436（surface）与 562x1218 两个 resolve 目标读到的部分全部是 0，颜色与 alpha 都是 0。
-- 扩展的渲染通道是 4 倍多重采样，每个 draw 结束时 AIR 库用 blit 把颜色附件 resolve 进 resolve 目标。驱动对 `-supportsSampleCount:4` 默认回答 NO，只在 `REDWOOD_MSAA=1` 时回答 YES；扩展不问这个结果，照样用 4 倍。
-- 扩展打开 `REDWOOD_ONE_SAMPLE=1` 后，驱动把多重采样纹理和管线都建成单采样，带 resolve 目标的通道直接画进 resolve 目标，主屏与锁屏显示壁纸（`bo37`）。
-- 默认行为（`redwoodmetal_diag.inc` 的 `rw_one_sample`）：没有 `REDWOOD_MSAA` 时，驱动对 `-supportsSampleCount:4` 回答 NO，仍要 4 倍的应用拿到单采样。纹理对象照旧报告应用要的采样数，编码器据此区分这类附件与 CoreAnimation 的单采样附件；后者也带 resolve 目标，Metal 规定这时不写 resolve 目标。
+- 快照改存 PNG 后，backboardd 导入了扩展的 1125x2436 surface（`annibaledrawable: backboardd import N: surface 12` 等），合成链路上没有报错，快照内容是不透明黑色（`mean 000000ff`）。
+- 在扩展里打开 `ANNIBALE_SYNC_DRAWS` 与提交末尾的采样（`ANNIBALE_THUMBS`，`ANNIBALE_THUMB_ONLY=res0,out0`）后，1125x2436（surface）与 562x1218 两个 resolve 目标读到的部分全部是 0，颜色与 alpha 都是 0。
+- 扩展的渲染通道是 4 倍多重采样，每个 draw 结束时 AIR 库用 blit 把颜色附件 resolve 进 resolve 目标。驱动对 `-supportsSampleCount:4` 默认回答 NO，只在 `ANNIBALE_MSAA=1` 时回答 YES；扩展不问这个结果，照样用 4 倍。
+- 扩展打开 `ANNIBALE_ONE_SAMPLE=1` 后，驱动把多重采样纹理和管线都建成单采样，带 resolve 目标的通道直接画进 resolve 目标，主屏与锁屏显示壁纸（`bo37`）。
+- 默认行为（`annibalemetal_diag.inc` 的 `rw_one_sample`）：没有 `ANNIBALE_MSAA` 时，驱动对 `-supportsSampleCount:4` 回答 NO，仍要 4 倍的应用拿到单采样。纹理对象照旧报告应用要的采样数，编码器据此区分这类附件与 CoreAnimation 的单采样附件；后者也带 resolve 目标，Metal 规定这时不写 resolve 目标。
 - 单采样也去掉了每个带 resolve 目标的 draw 之后对整张 drawable 的 resolve blit。
 
 ## 8. 锁屏时钟与玻璃效果
 
 - 时钟的图层：`CSProminentTimeView` 下是 SwiftUI 的 `TitleLabelView`，其中 `SwiftUI.SDFLayer`（`CABackdropLayer` 子类）下挂 `CASDFLayer` 与 `CASDFElementLayer`，后者的内容是 723x267 的 CGImage。时间数字由 backboardd 的 SDF 玻璃管线（`glass_background_lph`、`glass_foreground_sdf_lph`、`glass_background_sdf_no_bleed_lph`）画出。日期走 `BSUIVibrancyEffectView`，一直正常显示。
-- 模糊金字塔：玻璃采样的模糊背景由 `variable_blur_downsample_frag_lph` 逐级画进一张 384x256 纹理的各个 mip 级别，每个通道用颜色附件的 `level` 指定级别。驱动原先忽略 `level`，所有通道都画进第 0 级，每个通道开头的清屏又把上一级清掉，玻璃读到的模糊背景为空。驱动改为对 `level` 非 0 的颜色附件建这一级的纹理视图（`redwoodmetal_texture.inc` 的 `rw_attachment_level`）。
+- 模糊金字塔：玻璃采样的模糊背景由 `variable_blur_downsample_frag_lph` 逐级画进一张 384x256 纹理的各个 mip 级别，每个通道用颜色附件的 `level` 指定级别。驱动原先忽略 `level`，所有通道都画进第 0 级，每个通道开头的清屏又把上一级清掉，玻璃读到的模糊背景为空。驱动改为对 `level` 非 0 的颜色附件建这一级的纹理视图（`annibalemetal_texture.inc` 的 `rw_attachment_level`）。
 - 附件尺寸：这些通道的第二个颜色附件没有指定级别，和级别视图大小不同，AIR 库按「所有附件同尺寸」拒绝，一轮里 96 个命令缓冲失败，锁屏闪烁。库改为按所有附件共有的区域绘制，与 Metal 一致。之后 Dock 的玻璃底板显示，时钟仍不显示。
 - 时间的 SDF 输入：玻璃管线采样的 SDF 是 SpringBoard 渲染的 `RGhA` 654x270 IOSurface，backboardd 读出为空，玻璃只画出包围盒形状。SpringBoard 每轮有一条 SwiftUI custom effect 管线被拒（`custom_effect_vertex` 加 `ffgea5cmba5dhmhba3`，链接 `custom_fn`）：`custom_fn` 把纹理句柄存进局部结构体 `RB::Layer`。
 - 翻译器改动：存进局部（常量偏移的 alloca）的指针记在翻译期的槽里，同一位置读回指针时取回它（`air_ptr_slot.inc`）。宿主机上带 `--link` 的这条管线可以翻译；系统 metallib 语料 11398 个模块翻译成功 3858 个，没有回退。AIR 库重编后 SpringBoard 的管线拒绝为 0，锁屏显示时间（`bo45`）。
-- 归因：同一次开机内把 backboardd 的导数切回旧算法（`AIR_COARSE_DERIVATIVES=1`）、把 SpringBoard 的单采样 resolve 切回旧行为（`REDWOOD_RESOLVE_BLIT=1`）并重启进程，时间都仍然显示，所以时钟是指针槽改动修好的。这两处改动的来由见[参考仓库对照](2026-10-31-dada-reference-comparison.md) §3.1。
+- 归因：同一次开机内把 backboardd 的导数切回旧算法（`AIR_COARSE_DERIVATIVES=1`）、把 SpringBoard 的单采样 resolve 切回旧行为（`ANNIBALE_RESOLVE_BLIT=1`）并重启进程，时间都仍然显示，所以时钟是指针槽改动修好的。这两处改动的来由见[参考仓库对照](2026-10-31-dada-reference-comparison.md) §3.1。
 - `package.py` 不编译 AIR 库。改了 `tools/mesa/air/` 之后要先运行 `tools/k90auto/build-air.py`，否则打进根盘的还是旧库。
 
 ## 9. 未解决
 
 - 扩展里 `IOSurfaceSharedEventAddEventListener failed: e00002c7` 与 `kIOSurfaceMethodSetCoreVideoBridgedKeys failed: e00002c7`：MiniIOSurface 没有实现 selector 40（`IOSurfaceSharedEventAddEventListener`）和 54（`IOSurfaceClientSetCoreVideoBridgedKeys`）。同样没有实现、开机过程中被调用的还有 17（`IOSurfaceClientSetSurfaceNotify`）、32（`IOSurfaceGetGraphicsCommPageAddress`）、41（`IOSurfaceSharedEventRemoveEventListener`），不插入 Metal 设备登记库时也会调用。selector 与函数的对应来自 iOS 26 IOSurface 框架的反汇编。
-- 4 倍多重采样的渲染或 resolve 在 A830 上得到全 0，哪一步出错没有查。查时用 `REDWOOD_MSAA=1` 给扩展打开 4 倍，再用提交末尾的采样读 `res`。
+- 4 倍多重采样的渲染或 resolve 在 A830 上得到全 0，哪一步出错没有查。查时用 `ANNIBALE_MSAA=1` 给扩展打开 4 倍，再用提交末尾的采样读 `res`。
 - Dock 的玻璃在进入桌面后先完整，随后一段时间只剩边缘高光，几分钟后恢复（用户反馈）。一直只剩边缘高光的情况来自 A830 的纹理预取读到全 0，`bo52` 起关掉预取后完整显示（`hackios-xnu-kernel/tools/mesa/rebase-26/README.md` 第 6 项）；时好时坏与预取的关系没有核实。

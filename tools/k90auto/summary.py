@@ -209,7 +209,7 @@ def summarize(base, detail=False):
     n = sum(buckets) or 1
     fast = [moving(w) for w in busy]
     moving_frames, moving_ms = sum(f[0] for f in fast), sum(f[1] for f in fast)
-    gl = [int(t) for t in re.findall(r'redwood-gl: frame \d+: .*?; (\d+) us \(', text)]
+    gl = [int(t) for t in re.findall(r'annibale-gl: frame \d+: .*?; (\d+) us \(', text)]
     hottest = [float(t) for t in re.findall(r'hottest (-?\d+\.\d) C', text)]
     levels = {}
     for line in re.findall(r'cpufreq: domain 1 in (\d+) s:([^;]*);', text):
@@ -253,7 +253,7 @@ def summarize(base, detail=False):
         # the crash reporter, so it matched the LaunchDaemons listing, the dyld unnest line and two
         # lsprobe lines in every round: roundb read 6 with 30 real exits, round C read 7 with none.
         # No crash report has ever appeared in these logs, the three exception strings included.
-        'crashes': len(re.findall(r'redwood: \S+ pid \d+ exited code -?\d+ reason \d+', text)),
+        'crashes': len(re.findall(r'annibale: \S+ pid \d+ exited code -?\d+ reason \d+', text)),
     }
 
 

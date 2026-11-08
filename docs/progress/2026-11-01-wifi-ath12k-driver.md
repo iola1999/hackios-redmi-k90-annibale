@@ -17,9 +17,9 @@
   - `lx_base.c`：内存池大小可由构建参数指定（ath12k 用 96 MB，其中 64 MB 给环与固件内存）；ath12k 构建里一页及以上的分配按大小向上取 2 的幂次对齐（上限 16 MB，`12377-cmd61` 起，见 3.1）；补 `skb_copy` 与 `sx_sysinit`。
   - `lx_80211.c` 拆成 `lx_80211.c`（radio、信道、扫描、收发帧）与 `lx_join.c`（加入网络、密钥、block ack、内核侧 station），共享声明放进 `lx_80211.h`；BSS 变化对没有 `bss_info_changed` 的驱动改为分别调用 `vif_cfg_changed` 与 `link_info_changed`。
 - 内核 `12377-cmd58`：
-  - `pcie=10`：前 6 步照旧，之后不跑第 7～9 步，改为启动驱动（`redwood_lx_start()`）；驱动上电时内核再跑第 7、8 步，随后写 MHI 的 wake 门铃让网卡保持唤醒。
-  - `redwood_lx.c` 在 `pcie=10` 时把驱动的内存、寄存器、固件文件、上电请求转给 `mhi_pcie.c`：内存取 loader 留在 4 GB 以下的区域，按页分配；`board.bin`、`regdb.bin`、`m3.bin` 分别对应 RAM 盘 `fw/` 下的 `bdwlan.elf`（`pcie_bdf=` 可改）、`regdb.bin`、`phy_ucode20.elf`。
-  - `redwood_lx.h` 新增 `lx_os_radio_registers()`，告诉驱动 BAR0 的位置与大小。
+  - `pcie=10`：前 6 步照旧，之后不跑第 7～9 步，改为启动驱动（`annibale_lx_start()`）；驱动上电时内核再跑第 7、8 步，随后写 MHI 的 wake 门铃让网卡保持唤醒。
+  - `annibale_lx.c` 在 `pcie=10` 时把驱动的内存、寄存器、固件文件、上电请求转给 `mhi_pcie.c`：内存取 loader 留在 4 GB 以下的区域，按页分配；`board.bin`、`regdb.bin`、`m3.bin` 分别对应 RAM 盘 `fw/` 下的 `bdwlan.elf`（`pcie_bdf=` 可改）、`regdb.bin`、`phy_ucode20.elf`。
+  - `annibale_lx.h` 新增 `lx_os_radio_registers()`，告诉驱动 BAR0 的位置与大小。
   - `xnu26/build-macos.sh` 在 `ath12k.o` 存在时把它链进内核。
 - loader v15（`fastboot boot`，build-id `a6262dd`）：低端内存的申请条件改为 `pcie=7`～`pcie=10`。
 - `xnu26/build-macos.sh`：`ath12k.o` 变化时同时删掉 `mach.*.unstripped.noctf`，否则 make 从旧的链接结果复制，内核不会重新链接（`12377-cmd59` 之前一次构建因此得到与 `cmd58` 相同的镜像）。
@@ -29,7 +29,7 @@
   - `wifi/lx/ath12k/lx_pci.c`：`wifi_hostcap=1` 按 cnss2 的值发主机能力（feature list 0x6，不发 nm_modem），做法是给 `hw_params` 换一份可写的副本（`cmd63`）；驱动日志行带开机后的毫秒数。
   - `mhi_pcie_fw.c`、`mhi_pcie.c`：`pcie_fw=3` 用 RAM 盘里的 `lfw-amss.bin` 与 `lfw-m3.bin`，即 linux-firmware 里给 ath12k 的 WCN7850 固件，手工放进本地固件目录，不进仓库（`cmd65`）。
   - `mhi_pcie_power.c`：`pcie_smps_hpm=1` 给 5 路开关稳压器投高功率模式（`cmd66`）；`pcie_bt_en=1` 在拉高 WLAN_EN 之前拉高 BT_EN（`cmd67`）；`pcie_aop_pdc=1` 经 AOSS QMP 邮箱把 WLAN PDC 的 21 条配置发给 AOP（`cmd68`）。
-  - `redwood_qrtr.c`：记下对端的名字服务查询和发往无人端口的数据，`qrtr_answer=1` 回答查询（`cmd67`）。
+  - `annibale_qrtr.c`：记下对端的名字服务查询和发往无人端口的数据，`qrtr_answer=1` 回答查询（`cmd67`）。
   - `mhi_pcie_fw.c`：`pcie_rddm=1` 给网卡留 RDDM 转储的接收向量，SYS_ERR 后把转储拷进内核窗口并打印 `fetch:` 行（`cmd68`）；`lx_pci.c` 把 WMI STATS 组的事件按十六进制打印（`cmd68`）。
 - `tools/k90auto/package.py`：`WIFI_FW=1` 时另放 `regdb_xiaomi.bin`、`bd_p11*.elf`、`qdss_trace_config*.cfg`，以及本地固件目录里有的 `lfw-*.bin` 与 `network`（`wifi_join=1` 要连的网络名与密码，Git 忽略，清单只记有没有这个文件）。
 - 内核 `12377-cmd69`～`cmd76`，第 9 步替身（`mhi_pcie_wlfw.c`）向 cnss2 的做法靠拢，都由启动参数打开：
@@ -45,7 +45,7 @@
 - loader v16（`fastboot boot`，build-id `a48c7fb`）：低端 DMA 内存先按固定地址 `0xA8000000` 申请 128 MB，落在 cnss2 声明的窗口 `0x98000000`～`0xb0010000` 里，避开 loader 自身（`0xA1000000`）与设备树的两段 `lost_reg_mem`；被占用时退回原来的取法（4 GB 以下最高的空闲块）。
 - `wifi/lx/src/lx_base.c` 超过 1200 行，idr 与 rhashtable 拆到新文件 `lx_tables.c`。
 - `tools/k90auto/run-auto.py`：收尾复位之前，按已存日志里的 `fetch: 名字 地址 长度` 行用 `oem stage` 取回这段内存，存成 `名字.bin`；`test-tools.py` 加了对应用例。
-- `xnu/files/bsd/dev/redwood_apple80211.c`：按 iOS 26 的布局读写 SCAN_REQ、SCAN_RESULT、CURRENT_NETWORK 与 ASSOCIATE（`cmd81`，布局见 3.6）。
+- `xnu/files/bsd/dev/annibale_apple80211.c`：按 iOS 26 的布局读写 SCAN_REQ、SCAN_RESULT、CURRENT_NETWORK 与 ASSOCIATE（`cmd81`，布局见 3.6）。
 - `xnu26/patches/31a-libkern%c++%OSKext.cpp.patch`：`OSKext::foreachKextInBacktrace()` 在没有 kext 摘要表时直接返回（`cmd82`，原因见 3.6 的 `wd30`）。
 - `tools/k90auto/package.py`：`WIFI_FW=1` 时把 configd 的控制偏好 `com.apple.InterfaceNamer.control.plist`（`ConfigureNewInterfaces` 为真）放进 `fw/`，数据卷模板加两行，开机时复制到 `/private/var/preferences/SystemConfiguration/`。
 - `wifi/lx/src/`：`lx_join.c` 每次加入时打印 PMK 的 16 位指纹（SHA-1 的前两字节）；`lx_80211.c` 按驱动的发送报告打印我们每条握手消息是否被接入点确认、未确认或被驱动丢弃（`cmd83`，只加读数）。
@@ -137,7 +137,7 @@
 
 改为 `wifi_station=1`：驱动把站点交给内核的 station 接口，wifid 的 apple80211 请求（扫描、信道、当前网络、加入）经它到达驱动，内核不自己加入网络。
 
-- `wd29`：HW_SUPPORTED_CHANNELS、CHANNELS_INFO 都有回答，设置的 Wi-Fi 开关为开；SCAN_REQ（5528 字节）被内核以 EINVAL 拒绝，网络列表为空。`redwood_apple80211.c` 的结构按 iOS 16.5 逆向，对照两版 `IO80211.framework` 的反汇编，iOS 26 改了三项请求：
+- `wd29`：HW_SUPPORTED_CHANNELS、CHANNELS_INFO 都有回答，设置的 Wi-Fi 开关为开；SCAN_REQ（5528 字节）被内核以 EINVAL 拒绝，网络列表为空。`annibale_apple80211.c` 的结构按 iOS 16.5 逆向，对照两版 `IO80211.framework` 的反汇编，iOS 26 改了三项请求：
   - SCAN_REQ 从 5456 字节变为 5528 字节，前 0x1548 字节的布局不变（scan_type 0x34、信道数 0x44、信道表 0x48、flags 0x1308、名字表 0x1314），0x1310 与 0x154c 之后是新字段。
   - SCAN_RESULT 与 CURRENT_NETWORK 的缓冲区从 1164 字节变为 2272 字节：16.5 的字段偏移不变，信息元素的空间从 1024 字节变为 2048 字节，0x8d0 之后是新字段。
   - ASSOCIATE 从 592 字节变为 908 字节，两个认证字段从 16 位变为 32 位，其后所有字段后移 4 字节（名字长度 0x10、BSSID 0x34、密钥长度与类型 0x40、0x44，密钥 0x4c）。

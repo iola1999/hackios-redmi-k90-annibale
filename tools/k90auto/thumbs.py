@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Turn the driver's REDWOOD_THUMBS samples back into images.
+"""Turn the driver's ANNIBALE_THUMBS samples back into images.
 
 usage: tools/k90auto/thumbs.py ROUND_DIR [PROCESS]
 
 The driver prints, after each draw in sync mode, a 32x32 sample of every colour attachment ("out")
-and every fragment texture ("in"), at the end of a commit also each resolve target ("res"), with REDWOOD_THUMB_DRAWS also the attachments before the draw
+and every fragment texture ("in"), at the end of a commit also each resolve target ("res"), with ANNIBALE_THUMB_DRAWS also the attachments before the draw
 ("pre"): a header line `thumb SEQ: commit C work W ROLE SLOT: format F
 WxH PTR` and 32 lines `thumb SEQ ROW: ...`, four characters a texel (R, G, B, A, top six bits each,
 base64 digits). This writes ROUND_DIR/thumbs-N.png, one row per draw: the attachments before
 it, its textures, and the attachments after it, with a gap between the groups, each tile over a grey checkerboard so that alpha shows, and
 ROUND_DIR/thumbs.txt naming every tile. PROCESS limits it to one process name.
 
-A sample larger than 32x32 (REDWOOD_THUMB_SIZE) is shown in the sheet at every n-th texel and also
+A sample larger than 32x32 (ANNIBALE_THUMB_SIZE) is shown in the sheet at every n-th texel and also
 written whole as ROUND_DIR/thumb-SEQ.png.
 
 A two-channel float attachment (RG16Float, RenderBox's coverage) is sampled with signs: R and G
@@ -29,9 +29,9 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 DIGITS64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 SIZE, SCALE, ROWS_PER_SHEET = 32, 3, 36
-HEADER = re.compile(r"redwoodmetal\[(\S+) (\d+)\]: thumb (\d+): commit (\d+) work (\d+) (in|out|pre|res) (\d+): "
+HEADER = re.compile(r"annibalemetal\[(\S+) (\d+)\]: thumb (\d+): commit (\d+) work (\d+) (in|out|pre|res) (\d+): "
                     r"format (\d+) (\d+x\d+) (\S+)( buffer| surface)?")
-ROW = re.compile(r"redwoodmetal\[(\S+) (\d+)\]: thumb (\d+) (\d+): ([A-Za-z0-9+/]{32,})\s*$")
+ROW = re.compile(r"annibalemetal\[(\S+) (\d+)\]: thumb (\d+) (\d+): ([A-Za-z0-9+/]{32,})\s*$")
 
 # 3x5 digits, as tour.py has them: this ffmpeg has no drawtext.
 GLYPHS = ["111101101101111", "010110010010111", "111001111100111", "111001111001111", "101101111001001",
@@ -56,7 +56,7 @@ def stamp(tile, number, scale=2):
 
 
 def texels_of(rows):
-    """The sample at the size the driver printed it (REDWOOD_THUMB_SIZE), as float RGBA."""
+    """The sample at the size the driver printed it (ANNIBALE_THUMB_SIZE), as float RGBA."""
     size = len(next(iter(rows.values()))) // 4 if rows else SIZE
     texels = np.zeros((size, size, 4), np.float32)
     for y, line in rows.items():

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the arm64e Mesa build tree that build-air.py builds libredwoodair.dylib in.
+"""Create the arm64e Mesa build tree that build-air.py builds libannibaleair.dylib in.
 
 The source is the tree `PREPARE=1 VERSION=26.2.5 SHA256=... REBASE=26 tools/mk-mesa.sh` leaves in
 hackios-xnu-kernel/xnu-deps/build/mesa/mesa-26.2.5 (run in the hackios-dev container: the patch
@@ -23,7 +23,7 @@ DEFAULT_DEST = KERNEL / "out/ios26-resume/mesa-arm64e"
 VENV = Path(os.environ.get("AIR_VENV", "/tmp/mesa-rebase/venv/bin"))
 BISON = Path(os.environ.get("AIR_BISON", "/opt/homebrew/opt/bison/bin")) / "bison"
 # The same -D list as mk-mesa.sh's meson setup; only the cross file differs.
-OPTIONS = ["--wrap-mode=nofallback", "--prefix=/redwood", "--libdir=lib", "--buildtype=release",
+OPTIONS = ["--wrap-mode=nofallback", "--prefix=/annibale", "--libdir=lib", "--buildtype=release",
            "-Db_ndebug=true", "-Dplatforms=", "-Dgallium-drivers=softpipe,freedreno", "-Dfreedreno-kmds=msm",
            "-Dvulkan-drivers=", "-Dglx=disabled", "-Degl=disabled", "-Dgbm=disabled", "-Dosmesa=true",
            "-Dllvm=disabled", "-Dshared-glapi=enabled", "-Dgles1=disabled", "-Dgles2=enabled", "-Dopengl=true",

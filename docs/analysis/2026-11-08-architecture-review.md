@@ -6,7 +6,7 @@
 
 ## 1. 总体判断
 
-主干路线是对的，不建议推翻。iOS 26.6.2 加 `xnu-12377.121.6`、iPhone 17 身份、完整原版三容器系统卷从 UFS 按需读取、`RDWFS001` 内核直写 `darwin_var`、`xnuloader` 双系统，这几项都已在真机闭环，且与上游后来的走向一致（上游 11-03 试过 Turnip 加 metal2vulkan，测得比直连驱动慢一半，仍回到自有驱动）。
+主干路线是对的，不建议推翻。iOS 26.6.2 加 `xnu-12377.121.6`、iPhone 17 身份、完整原版三容器系统卷从 UFS 按需读取、`ANNFS001` 内核直写 `darwin_var`、`xnuloader` 双系统，这几项都已在真机闭环，且与上游后来的走向一致（上游 11-03 试过 Turnip 加 metal2vulkan，测得比直连驱动慢一半，仍回到自有驱动）。
 
 真正的结构性风险集中在四处：
 
@@ -37,9 +37,9 @@
 |---|---|---|
 | 引导 | `hackios-xnu-kernel/xnuloader/`、Mu-Silicium UEFI | 双系统菜单、载荷装载、槽位与 GPT 维护、故障横幅 |
 | 内核平台层 | `xnu/files/osfmk/arm64/`、`xnu/files/pexpert/` | SoC 启动、中断、时钟、PSCI、看门狗 |
-| 内核设备驱动 | `xnu/files/bsd/dev/adreno8/`、`bsd/dev/annibale/`、`bsd/dev/redwood/` | GPU、触摸、按键、电池、ADSP、蓝牙、Wi-Fi、UFS |
+| 内核设备驱动 | `xnu/files/bsd/dev/adreno8/`、`bsd/dev/annibale/` | GPU、触摸、按键、电池、ADSP、蓝牙、Wi-Fi、UFS |
 | IOKit 替身 | `xnu/files/iokit/Kernel/Mini*.cpp` | 面板、IOSurface、背光、密钥库、网络栈的最小实现，对齐 iOS 框架期望的服务树 |
-| 文件系统与持久化 | `xnu/files/bsd/miscfs/ramfs/`、`redwood_ufs*` | `RDWFS001` 直写、UFS 块设备、APFS 只读 |
+| 文件系统与持久化 | `xnu/files/bsd/miscfs/ramfs/`、`annibale_ufs*` | `ANNFS001` 直写、UFS 块设备、APFS 只读 |
 | 用户态驱动 | `hackios-xnu-kernel/tools/userland-driver/`（Metal）、`hackios-xnu-userland/tools/mesa/air/`（AIR 编译与 Gallium 状态） | Metal 接口到 GPU 命令流 |
 | HAL 与服务替身 | `userland/src/services/`（音频 HAL 插件、相机 FigCaptureDevice、输入服务） | 为 iOS 守护进程提供硬件供应商侧的实现 |
 | 注入库 | `userland/src/inject/` | 进程内替换：供应商类、诊断、测试辅助 |
@@ -64,10 +64,10 @@
 | 阶段 | 实现位置 | 性质 |
 |---|---|---|
 | CoreAnimation 合成（backboardd） | iOS 原生 | GPU 命令由 Metal 接口下发 |
-| Metal 驱动 | `hackios-xnu-kernel/tools/userland-driver/redwoodmetal.m`（5420 行）及 `.inc` | 把 Metal 对象映射到 Gallium 状态 |
+| Metal 驱动 | `hackios-xnu-kernel/tools/userland-driver/annibalemetal.m`（5420 行）及 `.inc` | 把 Metal 对象映射到 Gallium 状态 |
 | AIR 编译与状态层 | `hackios-xnu-userland/tools/mesa/air/`（`air_metal.c` 6782 行、`air_to_nir.c` 3461 行） | AIR 位码→NIR→ir3，运行时编译 |
 | Gallium freedreno a8xx | Mesa 26.2.5 加 `tools/mesa/rebase-26/` 17 个补丁 | GMEM 分 bin 渲染，命令流生成 |
-| 内核 GPU 服务 | `xnu/files/iokit/Kernel/RedwoodGPU.cpp`、`xnu/files/bsd/dev/adreno8/` | 提交经 HFI 交给 GMU |
+| 内核 GPU 服务 | `xnu/files/iokit/Kernel/AnnibaleGPU.cpp`、`xnu/files/bsd/dev/adreno8/` | 提交经 HFI 交给 GMU |
 | 上屏 | `xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp` 及 `MiniFramebuffer*.inc` | **CPU** 把 1206×2622 缩放拷进 1156×2510 面板内存，再换扫描地址 |
 
 上屏一段决定了几个硬约束。显示控制器只被用来换地址（`fb_flip=2`），缩放、逐行哈希、脏行判定都在 CPU 上由两个内核线程完成；`fb_queue=1` 下 `SwapEnd` 要等上一帧拷完，相邻两帧共用两拍预算。这是 [120 Hz 卡点分析](2026-11-01-120hz-gesture-bottleneck.md) §6 已经量到的链路。
@@ -90,7 +90,7 @@
 
 | 场景 | 更可能的机制 | 建议先采的证据 |
 |---|---|---|
-| 多任务界面卡顿 | 每张应用快照是一块线性 IOSurface 纹理，叠加 `CABackdropLayer` 模糊（compute 下采样）与玻璃材质，一帧多个 pass 加多次提交；每次提交各付 0.7 ms 派发延迟；首次进入还要编译该场景的管线 | 打开 `REDWOOD_PASS_TIMES=1` 在多任务手势里采 5 秒，记每帧 pass 数、compute 派发数、提交次数与建管线次数 |
+| 多任务界面卡顿 | 每张应用快照是一块线性 IOSurface 纹理，叠加 `CABackdropLayer` 模糊（compute 下采样）与玻璃材质，一帧多个 pass 加多次提交；每次提交各付 0.7 ms 派发延迟；首次进入还要编译该场景的管线 | 打开 `ANNIBALE_PASS_TIMES=1` 在多任务手势里采 5 秒，记每帧 pass 数、compute 派发数、提交次数与建管线次数 |
 | 设置底部搜索栏背景色不对 | Liquid Glass 材质：`CABackdropLayer` 加合成滤镜，着色器用 framebuffer fetch 混合，再叠 sRGB 或 10 位 XR 附件 | 见 §8 的格式与混合核对 |
 | 顶栏颜色经常不对 | 同上，导航栏的 `_UIBarBackground` 是材质视图；此前曾被钩子涂白，钩子已删，现在剩下的是驱动一侧的问题 | 同上 |
 | 状态栏颜色不对 | 状态栏的易读性渐变带合成滤镜（上游在 iOS 16.5 上见到同一症状：`darkenSourceOver` 渐变画成纯白） | 用 `inject_sb26_layers.c` 的图层导出列出状态栏窗口的 `compositingFilter`，再核对驱动对该滤镜对应混合状态的映射 |
@@ -137,7 +137,7 @@
 
 ### 7.1 编译成本
 
-运行时编译链是 AIR→NIR→ir3，每条管线首次出现时在 backboardd 的提交线程上编译（是否在渲染线程上没有核实）。`redwood-pipecache-v5.bin` 与 M1 的 `redwood-aircache` 已落地，但没有「第二次开机后编译次数」的读数。首次进多任务、首次打开控制中心的卡顿很可能就是运行时编译。
+运行时编译链是 AIR→NIR→ir3，每条管线首次出现时在 backboardd 的提交线程上编译（是否在渲染线程上没有核实）。`annibale-pipecache-v5.bin` 与 M1 的 `annibale-aircache` 已落地，但没有「第二次开机后编译次数」的读数。首次进多任务、首次打开控制中心的卡顿很可能就是运行时编译。
 
 建议：
 
@@ -164,7 +164,7 @@ AIR 翻译器是本项目最独特也最脆弱的一层。目前的失败模式�
 
 ### 8.1 四处可疑的契约偏差
 
-1. **10 位 XR 格式被静默替换成 8 位。** `MiniIOSurface.cpp` 把 `w30r`／`l10r`／`w30R`／`b3a8` 建成 `BGRA`，驱动再用 `rwd_canonical_pixel_format()` 把 Metal 格式 94 与 550～555 映射为 80／81（`hackios-xnu-kernel/tools/userland-driver/redwood_drawable.h`）。iPhone 17 身份下 CoreAnimation 会为玻璃与壁纸选 XR 格式，超出 [0,1] 的分量被截断，sRGB 与线性的判定（551／553／555 视为 sRGB）也是推断而非从 QuartzCore 读出的对应关系。这是最直接会把半透明材质颜色画偏的一条，建议第一个核对。正确做法是在内核 IOSurface 里真的提供 10 位格式（A830 支持 `RGB10_A2` 与相关布局），驱动按真实格式建纹理。
+1. **10 位 XR 格式被静默替换成 8 位。** `MiniIOSurface.cpp` 把 `w30r`／`l10r`／`w30R`／`b3a8` 建成 `BGRA`，驱动再用 `rwd_canonical_pixel_format()` 把 Metal 格式 94 与 550～555 映射为 80／81（`hackios-xnu-kernel/tools/userland-driver/annibale_drawable.h`）。iPhone 17 身份下 CoreAnimation 会为玻璃与壁纸选 XR 格式，超出 [0,1] 的分量被截断，sRGB 与线性的判定（551／553／555 视为 sRGB）也是推断而非从 QuartzCore 读出的对应关系。这是最直接会把半透明材质颜色画偏的一条，建议第一个核对。正确做法是在内核 IOSurface 里真的提供 10 位格式（A830 支持 `RGB10_A2` 与相关布局），驱动按真实格式建纹理。
 2. **framebuffer fetch 的降级路径。** `air_to_nir.c` 把 `air.render_target` 输入翻成 `fb_fetch_output`，Mesa 再降成 `txf_ms_fb`；补丁 0016 用常量图层 0 绕过了 VPC 脏寄存器。这是个合理修补，但 A830 上 fb fetch 在 GMEM 多 bin 与两个颜色附件下的一致性没有专门测试，而 iOS 26 的材质着色器大量依赖它。
 3. **附件读写策略的两条补丁有正确性前提。** 0009 把 `MTLLoadActionDontCare` 附件标为内容无效、0010 跳过 `colormask=0` 附件的写回，两者都假设 CoreAnimation 之后不再读这块附件。整屏 pass 的第二个 RGBA16Float 附件正是材质路径可能回读的那块；若某些 pass 确实回读，就会出现「局部区域颜色错、切换控制中心后又对」这种状态依赖的症状。建议做一次 A/B：关掉 0009／0010 跑同一组截图，看搜索栏、顶栏、状态栏是否变化。
 4. **混合状态映射。** `air_metal.c` 第 5251 行附近注明某些混合操作按 `max(Cs, Cd)` 处理而忽略因子；合成滤镜（`darkenSourceOver`、`sourceAtop`、`plusL` 等）全靠混合状态与双源混合表达，任何一项映射不精确都会表现为「颜色老是不对」。
@@ -175,7 +175,7 @@ AIR 翻译器是本项目最独特也最脆弱的一层。目前的失败模式�
 
 现在的做法是真机复现一个修一个，每个修复配一组宿主检查。建议把它升级为一套按着色器家族组织的离线回归：
 
-- 从 23G90 的 QuartzCore `default.metallib` 与 CoreImage metallib 提取玻璃、背景模糊、合成滤镜、SDF 文本这几族着色器及它们在真机日志中出现过的管线描述（附件格式、混合状态、load／store）。`REDWOOD_PASS_LOG=1` 已经能记录附件格式与读写方式，补上管线与混合状态就是完整的回放描述。
+- 从 23G90 的 QuartzCore `default.metallib` 与 CoreImage metallib 提取玻璃、背景模糊、合成滤镜、SDF 文本这几族着色器及它们在真机日志中出现过的管线描述（附件格式、混合状态、load／store）。`ANNIBALE_PASS_LOG=1` 已经能记录附件格式与读写方式，补上管线与混合状态就是完整的回放描述。
 - 宿主侧用 Mac 原生 Metal 渲染同一输入得到参考图，设备侧用现有 `userland/src/tests/metal_drv_test.m`（7799 行）跑同一描述，做像素差。
 - 每条 rebase-26 补丁与 `rwd_canonical_pixel_format()` 这类替换都要在这套样本上过一遍，再进默认参数。
 
@@ -197,11 +197,11 @@ AIR 翻译器是本项目最独特也最脆弱的一层。目前的失败模式�
 
 事实链有三条：
 
-- iOS 16.5 上 `hv_haptic=4` 经 RedwoodAudio 的「Actuator」设备驱动马达已通过，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md) §6。
+- iOS 16.5 上 `hv_haptic=4` 经 AnnibaleAudio 的「Actuator」设备驱动马达已通过，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md) §6。
 - iOS 26 上故障寄存器 `0x10`（UVLO）清不掉；R2 M3 加了 UVLO 清除与 `0xf246` 升压使能，但未上机。
 - `hackios-xnu-userland/userland/src/inject/inject_sb26.c` 的 `install_haptic_hooks()` 把 `CHHapticEngine` 的 `capabilitiesForHardware` 改成 `supportsHaptics=NO`、`supportsAudio=NO`，`start`／`stop` 直接返回成功。
 
-判断：这个钩子是为了避免 SpringBoard 主线程被触感引擎阻塞而加的表象绕过，但它截断了 CoreHaptics→audiomxd／HAL「Actuator」→`/dev/redwood-haptic` 的原生路径，内核修好也没有波形送到。建议：
+判断：这个钩子是为了避免 SpringBoard 主线程被触感引擎阻塞而加的表象绕过，但它截断了 CoreHaptics→audiomxd／HAL「Actuator」→`/dev/annibale-haptic` 的原生路径，内核修好也没有波形送到。建议：
 
 - 删除该钩子，把阻塞问题还原到 HAL 插件（`userland/src/services/audio_plugin.c`）的 Actuator 设备属性与 I/O 启动上去解决；`AUDIO=1` 已是默认，正好与扬声器 `AudioQueueStart=-66681` 的排查共用同一套 HAL 契约。
 - UVLO 故障按原厂 `qcom-hv-haptics` 的上电顺序核对：先使能升压并等待就绪，再配置 VMAX 与波形，最后清故障；现在的顺序是先清故障再直驱。
@@ -213,11 +213,11 @@ iOS 26 上读 `0x0018` 报「传输被丢弃」，R2 M3 加了重试容错但未
 
 ### 10.3 相机
 
-当前树里有两套相机代码：`xnu/files/bsd/dev/redwood/redwood_camera.c`（4269 行，SM7375 可用的裸寄存器方案）与 R6 盲写的 `xnu/files/bsd/dev/annibale/annibale_camera.c`（1134 行，OV50E／CSID TPG，含 Iris 占位），后者没有任何真机读数；R8 又发现注入库未签名，所以此前「0 个摄像头设备」的结论是注入没加载，不是相机代码的结果。
+当前树里有两套相机代码：`xnu/files/bsd/dev/annibale/annibale_camera.c`（4269 行，SM7375 可用的裸寄存器方案）与 R6 盲写的 `xnu/files/bsd/dev/annibale/annibale_camera.c`（1134 行，OV50E／CSID TPG，含 Iris 占位），后者没有任何真机读数；R8 又发现注入库未签名，所以此前「0 个摄像头设备」的结论是注入没加载，不是相机代码的结果。
 
 [相机路线](../plan/camera-plan.md)的分级与放弃准则仍然成立，建议严格按它执行而不是继续在 R 轮里批量加代码：
 
-- 第一步不碰 CAMSS：确认签名后的 `libredwood-media.dylib` 在 `cameracaptured`／`mediaserverd` 里加载，用假的 TPG 流让 `FigCaptureDevice` 枚举出一个设备、Camera.app 预览出彩条。这一步只涉及用户态与 iOS 26 的进程归属（16.5 是 mediaserverd，26 要核对 `cameracaptured`）。
+- 第一步不碰 CAMSS：确认签名后的 `libannibale-media.dylib` 在 `cameracaptured`／`mediaserverd` 里加载，用假的 TPG 流让 `FigCaptureDevice` 枚举出一个设备、Camera.app 预览出彩条。这一步只涉及用户态与 iOS 26 的进程归属（16.5 是 mediaserverd，26 要核对 `cameracaptured`）。
 - 第二步才是 L1a 的 CPAS／camcc／csid-lite／ife-lite 通路，每一步读回报错，不靠多模块一次落地。
 - vendor 的 `com.qti.sensormodule.*.bin` 仍是 L1b 的门；手机下次在 Android 时取出，放入忽略目录。
 - `annibale_camera.c` 与 `annibale_iris.c` 在默认启动参数里保持关闭，直到各自第一项真机读数出现。
@@ -274,7 +274,7 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 ## 13. 启动、持久化与稳定性
 
 - **开机到可交互的时间。** 用户反馈过图标约一分钟才出现。建议在日志里固定打三个时刻：首帧、图标齐全、首次触摸有响应，并列出这段时间里 CPU 最忙的进程。开机种子（`var.seed`）与跨开机缓存都是为缩短这段时间服务的，要有读数证明。
-- **`RDWFS001` 的健壮性。** 已有双槽轮换、主槽失败回退备槽、容量夹紧。建议再加：开机时对元数据做一次完整校验并记录结果；异常复位（看门狗、panic）后的恢复要有专门的测试轮；写入放大与闪存寿命做一次估算（每 1.5 秒一次元数据同步，几十 MiB 的槽位）。
+- **`ANNFS001` 的健壮性。** 已有双槽轮换、主槽失败回退备槽、容量夹紧。建议再加：开机时对元数据做一次完整校验并记录结果；异常复位（看门狗、panic）后的恢复要有专门的测试轮；写入放大与闪存寿命做一次估算（每 1.5 秒一次元数据同步，几十 MiB 的槽位）。
 - **崩溃现场。** `KLOG` 16 MiB 硬件直写与 panic 红屏横幅已落地，是正确方向。建议把 `ReportCrash` 的输出目录也放进直写范围，让用户态崩溃跨重启可取。
 - **看门狗与关机。** 关机路径已补喂狗与跳回 loader；建议加一个「关机 30 秒内没走完就记录卡在哪一步」的探针，避免再出现 1 分钟黑屏后红屏。
 - **内存。** 完整系统卷下空闲约 6.2 GiB，充裕。zone map 16 GB 与压缩池 4 GB 的配置暂不动，但多任务下的压缩与换页行为可以采一次。
@@ -290,7 +290,7 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 ## 15. 存储、网络与双系统
 
 - **存储拓扑**已对齐 iPhone（`disk0s1`→APFS 容器→三个卷），设置里容量口径按 128 GB 容器。保持。
-- **Wi-Fi**：首次手动加入失败已修（扫描与关联并发），已存网络重连待复核。建议把 `redwood_sta.c` 的状态机画成图写进 analysis，后续蓝牙共存与省电模式都要在它上面改。
+- **Wi-Fi**：首次手动加入失败已修（扫描与关联并发），已存网络重连待复核。建议把 `annibale_sta.c` 的状态机画成图写进 analysis，后续蓝牙共存与省电模式都要在它上面改。
 - **双系统与 OTA**：`boot_a` 的 AVB 校验回退问题已查到 ABL 指令级根因并修复。剩下的风险是 Android 完整包 OTA 覆盖闲置槽位的 `boot`，手册已写明重刷即可；建议 loader 在启动菜单里显示自身版本与 `darwin` 分区的系统版本，减少「不知道刷的是哪个」的误判。
 - **分区容量**：`darwin` 16 GiB 承载 14 GiB 的三容器，余量不到 2 GiB；若未来要装 iOS 27 的镜像（共享缓存超过 6 GiB），要预留扩容步骤。
 
@@ -301,7 +301,7 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 - **产物身份。** `package.py` 已记录各产物哈希；建议所有注入库与驱动在构造函数里打印自身 UUID，日志里就能直接对上是哪一版，R8 的未签名问题会在第一轮就暴露。
 - **真机时间预算。** 每批最多三轮的规则很好；建议再加一条「每周真机窗口先分给 P0 的复核，再分给新功能」，否则新功能会一直挤占复核。
 - **子代理分工。** 相互独立的源码与反汇编任务并行是对的；但同一文件不能同时派给两个成员，R6 的「独占文件分工」应成为常规，并在分工表里写明每个成员的验收输出（读数、测试、截图）。
-- **行数红线。** `redwoodmetal.m` 5420、`air_metal.c` 6782、`air_metal_test.c` 6764、`metal_drv_test.m` 7799、`redwood_camera.c` 4269、`redwood_adreno.c` 3497 行均超 [AGENTS.md](../../AGENTS.md) §2 的 1200 行；它们正是本次要大改的文件，动手前先按职责拆（管线／纹理／提交／诊断），否则每次修复都在同一个巨文件里冲突。
+- **行数红线。** `annibalemetal.m` 5420、`air_metal.c` 6782、`air_metal_test.c` 6764、`metal_drv_test.m` 7799、`annibale_camera.c` 4269、`annibale_adreno.c` 3497 行均超 [AGENTS.md](../../AGENTS.md) §2 的 1200 行；它们正是本次要大改的文件，动手前先按职责拆（管线／纹理／提交／诊断），否则每次修复都在同一个巨文件里冲突。
 
 ## 17. 文档治理
 

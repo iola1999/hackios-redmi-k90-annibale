@@ -25,23 +25,23 @@
 
 ### 3.1 已采用的两处改动
 
-- 单采样 resolve：对方只要 storeAction 是 resolve 且 resolveTexture 不为空，就在 endEncoding 时拷贝，不看采样数（`redwoodmetal.m:5384-5394,6706-6736`）。我们在 storeAction 为 `MultisampleResolve`、loadAction 不是 Load、像素格式相同时，把 resolve 目标（按 `resolveLevel`）直接当作颜色附件；`REDWOOD_RESOLVE_BLIT=1` 恢复旧行为。
+- 单采样 resolve：对方只要 storeAction 是 resolve 且 resolveTexture 不为空，就在 endEncoding 时拷贝，不看采样数（`annibalemetal.m:5384-5394,6706-6736`）。我们在 storeAction 为 `MultisampleResolve`、loadAction 不是 Load、像素格式相同时，把 resolve 目标（按 `resolveLevel`）直接当作颜色附件；`ANNIBALE_RESOLVE_BLIT=1` 恢复旧行为。
 - 导数：对方 `dfdx`、`dfdy`、`fwidth` 一律按 32 位、按像素计算（`air_intrinsics.c:533-549`），注释记录 half 操作数在 A830 上让 `fwidth.f16` 得到 inf 和 NaN。QuartzCore 里导数操作数为 half 的只有 `glass_background_*_lph` 四个函数。`AIR_COARSE_DERIVATIVES=1` 恢复旧行为。
 - `bo45` 同一次开机内逐个关掉这两处，锁屏时间仍显示，时钟由指针槽改动修好（[锁屏壁纸](2026-10-31-mercury-wallpaper.md) §8）。两处保留。
 
 ### 3.2 可借鉴、还没做
 
-- 只清屏的通道：对方没有 draw 的通道也执行 load action，每个附件只清自己（`redwoodmetal.m:4766-4786`）；我们只读附件 0 的 load action，用 `PIPE_CLEAR_COLOR` 一起清。约 80 行。
-- 单个 draw 失败：对方只跳过这一个（`redwoodmetal.m:5129-5142`，注释写旧做法出现过黑块）；我们把整个 command buffer 标为错误。约 10 行。
+- 只清屏的通道：对方没有 draw 的通道也执行 load action，每个附件只清自己（`annibalemetal.m:4766-4786`）；我们只读附件 0 的 load action，用 `PIPE_CLEAR_COLOR` 一起清。约 80 行。
+- 单个 draw 失败：对方只跳过这一个（`annibalemetal.m:5129-5142`，注释写旧做法出现过黑块）；我们把整个 command buffer 标为错误。约 10 行。
 - 拷贝：对方不等 fence，不同块大小走 `pipe->blit`（`air_metal.c:4400-4440`）；我们每次等 fence，要求格式相同。
 - function constant：对方把求值为 false 的参数当作不存在，未用到的纹理与采样器补 null 视图（`air_to_nir.c:2492-2510`）。
 - 编译：CSO 按 `nir_serialize` 加 blake3 共享（`air_metal.c:5951-6012`）；按常量特化后只翻译走到的块，注释记录 `fixed_frag_lph_cph` 从 8907 条指令降到 25 条（`air_to_nir.c:6326-6380`）。
 - 缺 `air.buffer_size` 的 UBO 最多上传 16 KB（我们 64 KB）；A830 停机防护 `widen_scratch` 与 `air_cap_loops`（`air_to_nir.c:5855,5905`）。
-- 编码器级别的 LOD 范围（`redwoodmetal.m:3833-3870`），注释写没有它时模糊金字塔采样到正在写的那一级；我们丢掉 `lodMinClamp`、`lodMaxClamp`。约 40 行。
-- 链接函数：对方读 `groups`（`redwoodmetal.m:1791-1838`）；我们只按名字匹配。
+- 编码器级别的 LOD 范围（`annibalemetal.m:3833-3870`），注释写没有它时模糊金字塔采样到正在写的那一级；我们丢掉 `lodMinClamp`、`lodMaxClamp`。约 40 行。
+- 链接函数：对方读 `groups`（`annibalemetal.m:1791-1838`）；我们只按名字匹配。
 - gpu2 补丁里的两项：不透明图层经 alpha 固定为 1 的视图读取，没做时壁纸发白；RenderBox 用 `RGB10A8_2P_XR10`（550/551），我们的库不认识（`dada:gpu2/patches/nativemetal-dada.patch:1317,2534`）。
 - 应用相关：结构体 phi 与指针 phi、导入的 IOSurface 给可写绑定、blit 编码器补全、point_coord 做成 `VARYING_SLOT_PNTC` 输入。
-- 工具：`metal_bisect` 按时间段轮流跳过一组管线的 draw，`metal_procs` 只让指定进程拿到 Metal 设备（`redwoodmetal.m:4870-4920,1543-1580`）；glassref 在 Mac 上让 Apple GPU 与主机版 libredwoodair 逐像素比较同一个 draw（`dada:userland/tools/air/glassref.m`，约 1300 行，MIT）。
+- 工具：`metal_bisect` 按时间段轮流跳过一组管线的 draw，`metal_procs` 只让指定进程拿到 Metal 设备（`annibalemetal.m:4870-4920,1543-1580`）；glassref 在 Mac 上让 Apple GPU 与主机版 libannibaleair 逐像素比较同一个 draw（`dada:userland/tools/air/glassref.m`，约 1300 行，MIT）。
 
 QuartzCore 的 `default.metallib` 是 fat 文件，抽出 AIR slice 后 189 个函数里 171 个能翻译，已加入我们的主机语料。
 
@@ -64,7 +64,7 @@ QuartzCore 的 `default.metallib` 是 fat 文件，抽出 AIR slice 后 189 个�
 - IOSurfaceSharedEvent：CoreAnimation 只在 Metal 设备支持 `MTLGPUFamilyApple7` 时才建共享事件（23G90 反汇编），我们的设备默认只声明 Apple1/Common1，这套等待没有启用，SpringBoard 日志里的 `e00002c7` 与绘制结果没有直接关系；profile 提到 Apple7 时才要实现 selector 36～41（对方 `patch:80896` 起）。
 - Metal 设备给所有进程：对方 gpu2 路线每个进程都能拿到设备，沙盒进程的内存块 8 MiB（`nativemetal-dada.patch:725-731`）。我们只给 SpringBoard、backboardd、iconservicesagent、MercuryPosterExtension，应用里 `MTLCreateSystemDefaultDevice` 返回 nil。
 - 任务拒绝列表：对方放行 bluetoothd、音频、locationd、datamigrator 等（`dada:userland/userland/mkjobs.py:231-241`），没有 bluetoothd 时 audiomxd 每秒查找约 16000 次。放行 datamigrator 前要补齐迁移完成标记（`build.sh:595-616`）。
-- 着色器缓存与状态导出：对方进程共用 `com.redwood.m2v-shared`，镜像带上一轮导出的管线包；`stateexport` 经 GPU 导出通道取回 PosterBoard 数据与缓存，带 GPU 的轮次也能取（`stateexport.c`，`init.c:597-701`）。我们取种子的轮次不能带 GPU（[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md) §3）。
+- 着色器缓存与状态导出：对方进程共用 `com.annibale.m2v-shared`，镜像带上一轮导出的管线包；`stateexport` 经 GPU 导出通道取回 PosterBoard 数据与缓存，带 GPU 的轮次也能取（`stateexport.c`，`init.c:597-701`）。我们取种子的轮次不能带 GPU（[每次开机都是首次开机](2026-10-31-every-boot-is-first-boot.md) §3）。
 - exec 期参数：对方 `exec_env`、`exec_swap`、`exec_log`、`exec_deny` 按程序名注入环境变量、替换程序、记录、拒绝启动（`patch:55711-55728,56067-56179`）。我们只有 `JOB_ENV`、`EXT_ENV`；蓝牙需要前两个（[蓝牙接入调研](2026-11-02-bluetooth-bringup.md) §6），约 150 行。
 
 ## 5. 引导与迭代效率
