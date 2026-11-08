@@ -378,6 +378,7 @@ DRIVER_INCLUDES = ["tools/userland-driver/redwood_drawable.h",
                    "tools/userland-driver/redwoodmetal_texture.inc",
                    "tools/userland-driver/redwoodmetal_yuv.inc",
                    "tools/userland-driver/redwoodmetal_texture_layout.inc",
+                   "tools/userland-driver/redwoodmetal_timing.inc",
                    "tools/userland-driver/redwoodmetal_work.inc",
                    "tools/userland-driver/redwoodmetal_work_private.h"]
 
@@ -761,6 +762,7 @@ def main():
                             "userland/src/services/camera_isp.c",
                             "userland/src/services/input26_service.c",
                             "userland/src/inject/inject_app.c",
+                            "userland/src/inject/inject_app_network.inc",
                             "userland/src/inject/inject_cellular.inc",
                             "userland/src/tests/torch_test.c",
                             "userland/src/tests/sound_test.c",
@@ -1101,6 +1103,7 @@ def main():
     # image came from the tree that has the dealloc prints. A pack that cannot name its inputs is not
     # written at all, rather than left for somebody to reconstruct later.
     required = [*SHIM_SOURCES, *DRIVER_SOURCES, *DRIVER_INCLUDES,
+                "userland/src/inject/inject_app_network.inc",
                 "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c"]
     absent = [name for name in required if not report.get("sources", {}).get(name)]
     if not report.get("sources") or absent:

@@ -9,7 +9,9 @@ loader_live magic3, loader "oem sh"). run-auto.py stays the only process that ta
 this drops the command into ROUND_DIR/run/cmd-request-*.txt and waits for run-auto.py to send it
 and to read the log into ROUND_DIR/run/cmd-SEQ.log. The command is one line of at most 119
 characters, words split on blanks with no quoting; the built-ins are listed in
-hackios-xnu-kernel/userland/src/rwsh.c.
+hackios-xnu-kernel/userland/src/rwsh.c. rwsh applies its own command deadline, and a slow native call
+can also finish after the default output wait. Set RSH_OUTPUT_TIMEOUT and RSH_SUBPROCESS_TIMEOUT for
+callers that need a longer observation window.
 
 Exit status: the command's own, 2 when it could not be sent, 3 when no end of its output arrived.
 """
@@ -20,8 +22,8 @@ import re
 import sys
 import time
 
-SEND_TIMEOUT = 30       # run-auto.py looks at the request files every half second, between samples
-OUTPUT_TIMEOUT = 40     # rwsh kills a program after 15 s; run-auto.py reads the log up to 18 s after
+SEND_TIMEOUT = int(os.environ.get("RSH_SEND_TIMEOUT", "30"))  # run-auto.py looks at requests every half second
+OUTPUT_TIMEOUT = int(os.environ.get("RSH_OUTPUT_TIMEOUT", "40"))  # Native calls and log snapshots can outlast the default wait
 
 
 def main():

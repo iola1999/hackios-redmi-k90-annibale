@@ -62,7 +62,9 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 - 启动卷：先上传 payload，使 loader 按本轮 `memsize` 分配窗口；再通过 `oem ramdisk` 上传小型 `flashboot.apfs` 启动卷，核对 loader 报告的实际长度与窗口。该卷只提供 `stage0` 和挂载目录，系统卷由内核从 `darwin` 分区按需读取，`/private/var` 由 `darwin_var` 直接持久化。
 - 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 按固定时长跑。
 - `run/shot-request` 出现时拍一张（`shot-now.py` 写这个文件，`SHOT_ON_ACTION=0` 忽略）；`run/stop-request` 出现时提前收尾。
-- `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 字符）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `rwsh`，输出从日志取回；内建命令见 `hackios-xnu-kernel/userland/src/rwsh.c`。
+- `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 字符）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `rwsh`，输出从日志取回；内建命令见 `hackios-xnu-userland/userland/src/apps/rwsh.c`。输出等待默认为 40 秒，慢原生调用可通过 `RSH_OUTPUT_TIMEOUT` 延长，调用方的子进程期限也要相应放宽。
+- `ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]` 通过 `rsh.py` 采集只读状态，默认覆盖进程、`appinst list`、`/Applications`、下载目录和 IPA 暂存目录，结果写入 `run/ios-state-*.json`。`appinst list` 只覆盖用户安装的应用；系统注册应用通过 `appinst open` 和主屏复核。命令返回非零会保留在对应记录中；传输失败停止后续查询，并在报告里标明失败命令。
+- `fetch.py ROUND_DIR DEVICE_PATH OUT` 通过 `rwsh cat` 分块读回设备文件，检查偏移连续性，任一段缺失就以失败退出。
 - 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志。自动复位仅接受 `returned`、`returned-held`、`hung`、`hung-held` 及其完整零错误状态；未知状态、格式错误或复位命令失败会停止队列。内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，完成条件是 loader 重新应答 idle 且启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。
 
 `round-run.py ROUND_DIR [SECONDS] [TIMING]` 是 `cycle.py` 的起轮入口，在 `run-auto.py` 外面加两项：一轮 5 秒内以 `returned` 结束且日志有 `PANIC caller` 时视为早期启动 panic，最多重试 `K90_PANIC_RETRY`（默认 3）次，全部 panic 时以 3 退出；设备处于 LK 时检查 `slot-retry-count:a`，低于 3 先 `set_active a`。
@@ -72,10 +74,10 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 - `summary.py` 每轮一行：内核提交、关键启动参数、运行秒数、panic 次数、动画窗口帧率、显示驱动每帧耗时、GL 帧耗时 p50／p90、帧间隔分布（低于 18 ms、18～35 ms、更长）、大核最高温度、最低档时间占比、截图数与异常截图数、崩溃记录数（内核报的进程退出行）。`--verify` 检查合并结果包含每份快照里的帧窗口，缺失时以 1 退出。
 - 帧间隔只统计帧数不少于 20 且帧率不低于 10 帧/秒的窗口。`summary.py` 只把 `s[0-9]*.log` 当日志快照，按重叠部分对接，同一窗口只算一次。loader 的日志区是 263,349 字节的头加 1,048,576 字节的环，环满之后开头的内容被覆盖；容量与快照频率见[运行协议](../../docs/plan/k90auto-run-protocol.md)的日志环一节。
 - `gestures.py` 按手势统计主动画的帧间隔（控制中心下拉取首帧起 1.8 s，翻页取 600 ms），输出 p50／p95／最长间隔、超过 18 ms 的比例、帧率和触摸到首帧的时间。需要 `touch_lat=1`，加 `glslow=3000` 时还给出窗口服务器每帧绘制时间。
-- `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，给出长帧归因和每段动画的帧率；需要 `touch_lat=1`，口径写在脚本开头。
+- `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，给出长帧归因和每段动画的帧率；需要 `touch_lat=1`。新日志另有 `panel_obs`，表示拷屏完成到观测 `CTL_FLUSH` 清零的上界。带 `tl: l` 时用 `INTF_FRAME_COUNT` 的差值计算显示间隔和长帧分组，`at` 只表示观测时刻；没有 `tl: l` 的旧日志沿用 `shown` 为拷屏开始的 copy 口径，P/G/bw/C 等原有数值不变，不将该口径当作实测面板时刻。
 - 异常截图指 GMEM 分 bin 边界下方出现状态栏蓝色块的截图（2026-10-25 的 framebuffer fetch 缓存问题）。其他显示异常要看拼图或由人确认。
 - 温度和 CPU 档位来自 `cpufreq=1` 或 `2` 时内核每 30 s 写的日志。`N by temperature, M without a reading` 区分限频由读数触发还是没有读数触发；判断限频是否守住看紧跟的 `hot ticks` 一行。
-- backboardd 的 GPU 时间按 pass 拆分：`JOB_ENV` 加 `com.apple.backboardd.plist:REDWOOD_PASS_TIMES=1` 和 `com.apple.backboardd.plist:FD_GPU_TRACEPOINT=-all,+render_pass,+compute,+blit,+nondraw,+tile_loads,+tile_stores`，日志每 5 秒打印一组 `pass times`。AIR 库要带 `tools/mesa/rebase-26/0008`，读法见[GPU 提频后的 120 Hz](../../docs/analysis/2026-11-02-120hz-after-gpu-clock.md) §6。
+- backboardd 的 GPU 时间按 pass 拆分：`JOB_ENV` 加 `com.apple.backboardd.plist:REDWOOD_PASS_TIMES=1` 和 `com.apple.backboardd.plist:FD_GPU_TRACEPOINT=-all,+render_pass,+draw_ib,+compute,+blit,+nondraw,+tile_loads,+tile_stores`，日志每 5 秒打印一组 `pass times`。AIR 库要带 `tools/mesa/rebase-26/0008`，读法见[GPU 提频后的 120 Hz](../../docs/analysis/2026-11-02-120hz-after-gpu-clock.md) §6；带 `0018` 时还会为不低于 2 ms 的 draw 打印 `draw gpu slow`，每个进程每 5 秒最多 4 行。
 - 震动、亮度、声音等需要人感知的项目不在判定范围内。
 
 离线检查：`python3 tools/k90auto/tests/test-tools.py` 用临时替身代替 fastboot，覆盖帧间隔分组、快照合并、队列失败后停止、收尾状态、启动卷上传顺序及大小和状态不符的拒绝路径。
