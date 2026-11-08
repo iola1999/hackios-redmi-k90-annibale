@@ -63,7 +63,7 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 - 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 按固定时长跑。
 - `run/shot-request` 出现时拍一张（`shot-now.py` 写这个文件，`SHOT_ON_ACTION=0` 忽略）；`run/stop-request` 出现时提前收尾。
 - `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 字符）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `rwsh`，输出从日志取回；内建命令见 `hackios-xnu-kernel/userland/src/rwsh.c`。
-- 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志并复位；内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，判定条件是 loader 重新应答 idle 且 启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。
+- 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志。自动复位仅接受 `returned`、`returned-held`、`hung`、`hung-held` 及其完整零错误状态；未知状态、格式错误或复位命令失败会停止队列。内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，完成条件是 loader 重新应答 idle 且启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。
 
 `round-run.py ROUND_DIR [SECONDS] [TIMING]` 是 `cycle.py` 的起轮入口，在 `run-auto.py` 外面加两项：一轮 5 秒内以 `returned` 结束且日志有 `PANIC caller` 时视为早期启动 panic，最多重试 `K90_PANIC_RETRY`（默认 3）次，全部 panic 时以 3 退出；设备处于 LK 时检查 `slot-retry-count:a`，低于 3 先 `set_active a`。
 

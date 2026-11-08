@@ -25,9 +25,8 @@ shot when it next looks, named by the elapsed second the shot was taken at, so t
 reads the same way as in the rounds taken with a fixed interval. Set SHOT_ON_ACTION=0 to ignore the
 request file.
 
-The run always ends with the device back in a fresh idle loader. A kernel that held GPU resources
-reaches hung-held, which keeps every page until a cold reset, so the teardown saves the log the
-loader holds and reboots instead of leaving that state for the operator.
+Teardown saves logs before resetting a returned or hung kernel. Unsupported or malformed states
+preserve the device state and stop the queue.
 """
 import hashlib
 import json
@@ -397,8 +396,8 @@ def fetch_regions():
 
 
 def teardown():
-    """Save the log the loader holds and reset, so the next run starts from an idle loader. Returns
-    the state it left and whether it sent the reset.
+    """Save available logs and reset only supported terminal states. Return the final observed
+    state and whether the reset command was acknowledged.
 
     Every action re-reads the state. `oem stop` only asks: a kernel that held the GPU stops
     answering, and the loader reports hung-held once that kernel has been silent for its own 50 s,
@@ -428,6 +427,10 @@ def teardown():
         call(["get_staged", run / f"{name}.log"], 40, False)
         call(["oem", "log"], 8, False)
         call(["get_staged", run / f"{name}-serial.log"], 40, False)
+        if name not in ("returned", "returned-held", "hung", "hung-held"):
+            return name, False
+        if re.fullmatch(re.escape(name) + r"(?: [0-9]+ 0)?", variable("result", check=False)) is None:
+            return "unknown", False
         # the reset below clears what the kernel kept for the host, so it is saved first, as NAME.bin
         for label, (address, length) in fetch_regions().items():
             staged = call(["oem", "stage", address, length], 8, False)
@@ -438,8 +441,8 @@ def teardown():
         staged = call(["oem", "recording"], 8, False) if name == "returned" else None
         if staged and staged["rc"] == 0 and "FAILED" not in staged["output"]:
             call(["get_staged", run / "outbox.bin"], 300, False)
-        call(["reboot"], 10, False)
-        return name, True
+        reply = call(["reboot"], 10, False)
+        return name, reply["rc"] == 0 and "FAILED" not in reply["output"]
     return state(), False
 
 

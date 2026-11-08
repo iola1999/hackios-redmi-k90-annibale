@@ -100,6 +100,9 @@ elif args[:1] == ["stage"]:
         window = os.environ.get("FB_WINDOW", "180000000")
         ramdisk_path.write_text(f"ready {reported:x} {reported:x} {window}")
 elif args[:1] == ["reboot"]:
+    if "FB_REBOOT_RC" in os.environ:
+        say("FAILED (remote: reset refused)")
+        sys.exit(int(os.environ["FB_REBOOT_RC"]))
     state_path.write_text(os.environ.get("FB_AFTER_REBOOT", "idle"))
     pathlib.Path(os.environ["FB_RAMDISK"]).write_text("idle 0 0 0")
 elif args[:2] == ["oem", "sh"]:
@@ -284,8 +287,7 @@ class RunAutoTests(unittest.TestCase):
             return result, summary, self.sent(root), sorted(p.name for p in (base / "run").iterdir())
 
     def test_stop_into_hung_held_saves_the_log_and_resets(self):
-        """The incident this teardown exists for: the sample before `oem stop` says running, and the
-        kernel that held the GPU is only hung-held afterwards, so it needs a host reset."""
+        """The documented cold reset preserves logs before clearing a hung kernel's resources."""
         result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="hung-held")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(summary["left"], "hung-held")
@@ -345,6 +347,41 @@ class RunAutoTests(unittest.TestCase):
         self.assertEqual(summary["left"], "unknown")
         self.assertFalse(summary["ready_for_next_run"])
         self.assertNotIn(["reboot"], sent)
+
+    def test_unsupported_states_preserve_logs_without_reset_or_memory_staging(self):
+        for state in ("not-started 0 0", "reset-failed 1 0", "stop-failed 5 0", "unknown-state"):
+            with self.subTest(state=state):
+                result, summary, sent, files = self.teardown_case(FB_AFTER_STOP=state)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertFalse(summary["reset"])
+                self.assertFalse(summary["ready_for_next_run"])
+                self.assertIn(state.split()[0] + ".log", files)
+                self.assertNotIn(["reboot"], sent)
+                self.assertFalse(any(command[:2] == ["oem", "stage"] for command in sent))
+
+    def test_incomplete_return_status_does_not_reset(self):
+        for state in ("returned 12 1", "returned 12 0 extra", "returned bad 0", "hung-held 0 bad"):
+            with self.subTest(state=state):
+                result, summary, sent, files = self.teardown_case(FB_AFTER_STOP=state)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(summary["left"], "unknown")
+                self.assertFalse(summary["ready_for_next_run"])
+                self.assertNotIn(["reboot"], sent)
+
+    def test_complete_return_status_can_reset(self):
+        result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="returned 1444016 0")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(summary["reset"])
+        self.assertTrue(summary["ready_for_next_run"])
+
+    def test_reboot_failure_is_not_reported_as_acknowledged(self):
+        for code in ("0", "1"):
+            with self.subTest(code=code):
+                result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="returned", FB_REBOOT_RC=code)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertFalse(summary["reset"])
+                self.assertFalse(summary["ready_for_next_run"])
+                self.assertEqual(sent.count(["reboot"]), 1)
 
     def test_hung_held_appears_only_after_the_loaders_silence_window(self):
         """What the device did: three `oem stop` acknowledgements, still running, and hung-held only
