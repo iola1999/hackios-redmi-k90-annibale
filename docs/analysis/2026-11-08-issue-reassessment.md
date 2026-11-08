@@ -59,7 +59,18 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 - AIR 先把 viewport 限制到附件范围，再计算顶点变换，导致越界 viewport 的采样位置错误。修复保留调用方的原始矩形，由 framebuffer 和 scissor 限制光栅化范围；生产映射代码的 5 项主机检查通过，旧实现失败 4 项。
 - Metal texture view 构造固定传入空 IOSurface 和 plane 0，丢失原纹理身份。修复继承原纹理的 IOSurface 与 plane；实际方法的 6 项检查通过，旧方法全部失败。
 
-扩展后的运行测试在宿主原生 Metal 的默认、越界 viewport、IOSurface 及组合场景中通过。真机旧版本已复现上述两处差异，候选 AIR 和 Metal 库完成 arm64e 构建与签名，等待分别复核。SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，黑底原因仍需结合实际组件输出确认。
+扩展后的运行测试在宿主原生 Metal 的默认、越界 viewport、IOSurface 及组合场景中通过。真机对照结果如下：
+
+- A 轮仅更新 AIR：越界 viewport 通过，IOSurface 身份检查仍失败。
+- B 轮再更新 Metal：两项均通过，清屏、多附件、blit、IOSurface 像素与释放检查也通过。
+- B 轮 Home→控制中心→Home 往返正常，两个组件仍为黑底；另记录过日历图标短暂空白和一次设置页上半部黑屏，继续检查。
+
+后续发现 texture view 的写入未更新原纹理的 buffer 写回记录。修复让各级 view 直接引用原纹理，共用已有写回记录并保留其生命周期；写入标记无需遍历全局纹理。
+
+- 五组生产函数 ASan/UBSan 检查通过，覆盖原纹理、buffer 提前释放和多级 view；四项故障变体被识别。
+- 宿主原生 Metal 的 buffer 与非对齐行距 IOSurface 各检查 136 像素，差异均为 0；候选等待真机对照。
+
+SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，纹理写回缺陷与黑底的关联尚未确认。A/B 结果与画面保存在本地忽略目录 `storage-boot-device-1108/phase5/`，写回探针与候选在 `out/widget-render-1108/view-writeback/`。
 
 原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。该项进入完整系统回归，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
 
@@ -74,6 +85,12 @@ ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也
 后续修正 GLINK 写指针的锁内读取、完整的 14 字段 READ_DONE 响应和采集有效长度；电源、图启动或 DMA 失败向调用方返回错误。生产函数测试通过，11 个回归变体被拒绝，完整 XNU 构建成功。背光处理保留既有 400 毫秒滑块窗口，接受窗口内分开发送的 nits/framebuffer 更新，实际滑块范围待真机复核。
 
 完整系统日志确认两颗功放可读取 revision `0x9866`；DSP 状态查询和内存映射完成后，Speaker 图创建失败并停止播放。当前日志尚未证明原生音频客户端的 PCM 已到达功放，继续核对 OPEN 包和 DSP 回复。
+
+GLINK 的 `DONE_REUSE` 原来把远端公布的缓冲区容量改成固定 2048 字节，并可能覆盖仍在传输的记录。修复保留原容量，以 `size == 0` 表示未使用项，`RX_DONE` 释放记录；发送队列写入失败会归还该次传输占用的 intent。接收游标和 intent 分配分别加锁，避免 PMIC 与 GPR 并发修改同一状态。
+
+18 个主机场景通过，旧实现失败 7 个；删除 PMIC 发送失败后的归还操作会使重试测试失败。XNU 编译和链接成功，日志补充实际应答是否收到、opcode 和状态字段。
+
+另以 `990b6fcc` 重建得到与真机 B 完全相同的内核，再只加入本组三个音频源文件，完成单变量候选打包。Speaker OPEN、图启动与播放完成仍待真机复核。
 
 HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 timestamp seed，PCM 写失败或短写返回错误，Actuator 启停保留 Speaker 计数。完整生产接口表的九个主机测试场景通过，旧实现有六个场景失败，五项故障变体被识别；arm64e 插件编译和签名通过，候选尚未部署。
 
@@ -95,7 +112,9 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 23G90 `fairplayd.H2` 导入 `IOConnectCallStructMethod`、`IORegistryEntryFromPath` 和 `IORegistryEntryCreateCFProperty`。可选诊断库记录 selector、长度、返回值、属性类型及主程序内的调用偏移；只观察程序自身的调用，保留参数、CF 所有权、iterator 状态、`errno` 和 `dlerror()`。认证内容、属性值、路径文本和启动参数内容均不输出。
 
-生产函数的普通及 ASan/UBSan 检查通过，19 项故障变体被识别，arm64e 严格编译及签名校验通过。隔离 helper 只替换诊断库并为原生 FairPlay job 增加该库注入，其余任务字段保持原值；候选尚未部署，实际服务名称、Open type、selector 和启动退出条件仍待确认。
+生产函数的普通及 ASan/UBSan 检查通过，19 项故障变体被识别，arm64e 严格编译及签名校验通过。首次设备检查确认诊断库文件哈希正确，但没有加载记录。
+
+项目的 launchd 会过滤任务中的 `DYLD_*` 环境变量，诊断注入应通过 `/etc/inject.conf` 和 `kern.exec_inject` 配置。修正后的 helper 仅修改该配置和诊断库，其他文件与任务缓存保持原值；实际服务名称、Open type、selector 和启动退出条件仍待确认。
 
 按进程复核同一轮日志，Weather 和 WeatherWidget 均查找 `com.apple.fairplayd` 及 `com.apple.fairplayd.versioned`，返回服务不存在；Maps 与地图组件已确认的失败涉及 `locationd`、`kvsd`。Weather 的 JWT 签名调用见第 3.6 节，Maps 的 FairPlay 依赖尚未确认。
 
@@ -120,6 +139,12 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 - 软件路径记录 `kIOSurfaceMethodSetCoreVideoBridgedKeys failed: e00002c7`。23G90 对应 selector 54，清理 bridged values 使用 trap 8，当前驱动均未实现；还需确认完整属性契约及对呈现的影响。
 
 该项验证覆盖内存中的软件解码输出，网页播放、GPU 合成与实际硬件解码仍未通过。
+
+独立 `AVPlayer` 探针保留默认解码、缓冲与音频会话行为，检查 ready、播放状态、时钟前进、结束通知及 `AVPlayerItemVideoOutput` 的实际像素。验证结果如下：
+
+- 九项主机测试通过，正常样本取得 12 帧，逐时间戳摘要与 ffmpeg 一致。
+- 损坏媒体数据可能正常结束却输出零帧，探针据此返回失败。
+- arm64e 编译与签名通过，设备播放尚待验证；探针不负责屏幕呈现。
 
 ### 3.6 天气签名与 UnfairPlay 参考范围
 
