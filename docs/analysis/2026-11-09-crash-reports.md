@@ -33,5 +33,19 @@
 
 ## 5. 遗留
 
-- nearbyd、cloudd、MessagesBlastDoorService、airplayd 开机后反复崩溃，报告已在 `DiagnosticReports/` 下，原因待查。
+- 开机后反复崩溃的几个进程，按报告和内核 `userabort` 行归类如下。地址减去当次开机的 shared cache slide 后查最近的导出符号；nearbyd 与 MessagesBlastDoorService 反编译看过检查条件，cloudd 与 airplayd 还没有。
+
+| 进程 | 退出方式 | 位置与线索 |
+|---|---|---|
+| nearbyd | SIGABRT | 断言 `ConstructRegulatoryTxPowerTableMap`（`roseRegulatoryCompliancePowerTables.cpp` 第 1073 行）失败，下面单独说明 |
+| MessagesBlastDoorService | SIGTRAP | Swift `assertionFailure`，调用方是 BlastDoor 的 `Sandbox.initialize(sandboxID:)`。这个函数有两处致命检查：进程没有沙盒时报「BlastDoor cannot run unsandboxed.」，进不了 `blastdoor-post-launch` 状态时报「BlastDoor failed to enter post launch sandbox state」。报告没有带出消息文本，但 `sandboxProfileName` 为空，按这一项判断是第一处 |
+| cloudd | SIGTRAP | CloudKitDaemon 在 `dispatch_once` 里的初始化路径经 CloudKit 触发 `brk` |
+| airplayd | SIGSEGV | 读地址 `0x18` 时 `KERN_INVALID_ADDRESS`，只在验证镜像那次开机看过 |
+
+nearbyd 的断言已反编译确认（`/usr/libexec/nearbyd`）：
+
+- 读 UWB 芯片的函数（`0x100483d38`）先查 MobileGestalt 的 `DeviceProximityCapability`。为真时读芯片 ID（`nhGhVMyvrWYe9U2ltAUImg`），`8198` 记为芯片类型 0，`8228` 记为类型 1；为假时打印「UWB not supported」，芯片类型保持初值 2。
+- `ConstructRegulatoryTxPowerTableMap`（`0x100495e08`）先按设备类型分支，再按第二个参数分支，取值 0、1、2 与上面的芯片类型对应。设备类型 26（日志里的 `RoseParameterCache: device type 26`）且这个值为 2 时走 `assert(false)`，就是第 1073 行。
+- K90 没有苹果的 UWB 芯片，`DeviceProximityCapability` 为假与硬件相符；按这个分支，nearbyd 在这台设备上每次启动都会断言。怎么处理（不登记 nearbyd，或核对设备类型 26 的来源）待定。
+
 - 4 个请求同时到达时出现过一次 EEXIST，修复后没有再观察。
