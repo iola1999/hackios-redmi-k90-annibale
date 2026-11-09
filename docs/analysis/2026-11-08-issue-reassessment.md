@@ -31,7 +31,7 @@
 | 相机 | 预览黑屏，切视频闪退；要求合并外设实现 | 枚举格式成功记录仍缺真实传感器图像验证 | 核对传感器、CCI/CSIPHY/IFE、帧到达和像素变化；相机预览及切换录像不退出 |
 | 手电、触感、传感器 | 手电、震动、环境光、接近传感器均需检查 | 早期结果不能覆盖当前镜像 | 检查真实设备配置、回读和数据变化；亮灭、触感及遮挡/光照刺激需人工或外部设备 |
 | 语言、字体、通知 | 中文设置下应用名称变英文；网页字符方框；日历反复询问通知权限 | 旧文档列有修复，缺当前镜像逐项复核 | 检查中文名称、目标网页字体、通知授权读写及重启保留 |
-| 应用安装与文件 | 主屏无法彻底卸载；要求原生 IPA 管理器、清理测试应用、安装 LiveContainer+SideStore；当前找不到定制 IPA 管理器；Safari 下载完成后仍显示「下载中」，下载文件需能移入文件 App | `AnnibaleInstaller.app` 已在 `/annibale/Applications`；自动与手动原生 `register-system` 均被 LaunchServices 拒绝。`appinst list` 只枚举用户应用，不能判断系统管理器是否注册；下载完成链停在哪个环节仍待复核 | 通过反编译定位注册返回 NO 的条件和真实错误通道，修复后核对 `appinst open com.annibale.installer`、管理器界面和两页主屏图标。覆盖安装、启动、主屏删除、容器清理、重启保留，以及 Safari 下载完成状态、文件落盘和分享安装 |
+| 应用安装与文件 | 主屏无法彻底卸载；要求预装应用安装器、清理测试应用、安装 LiveContainer+SideStore；Safari 下载完成后仍显示「下载中」，下载文件需能移入文件 App | `TrollStore.app` 已在 `/annibale/Applications`，由 `trollstorehelper register-system` 装进 `MCMAppContainer` 并注册到 LaunchServices | 核对 `trollstorehelper open com.opa334.TrollStore`、TrollStore 界面和主屏图标。覆盖安装、启动、主屏删除、容器清理、重启保留，以及 Safari 下载完成状态、文件落盘和分享安装 |
 | 引导、关机与复位 | 多次进入 Android；苹果 Logo 长时间停留；滑动关机黑屏后看门狗复位；要求 SOP 记录原因 | 本轮确认旧 loader 报错 idle 与恢复命令清除资源状态的问题 | 检查槽位和 GUID，实际进入目标系统；正常关机走电源关闭路径；故障后保留真实状态和日志 |
 | 手动与自动解锁 | 手动开机停在锁屏，无人值守才自动解锁 | 用户确认过手动锁屏行为与解锁体验 | 分别核对独立启动和自动跑轮的参数与结果 |
 | 蜂窝与 App Store | 要求蜂窝网络、短信、电话及 App Store | 尚未完成端到端验证 | 检查真实基带状态；注册网络、通话和登录下载依赖 SIM、网络及登录凭据，单独记录边界 |

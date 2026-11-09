@@ -4,9 +4,9 @@
 usage: tools/k90auto/install-ipa.py [ROUND_DIR] [FILE.ipa] [--open]
 
 The file goes to the phone in pieces of at most 15 MB, each through the kernel's 16 MB inbox
-(run-auto.py's push request, then annsh "pull PATH OFFSET" into /private/var/tmp/ipa/). appinst's
+(run-auto.py's push request, then annsh "pull PATH OFFSET" into /private/var/tmp/ipa/). trollstorehelper's
 watcher, started at boot from rc.jobs.interactive, installs it once the whole archive is there;
-this waits until "appinst list" names the application, and --open launches it.
+this waits until "trollstorehelper list" names the application, and --open launches it.
 
 Before uploading, Mach-O binaries in Payload (main executable, frameworks, dylibs, appex plugins)
 are recursively signed with ad-hoc signatures and necessary entitlements (get-task-allow, application-groups).
@@ -142,7 +142,7 @@ def adhoc_sign_python(path, ent_path):
     n_special_slots = 5
 
     ident = path.stem.encode("utf-8") + b"\x00"
-    ident_offset = 88
+    ident_offset = 48
     hash_offset = ident_offset + len(ident)
     while hash_offset % 4 != 0:
         ident += b"\x00"
@@ -152,19 +152,13 @@ def adhoc_sign_python(path, ent_path):
     cd_length = actual_hash_offset + n_code_slots * 32
 
     cd_data = bytearray(cd_length)
-    struct.pack_into(">IIIIIIIIIBBBBIIIIQQQQ", cd_data, 0,
-        0xfade0c02, cd_length, 0x20400, 0x00000006, actual_hash_offset, ident_offset,
-        n_special_slots, n_code_slots, code_limit, 32, 2, 0, 12,
-        0, 0, 0, 0, 0, 0, 0, 0
+    struct.pack_into(">IIIIIIIIIBBBBI", cd_data, 0,
+        0xfade0c02, cd_length, 0x20100, 0x00000006, actual_hash_offset, ident_offset,
+        n_special_slots, n_code_slots, code_limit, 32, 2, 0, 12, 0
     )
     cd_data[ident_offset:ident_offset+len(ident)] = ident
     cd_data[actual_hash_offset - 2 * 32 : actual_hash_offset - 1 * 32] = req_hash
     cd_data[actual_hash_offset - 5 * 32 : actual_hash_offset - 4 * 32] = ent_hash
-
-    for i in range(n_code_slots):
-        start = i * page_size
-        end = min(start + page_size, code_limit)
-        cd_data[actual_hash_offset + i * 32 : actual_hash_offset + (i + 1) * 32] = hashlib.sha256(data[start:end]).digest()
 
     sb_index_size = 12 + 4 * 8
     cd_offset = (sb_index_size + 15) & ~15
@@ -172,20 +166,6 @@ def adhoc_sign_python(path, ent_path):
     ent_offset = (req_offset + len(req_blob) + 15) & ~15
     sig_offset = (ent_offset + len(ent_blob) + 15) & ~15
     sb_total_size = (sig_offset + len(sig_blob) + 15) & ~15
-
-    superblob = bytearray(sb_total_size)
-    struct.pack_into(">III", superblob, 0, 0xfade0cc0, sb_total_size, 4)
-    struct.pack_into(">II", superblob, 12, 0, cd_offset)
-    struct.pack_into(">II", superblob, 20, 2, req_offset)
-    struct.pack_into(">II", superblob, 28, 5, ent_offset)
-    struct.pack_into(">II", superblob, 36, 0x10000, sig_offset)
-
-    superblob[cd_offset:cd_offset+len(cd_data)] = cd_data
-    superblob[req_offset:req_offset+len(req_blob)] = req_blob
-    superblob[ent_offset:ent_offset+len(ent_blob)] = ent_blob
-    superblob[sig_offset:sig_offset+len(sig_blob)] = sig_blob
-
-    data.extend(superblob)
 
     if cs_cmd_at != -1:
         struct.pack_into("<II", data, cs_cmd_at + 8, code_limit, sb_total_size)
@@ -200,6 +180,25 @@ def adhoc_sign_python(path, ent_path):
     new_filesize = (code_limit + sb_total_size) - linkedit_fileoff
     new_vmsize = (new_filesize + 0x3fff) & ~0x3fff
     struct.pack_into("<QQ", data, linkedit_at + 32, new_vmsize, new_filesize)
+
+    for i in range(n_code_slots):
+        start = i * page_size
+        end = min(start + page_size, code_limit)
+        cd_data[actual_hash_offset + i * 32 : actual_hash_offset + (i + 1) * 32] = hashlib.sha256(data[start:end]).digest()
+
+    superblob = bytearray(sb_total_size)
+    struct.pack_into(">III", superblob, 0, 0xfade0cc0, sb_total_size, 4)
+    struct.pack_into(">II", superblob, 12, 0, cd_offset)
+    struct.pack_into(">II", superblob, 20, 2, req_offset)
+    struct.pack_into(">II", superblob, 28, 5, ent_offset)
+    struct.pack_into(">II", superblob, 36, 0x10000, sig_offset)
+
+    superblob[cd_offset:cd_offset+len(cd_data)] = cd_data
+    superblob[req_offset:req_offset+len(req_blob)] = req_blob
+    superblob[ent_offset:ent_offset+len(ent_blob)] = ent_blob
+    superblob[sig_offset:sig_offset+len(sig_blob)] = sig_blob
+
+    data.extend(superblob)
 
     path.write_bytes(data)
     path.chmod(0o755)
@@ -352,16 +351,16 @@ def main():
 
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        installed_list = rsh(round_dir, "/annibale/bin/appinst", "list")
+        installed_list = rsh(round_dir, "/annibale/bin/trollstorehelper", "list")
         if identifier in installed_list:
             print(f"install-ipa: {identifier} is installed")
             rsh(round_dir, "/bin/sync")
             if open_after:
-                print(rsh(round_dir, "/annibale/bin/appinst", "open", identifier).strip().splitlines()[-1])
+                print(rsh(round_dir, "/annibale/bin/trollstorehelper", "open", identifier).strip().splitlines()[-1])
             return 0
         time.sleep(3)
 
-    print(f"install-ipa: {identifier} did not show up in appinst list within 180 s; see appinst lines in the log")
+    print(f"install-ipa: {identifier} did not show up in trollstorehelper list within 180 s; see trollstorehelper lines in the log")
     return 1
 
 

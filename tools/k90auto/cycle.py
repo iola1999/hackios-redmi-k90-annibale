@@ -46,8 +46,8 @@ SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty s
 # Kernel record used unless --kernel selects another build.
 KERNEL = "12377-st5"
 # Programs rc.jobs.interactive starts at boot, packed when they have been built (build commands in
-# tools/k90auto/README.md): appinst watches the download folders for .ipa files.
-BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/appinst/appinst"]
+# tools/k90auto/README.md): trollstorehelper watches the staging folder for .ipa files.
+BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/trollstore/trollstorehelper"]
 # The boot-args every round has (CYCLE_FIXED_ARGS replaces all of them, for a round whose variable is
 # one of them: the kernel takes the first of two). Diagnostics stay out of here and go in --boot-args.
 FIXED_ARGS = " ".join([

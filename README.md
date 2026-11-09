@@ -12,7 +12,7 @@
 | 屏幕亮度 | 控制中心与「设置 → 显示与亮度」的滑块直接调节屏幕背光；重启后沿用上次亮度待接入 |
 | 触摸与按键 | 触摸、电源键、音量键可用；音量键和控制中心的滑块能调音量，还没有声音 |
 | Wi-Fi 与蓝牙 | 在「设置 → Wi-Fi」中加入网络后可用 Safari 上网，已存网络跨重启保留；蓝牙支持扫描与发现外设 |
-| 安装应用 | 预装「IPA 管理器」（`AnnibaleInstaller.app`），直接读取「我的 iPhone > 下载」中的已解密 `.ipa` 安装包，支持安装、启动与彻底卸载，安装的应用跨重启保留 |
+| 安装应用 | 预装 `TrollStore`（`TrollStore.app` 与 `trollstorehelper`），支持通过文件选择器、URL Scheme 或分享从「我的 iPhone > 下载」安装已解密的 `.ipa`／`.tipa` 应用，支持打开、开启 JIT、刷图标缓存与彻底卸载，安装的应用跨重启保留 |
 | 电池与温控 | 显示电量与充电状态；处理器和 GPU 按负载调频，过热时逐档降频 |
 | 进行中与未完成 | 当前优先收敛桌面渲染与流畅度（大组件黑底、脏区局部重绘、DPU 硬件缩放、开机亮度保持、Mesa 26.3.x 升级评估）；声音输出、蓝牙音频、网页视频播放、摄像头、蜂窝网络及 iOS 26 下的手电与振动尚未完成；FairPlay 与 App Store 不作为项目目标 |
 
@@ -44,6 +44,7 @@
 | [hackios-redmi-k90-annibale](https://github.com/iola1999/hackios-redmi-k90-annibale) | 本仓库：文档、脚本，以及两个子模块的版本 | `main` |
 | [hackios-xnu-kernel](https://github.com/iola1999/hackios-xnu-kernel) | XNU、loader、Metal 驱动 | `k90-port` |
 | [hackios-xnu-userland](https://github.com/iola1999/hackios-xnu-userland) | 用户态适配、镜像与图形工具 | `k90-port` |
+| [TrollStore](https://github.com/iola1999/TrollStore) | TrollStore 应用安装器与 `trollstorehelper`（iOS 26 / K90 移植分支） | `k90-port` |
 | [hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) | loader 镜像里的 annibale UEFI（Mu-Silicium 副本，单独克隆） | `k90-port` |
 
 本项目基于 [OOSEX GANG](https://github.com/oosexgang) 的 HackiOS 内核与用户态仓库，感谢原作者开放 XNU 移植、loader、用户态适配和图形工具。UEFI 基于 [Project Silicium](https://github.com/Project-Silicium) 的 Mu-Silicium。原有许可证和版权声明保留在各仓库中。仓库和 Release 都不含 iOS 文件与手机厂商固件，这些由使用者从自己的 IPSW 和手机中取得。

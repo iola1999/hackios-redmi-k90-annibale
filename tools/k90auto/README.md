@@ -62,7 +62,7 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 - 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 按固定时长跑。
 - `run/shot-request` 出现时拍一张（`shot-now.py` 写这个文件，`SHOT_ON_ACTION=0` 忽略）；`run/stop-request` 出现时提前收尾。
 - `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 字符）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `annsh`，输出从日志取回；内建命令见 `hackios-xnu-userland/userland/src/apps/annsh.c`。输出等待默认为 40 秒，慢原生调用可通过 `RSH_OUTPUT_TIMEOUT` 延长，调用方的子进程期限也要相应放宽。
-- `ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]` 通过 `rsh.py` 采集只读状态，默认覆盖进程、`appinst list`、`/Applications`、下载目录和 IPA 暂存目录，结果写入 `run/ios-state-*.json`。`appinst list` 只覆盖用户安装的应用；系统注册应用通过 `appinst open` 和主屏复核。命令返回非零会保留在对应记录中；传输失败停止后续查询，并在报告里标明失败命令。
+- `ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]` 通过 `rsh.py` 采集只读状态，默认覆盖进程、`trollstorehelper list`、`/Applications`、下载目录和 IPA 暂存目录，结果写入 `run/ios-state-*.json`。`trollstorehelper list` 列出 `/private/var/containers/Bundle/Application` 中已安装的应用；系统应用可通过 `trollstorehelper open` 和主屏复核。命令返回非零会保留在对应记录中；传输失败停止后续查询，并在报告里标明失败命令。
 - `fetch.py ROUND_DIR DEVICE_PATH OUT` 通过 `annsh cat` 分块读回设备文件，检查偏移连续性，任一段缺失就以失败退出。
 - 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志。自动复位仅接受 `returned`、`returned-held`、`hung`、`hung-held` 及其完整零错误状态；未知状态、格式错误或复位命令失败会停止队列。内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，完成条件是 loader 重新应答 idle 且启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。
 
@@ -137,13 +137,13 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
 | `GPU_SPEED` | `3` | 记进 manifest，与载荷的 `adreno8_speed` 不一致时 `make-payload.py` 拒绝 |
 
-开机自动运行的程序（`jobs/rc.jobs.interactive`，`cycle.py` 在产物存在时打包，构建命令见各源文件头）：
+开机自动运行的程序（`jobs/rc.jobs.interactive`，`cycle.py` 在产物存在时打包，构建脚本见 `TrollStore/build_k90.sh`）：
 
-- `appinst watch`（`hackios-xnu-userland/userland/src/apps/appinst.m`）：监听 `/private/var/db/appinst-inbox` 和 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就复制出来安装。`appinst install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
+- `trollstorehelper watch`（`TrollStore/RootHelper/main.m`）：开机确保 `TrollStore.app` 已注册到 LaunchServices，并监听 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就解压签名安装。`trollstorehelper install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
 
 运行中的操作工具：
 
-- `install-ipa.py 轮次目录 App.ipa [--open]`：经 USB 把 IPA 分块（每块不超过 15 MB）推进内核的 16 MB 收件区，annsh 的 `pull 路径 偏移` 写到 `/private/var/tmp/ipa/`，等 `appinst list` 出现该应用。需要带 `serve_pushes` 的 `run-auto.py` 和支持偏移的 annsh。
+- `install-ipa.py 轮次目录 App.ipa [--open]`：经 USB 把 IPA 分块（每块不超过 15 MB）推进内核的 16 MB 收件区，annsh 的 `pull 路径 偏移` 写到 `/private/var/tmp/ipa/`，等 `trollstorehelper list` 出现该应用。需要带 `serve_pushes` 的 `run-auto.py` 和支持偏移的 annsh。
 - `ui.py 轮次目录 dump|tap 文字|wait 文字|shot 名称|accessibility`：读各进程 `libannibale-ax.dylib` 写的界面元素（文字和屏幕坐标），按文字点按，代替手写坐标。UIKit 的按钮、提示框和主屏图标能读到；SwiftUI 页面（设置的列表、天气）目前读不到。
 
 其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`XPCWATCH`、`TOUCH_LAT`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。

@@ -61,6 +61,6 @@ revisiond 用 BSD flags 的比较交换给 LocalStorage 新建的每一项设置
 
 - Safari 下载 4,001,101 字节的 IPA 完成，文件写入 LocalStorage 的 `File Provider Storage/Downloads`。
 - 「文件」App「我的 iPhone > 下载」显示这个文件，大小 4 MB。
-- IPA 管理器「安装包」列表显示这个文件，从这里安装的应用见 [IPA 管理器的签名](2026-11-09-appinst-codesign.md)。
-- 改为只带 `rootdev=md0` 后（内核加上目录交换，用户态 `rc.launchd` 只交给 `launchd`），09:06 重跑一次：开机后没有手动步骤，Wi-Fi 连上后 Safari 下载完成，「网易云Kumone_0.3.26 3.ipa」同时出现在「我的 iPhone > 下载」和 IPA 管理器的安装包列表。
+- 安装应用时的签名细节见[应用安装的签名](2026-11-09-ipa-codesign.md)。
+- 改为只带 `rootdev=md0` 后（内核加上目录交换，用户态 `rc.launchd` 只交给 `launchd`），09:06 重跑一次：开机后没有手动步骤，Wi-Fi 连上后 Safari 下载完成，「网易云Kumone_0.3.26 3.ipa」保存在「我的 iPhone > 下载」。
 - 截图与 systrace 日志保存在本地调试目录 `out/s1109/`。

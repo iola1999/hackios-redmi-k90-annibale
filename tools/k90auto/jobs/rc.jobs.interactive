@@ -4,7 +4,7 @@
 # sends with tools/k90auto/rsh.py (kernel 12377-cmd1 or later, loader v10, PAYLOAD_PROGRAMS naming
 # the annsh binary). lsprobe answers which applications LaunchServices knows, framewatch prints frame
 # counts every 20 s, and nothing else touches the screen, so every gesture in the log is the
-# person's own. appinst installs each .ipa that Safari saves to the Downloads folder. A line whose
+# person's own. trollstorehelper installs each .ipa staged in /private/var/tmp/ipa. A line whose
 # program is not in the image fails on its own and the rest still run.
 /annibale/bin/annsh &
-/annibale/bin/appinst watch &
+/annibale/bin/trollstorehelper watch &

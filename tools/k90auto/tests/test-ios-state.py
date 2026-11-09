@@ -42,7 +42,7 @@ class StateCollectionTests(unittest.TestCase):
         self.assertEqual(destination, output)
         self.assertEqual(len(report["commands"]), 9)
         self.assertEqual(calls[0][3:], ["ps"])
-        self.assertIn("/annibale/bin/appinst", calls[1])
+        self.assertIn("/annibale/bin/trollstorehelper", calls[1])
         self.assertEqual(calls[-2][3:], ["threads", "17"])
         self.assertEqual(calls[-1][3:], ["dump", "17"])
         self.assertTrue(all(Path(call[1]).name == "rsh.py" for call in calls))

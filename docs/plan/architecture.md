@@ -15,7 +15,7 @@
 | 用户态图形驱动 | `hackios-xnu-kernel/tools/userland-driver/`、`hackios-xnu-userland/tools/mesa/` | Metal 接口到 Adreno 命令流，AIR 到 NIR 的翻译 | `annibalemetal.m`、`tools/mesa/air/air_metal.c` |
 | HAL 与服务 | `userland/src/services/` | 音频 HAL 插件、相机、输入、蓝牙工具 | `audio_plugin.c`、`input26_service.c`、`camera_device.c` |
 | 注入库 | `userland/src/inject/` | 替换 iOS 期望由硬件供应商提供的类，诊断与测试辅助 | `inject.c`、`inject_sb26.c` |
-| 应用 | `userland/src/apps/` | IPA 管理器（`AnnibaleInstaller.app`）与 `appinst` | `installer_app.m`、`appinst.m` |
+| 应用与安装器 | `TrollStore/`、`userland/src/apps/` | `TrollStore.app`、`trollstorehelper` 与控制端工具 | `TrollStore/RootHelper/main.m`、`annsh.c`、`anntouch.c` |
 | 构建与打包 | `userland/build.sh`、`tools/k90auto/package.py`、`tools/release/` | 根盘基线、Metal 驱动与注入库编译、任务缓存、根盘镜像、Release | 见[开发指南](../development.md) |
 | 主机自动化 | `tools/k90auto/` | 起轮、截图、统计、复位 | 见 [k90auto 说明](../../tools/k90auto/README.md) |
 

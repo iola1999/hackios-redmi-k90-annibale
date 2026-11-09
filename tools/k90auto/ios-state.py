@@ -4,8 +4,8 @@
 usage: tools/k90auto/ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]
        [--output FILE]
 
-The default report includes ps, appinst list, /Applications and the standard IPA/download staging
-directories. appinst list covers user-installed bundles; use appinst open and the home screen to check
+The default report includes ps, trollstorehelper list, /Applications and the standard IPA/download staging
+directories. trollstorehelper list covers user-installed bundles; use trollstorehelper open and the home screen to check
 system-registered applications. Extra queries are read-only. The JSON keeps each command's exit status and output so a
 missing path stays distinguishable from a transport failure. This script never talks to fastboot
 itself; run-auto.py remains the only device commander.
@@ -21,7 +21,7 @@ import time
 HERE = Path(__file__).resolve().parent
 DEFAULT_COMMANDS = (
     ("processes", ("ps",)),
-    ("installed_apps", ("/annibale/bin/appinst", "list")),
+    ("installed_apps", ("/annibale/bin/trollstorehelper", "list")),
     ("applications", ("ls", "/Applications")),
     ("downloads", ("ls", "/private/var/mobile/Library/Downloads")),
     ("ipa_staging", ("ls", "/private/var/tmp/ipa")),

@@ -9,11 +9,11 @@
   - 默认内核 `12377-rate8`；`--seed` 缺省时用本地的 `kernel-12377-cmd30-seed3/seed-icons.bin`。
   - 驻留的 loader 非 v16（build-id 不含 `a48c7fb`）时，先经 LK 用 `fastboot boot` 启动 `out/handoff-loader-v16.img`，不需要再给 `LOADER_IMAGE`。
   - 巡检里设置图标的点按位置由 0.616 改为 0.385。
-  - `appinst`、`wifijoin` 已构建时自动打包，`jobs/rc.jobs.interactive` 开机运行 `wifijoin` 与 `appinst watch`。
+  - `trollstorehelper`、`wifijoin` 已构建时自动打包，`jobs/rc.jobs.interactive` 开机运行 `wifijoin` 与 `trollstorehelper watch`。
 - `tools/k90auto/package.py`：本地固件目录有 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 时默认只放这四个文件，约 6.9 MB，有 `network` 文件时一起放入；`WIFI_FW=1` 仍放入全部文件，`WIFI_FW=0` 不放。`AX` 控制插入 `libannibale-ax.dylib` 的进程；`AUDIO=1` 放行音频任务并按 arm64e 重编 `AnnibaleAudio.driver`，还没有上机。
 - `tools/k90auto/run-auto.py`：处理 `push-request-*.txt`，用 `oem push` 加 `stage` 把文件放进内核的 16 MB 收件区。
 - 新工具：`install-ipa.py`（经 USB 分块推送并安装 IPA）、`ui.py`（读界面元素、按文字点按、截图）。
-- 用户态（`.userland.git` `1c51c1d21`，移植为 userland `36136c4`）：`appinst`、`wifijoin`、`libannibale-ax`、rwsh 的 `pull 路径 偏移`、Mesa 补丁 0010。
+- 用户态（`.userland.git` `1c51c1d21`，移植为 userland `36136c4`）：IPA 安装工具、`wifijoin`、`libannibale-ax`、rwsh 的 `pull 路径 偏移`、Mesa 补丁 0010。
 - 内核（`67f8d61`）：电池读数来自电量计 BQ27Z561（`annibale_battery.c`），电流不低于 −50 mA 就算外部供电；`AnnibaleBattery.cpp` 在外部供电且状态非放电时报充电，供电或状态变化时打印一行 `AnnibaleBattery: N%, ...`。`12377-rate8` 只含 `AnnibaleBattery.cpp` 的改动，`12377-rate9` 两处都含。
 - 内核（`6027b2d`，`12377-rate14`）：发布 `AppleARMBacklight` 与 CoreBrightness 要读的校准参数、亮度表；`fb_dim=1`（默认 0）时由显示控制器的混合器按亮度调暗画面，见 §3.7。
 - 内核（`9922d45`，`12377-rate10` = rate9 加这一笔）：加入后的信号跟随接入点的实际帧；数据路径前 64 行发送读数和硬件模式相关的 WMI 事件。`cycle.py` 默认内核改为 `12377-rate10`。
@@ -30,9 +30,9 @@
 | `kernel-12377-rate8-r8a` | rate8 | 默认参数，巡检同 dc2，带 `ANNIBALE_PASS_TIMES=1` | 充电状态按新规则上报；手势帧率与整屏 pass 读数见 §3.1 |
 | `kernel-12377-rate8-fp16` | rate8 | 同 r8a，backboardd 加 `CA_FP16_MIN_HEADROOM=1e30`、`CA_ALLOW_EDR_MIRRORING=0` | 整屏 pass 仍是 2 个颜色附件，每次时间不变；不采用 |
 | `kernel-12377-rate8-ns1` | rate8 | 同 r8a，AIR 库带 Mesa 补丁 0010（不写回 `colormask` 为 0 的颜色附件） | 截图无差异；tile store 合计下降，手势帧率在波动范围内；保留 |
-| `kernel-12377-rate8-app1` | rate8 | 默认参数加 `appinst`、`wifijoin`、`libannibale-ax`，保持运行 | 在手机上装上并启动 HelloK90；`wifijoin` 手动运行时加入网络；Safari 下载 IPA 失败 |
+| `kernel-12377-rate8-app1` | rate8 | 默认参数加安装工具、`wifijoin`、`libannibale-ax`，保持运行 | 在手机上装上并启动 HelloK90；`wifijoin` 手动运行时加入网络；Safari 下载 IPA 失败 |
 | `kernel-12377-rate8-app2` | rate8 | 同 app1，`wifijoin` 等设备 300 秒，fileproviderd、weatherd 等带 `OS_ACTIVITY_DT_MODE` | 开机时 `wifijoin` 等不到设备；手动加入连续 4 次握手失败（reason 15） |
-| `kernel-12377-rate8-app3` | rate8 | 同 app2，`wifijoin` 每 5 秒重建客户端，rwsh 分块 pull，`appinst` 看 Safari 暂存目录 | 开机自动加入网络；USB 与 Safari 两种方式都装上 IPA |
+| `kernel-12377-rate8-app3` | rate8 | 同 app2，`wifijoin` 每 5 秒重建客户端，rwsh 分块 pull，后台监听暂存目录 | 开机自动加入网络；USB 与 Safari 两种方式都装上 IPA |
 | `kernel-12377-rate10-w1` | rate10 | 默认参数，`libannibale-ax` 带状态栏改动，`wifijoin` 取最强记录 | 状态栏位置见 §3.6；第一次关联即加入，状态栏 Wi-Fi 满格 |
 | `kernel-12377-rate8-au1` | rate8 | 默认参数加 `AUDIO=1` | 音量键按下后出现音量条，控制中心的音量滑块随之升降 |
 | `kernel-12377-rate10-w2` | rate10 | 同 w1，fileproviderd 带 `OS_ACTIVITY_DT_MODE=YES`、`OS_ACTIVITY_MODE=debug` | 文件 App 的位置只有「最近删除」，见 §3.3 |
@@ -62,13 +62,13 @@
 
 ### 3.3 安装应用
 
-- 登记方式：`registerApplicationDictionary:`，`ApplicationType` 为 System，数据容器由 MobileContainerManager 建。app1 用 rwsh 调 `appinst install` 装上 HelloK90，`appinst open` 启动，界面正常。
+- 登记方式：`registerApplicationDictionary:`，`ApplicationType` 为 System，数据容器由 MobileContainerManager 建。app1 用 rwsh 装上 HelloK90 并启动，界面正常。
 - USB（app3）：`install-ipa.py` 装 9 KB 的 HelloK90 用时 9 秒；41 MB 的测试 IPA 分 3 块，17 秒装好并启动。
-- Safari（app3）：点「下载」后文件出现在 Safari 数据容器的 `Library/Safari/Downloads/<UUID>/`，`appinst watch` 约 10 秒内装好，图标出现在主屏。Safari 自己的下载随后停在下载中（app1 里显示 Task failed）。
+- Safari（app3）：点「下载」后文件出现在 Safari 数据容器的 `Library/Safari/Downloads/<UUID>/`，后台监听约 10 秒内装好，图标出现在主屏。Safari 自己的下载随后停在下载中（app1 里显示 Task failed）。
 - 文件 App（w2 之前）：「浏览」的位置只有「最近删除」，所有 App Group 下都没有 `File Provider Storage`，LocalStorageFileProvider 从未启动；打开照片时 fileproviderd 报 `FPDDomain must have a volume attached` 后退出。
 - 原因：`-[FPDServer _setup]` 先加载主卷，`-[FPDVolume initWithStatFS:knownRole:volumeManager:]` 经 `FPVolumeFPFSSupported` 只接受 statfs 类型为 `apfs` 的卷，`/private/var` 是 init 挂的 ramfs（`userland/src/init.c`），没有卷就不建任何域。`fileproviderctl dump` 显示 5 个提供者、0 个域。设置助理与首次解锁两道检查在手机上实测都通过。
 - fp1：`libannibale-fpvolume.dylib` 把 ramfs 的类型名在这个方法里改为 `apfs` 后，`fileproviderctl dump` 列出 LocalStorage 等默认域，LocalStorage 的 App Group 下有了 `File Provider Storage`，文件 App › 浏览显示「我的 iPhone」，打开照片后 fileproviderd 不再退出。
-- fp1 的 Safari 下载：`appinst` 从 Safari 暂存目录装上 HelloK90；Safari 下载列表里这一项停在「9 KB / 9 KB」，文件没有移到「我的 iPhone」，原因未查。
+- fp1 的 Safari 下载：从 Safari 暂存目录装上 HelloK90；Safari 下载列表里这一项停在「9 KB / 9 KB」，文件没有移到「我的 iPhone」，原因未查。
 
 ### 3.4 Wi-Fi
 

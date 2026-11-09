@@ -43,7 +43,7 @@ OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and t
 # can be built while somebody else has an edit in flight (and the manifest records which sources).
 SRC_ROOT = Path(os.environ.get("PAYLOAD_SRC_ROOT", str(WORKSPACE)))
 # PAYLOAD_PROGRAMS=path[:path] installs programs built outside build.sh into /bin of the root image.
-DEFAULT_PROGRAMS = [WORKSPACE / "out/ios26-resume/appinst/appinst"]
+DEFAULT_PROGRAMS = [WORKSPACE / "out/ios26-resume/trollstore/trollstorehelper"]
 EXTRA_PROGRAMS = ([Path(p) for p in os.environ["PAYLOAD_PROGRAMS"].split(":") if p]
                   if "PAYLOAD_PROGRAMS" in os.environ
                   else [p for p in DEFAULT_PROGRAMS if p.is_file()])
@@ -422,6 +422,8 @@ def dirty_sources():
     for name, command, cwd in (
             ("userland repository",
              ["git", "status", "--short"], REPO / "hackios-xnu-userland"),
+            ("trollstore repository",
+             ["git", "status", "--short"], REPO / "TrollStore"),
             ("kernel repository",
              ["git", "status", "--short"], WORKSPACE),
             ("top repository (packaging code)",
@@ -729,12 +731,6 @@ def main():
                             "userland/src/tests/torch_test.c",
                             "userland/src/tests/sound_test.c",
                             "userland/src/tests/record_test.c",
-                            "userland/src/apps/installer_app.m",
-                            "userland/src/apps/installer_app.plist",
-                            "userland/src/apps/installer_app.entitlements",
-                            "userland/src/apps/build_installer.sh",
-                            "userland/src/apps/appinst.m",
-                            "userland/src/apps/appinst.entitlements",
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
                             *(PROBE_SOURCES if PROBE else [])]}
     # The probe goes first, not last. init runs a job file one line at a time and waits for each, so a

@@ -265,7 +265,7 @@ PMK8550 秒计数加 Android `persist` 偏移是合理的来源。要补的是�
 
 ### 12.5 应用安装与第三方应用
 
-安装器与 `appinst` 已能装解密的 IPA。几点建议：主屏删除要走 `installd` 的卸载，不能只删图标；`appinst` 的目录监听已修过一次 659 MB 内存暴涨，建议加上容量与频率上限；LiveContainer 与 SideStore 需要 JIT 或签名绕过，在本内核（无 trust cache、不校验签名）上大概率能跑，但要单独记边界。
+TrollStore 与 `trollstorehelper` 已能装解密的 IPA。几点建议：主屏删除要走 `installd` 或容器卸载，不能只删图标；暂存目录监听建议加上容量与频率上限；LiveContainer 与 SideStore 需要 JIT 或签名绕过，在本内核（无 trust cache、ad-hoc 授予平台二进制标记）上大概率能跑，但要单独记边界。
 
 ### 12.6 App Store 与蜂窝
 

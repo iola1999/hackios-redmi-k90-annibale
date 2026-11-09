@@ -6,3 +6,7 @@
 	path = hackios-xnu-userland
 	url = https://github.com/iola1999/hackios-xnu-userland.git
 	branch = k90-port
+[submodule "TrollStore"]
+	path = TrollStore
+	url = https://github.com/iola1999/TrollStore.git
+	branch = k90-port
