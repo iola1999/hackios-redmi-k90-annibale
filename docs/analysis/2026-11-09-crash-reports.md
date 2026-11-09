@@ -39,7 +39,7 @@
 |---|---|---|
 | nearbyd | SIGABRT | 断言 `ConstructRegulatoryTxPowerTableMap`（`roseRegulatoryCompliancePowerTables.cpp` 第 1073 行）失败，下面单独说明 |
 | MessagesBlastDoorService | SIGTRAP | Swift `assertionFailure`，调用方是 BlastDoor 的 `Sandbox.initialize(sandboxID:)`。这个函数有两处致命检查：进程没有沙盒时报「BlastDoor cannot run unsandboxed.」，进不了 `blastdoor-post-launch` 状态时报「BlastDoor failed to enter post launch sandbox state」。报告没有带出消息文本，但 `sandboxProfileName` 为空，按这一项判断是第一处 |
-| cloudd | SIGTRAP | CloudKitDaemon 在 `dispatch_once` 里初始化时，CloudKit 的 `CKSQLiteDatabase.m` 第 1074 行断言「Exception during database transaction: %@」，即数据库事务里抛出了异常。用 `OSLOG=com.apple.cloudd` 打包后日志给出异常：`-[NSPlaceholderString initWithUTF8String:]: NULL cString`，某个返回 C 字符串的调用返回了 NULL，是哪个调用待查。同一进程还打印 `volume does not support data protection, stripping SQLITE_OPEN_FILEPROTECTION_* flags` |
+| cloudd | SIGTRAP | CloudKitDaemon 在 `dispatch_once` 里初始化时，CloudKit 的 `CKSQLiteDatabase.m` 第 1074 行断言「Exception during database transaction: %@」，即数据库事务里抛出了异常。用 `OSLOG=com.apple.cloudd` 打包后日志给出异常：`-[NSPlaceholderString initWithUTF8String:]: NULL cString`，某个返回 C 字符串的调用返回了 NULL，是哪个调用待查。发起这次事务的是 CloudKit 的建库函数，它先执行 `pragma journal_mode = WAL` 与 `pragma encoding = 'UTF-16'`，再以一个 block 开事务，异常出在这个 block 里。同一进程还打印 `volume does not support data protection, stripping SQLITE_OPEN_FILEPROTECTION_* flags` |
 | airplayd | SIGSEGV | 读地址 `0x18` 时 `KERN_INVALID_ADDRESS`，只在验证镜像那次开机看过 |
 
 nearbyd 的断言已反编译确认（`/usr/libexec/nearbyd`）：
