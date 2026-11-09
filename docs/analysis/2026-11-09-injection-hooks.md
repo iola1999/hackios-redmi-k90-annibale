@@ -27,7 +27,7 @@
 | sb26 | `SFAirDropDiscoveryController`、`AVOutputDeviceDiscoverySession`、`MRUMirroringController` | `awdl0` 缺失时返回离线结果 | 待评估：审查 §17 已列出 |
 | sb26 | 日历图标 `iconLayerWithInfo:traitCollection:options:` | 图标图层取不到时的替代图层 | 待评估：渲染层的替代路径 |
 | sb26 | `SBApplication`、`SBIcon`、`FBSBundleInfo`、`LSBundleRecord`、`LSApplicationProxy` 的显示名，`CFBundleCopyBundleLocalizations` | 从 `InfoPlist.loctable` 取中文名 | 待评估：审查 §12.4 的语言问题 |
-| sb26 | `MGCopyAnswer` | 设置与 SpringBoard 查询 `DiskUsage` 时，总容量取 `kern.annibale.darwin_bytes` 与 `kern.annibale.darwin_var_bytes`，可用空间取 `/private/var` 的 `statfs` | 待评估：替换了 MobileGestalt 的回答 |
+| sb26 | `MGCopyAnswer` | 设置与 SpringBoard 查询 `airdrop`、`airdrop-p2p` 时返回真 | 待评估：替换了 MobileGestalt 的回答，与上面的 `awdl0` 一项一起处理 |
 | sb26 | `SBApplicationController` 卸载方法、`isDeletable`、`isUninstallSupported` | 桌面删除应用改由本项目的安装器处理 | 待评估：应用管理 |
 | sb26 | `inject_sb26_rate.c`、`inject_sb26_layers.c` | 帧率与图层导出 | 诊断 |
 | media | `BWFigCaptureDeviceVendor` 等相机类 | 提供 FigCaptureDevice | 供应商类替换 |
@@ -41,4 +41,5 @@
 - 审查 §3.2 建议诊断与测试类注入不进 `boot_a` 镜像。按上表，`libannibale-ax.dylib` 属于测试辅助，却随默认镜像注入 9 个进程；其中的状态栏布局是用户可见行为，需要先拆出来再决定去留。
 - `inject.c` 的窗口服务器与亮度钩子按 iOS 16.5（20F66）的地址校验，23G90 上这些地址落在 GeoServices 里，校验不通过，钩子不安装。默认镜像因此不再把 `libannibale.dylib` 注入 backboardd，真机开机到桌面、触摸翻页正常。
 - `inject.c` 原有的 `+[MCMUserIdentityCache personasAreSupported]` 钩子只在 containermanagerd 里安装，iOS 26 镜像不把库注入这个进程，开机也已补齐 persona，本轮已删除。
+- MobileGestalt 自己读 disk0 的 `kIOMediaSizeKey` 与 `statfs("/private/var")` 回答磁盘容量。未注入的进程查到的 `DiskUsage` 里 `TotalDiskCapacity` 为 128,000,000,000，与内核报的 128 GB 容器一致，所以 `MGCopyAnswer` 钩子只留 AirDrop 两个键。真机「设置 → 通用 → 关于本机」显示总容量 128 GB、可用 109.99 GB。
 - 待评估项按审查 §19 的优先级排期，每项改到对应层之后从本表删去。
