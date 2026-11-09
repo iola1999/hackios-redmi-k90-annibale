@@ -2,18 +2,18 @@
 #
 # The lock screen is dismissed by libannibale-sb26.dylib inside SpringBoard; the notification below
 # asks for that again in case the boot unlock gave up. init splits a line into at most 63 words, so
-# each rwtouch line stays well under that (the 2026-10-29 version had 200 and stopped at word 63
+# each anntouch line stays well under that (the 2026-10-29 version had 200 and stopped at word 63
 # with 'bad step "swipe"').
 #
-# init waits for each line, so every background line ends with & and goes before rwtouch.
+# init waits for each line, so every background line ends with & and goes before anntouch.
 /annibale/bin/lsprobe 60 &
 /annibale/bin/framewatch --every 20 --count 30 SpringBoard backboardd &
-/annibale/bin/rwtouch wait 40 notify com.annibale.unlock wait 5
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
-/annibale/bin/rwtouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch wait 40 notify com.annibale.unlock wait 5
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4
+/annibale/bin/anntouch swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4 swipe 0.85 0.55 0.15 0.55 250 wait 4 swipe 0.15 0.55 0.85 0.55 250 wait 4

@@ -23,11 +23,10 @@
 
 ```sh
 git clone --recurse-submodules https://github.com/iola1999/hackios-redmi-k90-annibale.git
-cd hackios-redmi-k90-annibale/hackios-xnu-kernel
-USERLAND_URL=https://github.com/iola1999/hackios-xnu-userland.git USERLAND_REF=k90-port common/setup.sh
+cd hackios-redmi-k90-annibale
 ```
 
-`common/setup.sh` 把用户态仓库检出到 `hackios-xnu-kernel/` 目录里，下文的 `userland/`、`ios26/`、`tools/mesa/`、`firmware-gen8/` 等目录来自它，见[内核仓库说明](../hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§1。构建产物放在 Git 忽略的目录里，主要是 `hackios-xnu-kernel/out/`。
+顶层工作区包含 `hackios-xnu-kernel/` 与 `hackios-xnu-userland/` 两个子模块，见[内核仓库说明](../hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§1。构建产物放在 Git 忽略的目录里，主要是 `hackios-xnu-kernel/out/`。
 
 ## 3. 下载并解密 IPSW
 
@@ -63,7 +62,7 @@ hackios-xnu-kernel/ios26/fetch.sh
 
 ## 6. 构建用户态与启动卷
 
-在 `hackios-xnu-kernel/userland/` 执行：
+在 `hackios-xnu-userland/userland/` 执行：
 
 ```sh
 IOS=../ios26 bash build.sh                                   # 只要根盘基线时加 COMPILE_ONLY=1
@@ -72,7 +71,6 @@ FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh   # 只含 stage0 与
 
 - 第一条生成根盘基线目录 `userland/root/`；不加 `COMPILE_ONLY=1` 时还生成约 5.9 GB 的合成系统盘 `system26.apfs`。双系统部署直接写入原版三个镜像时只需要基线目录。
 - 根盘里会放进本机 `../ssh/authorized_keys` 等 ssh 密钥（存在时）。要分发的构建加 `SHARE=1`，`build-release.py` 发现 ssh 密钥会拒绝出包。
-- `absent: wifi` 是针对旧机型 POCO X5 Pro（`wpss.mdt`）的检查，K90 的 WCN7850 固件由下一步合并。
 - 系统卷部署在 UFS `darwin` 分区，启动过程见[根文件系统说明](analysis/rootfs-strategy.md)。
 
 ## 7. 打包根盘

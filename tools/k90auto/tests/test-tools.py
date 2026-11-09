@@ -106,7 +106,7 @@ elif args[:1] == ["reboot"]:
     state_path.write_text(os.environ.get("FB_AFTER_REBOOT", "idle"))
     pathlib.Path(os.environ["FB_RAMDISK"]).write_text("idle 0 0 0")
 elif args[:2] == ["oem", "sh"]:
-    # what the loader answers to a command for rwsh: the new mailbox number, as INFO and OKAY
+    # what the loader answers to a command for annsh: the new mailbox number, as INFO and OKAY
     seq_path = state_path.with_name("cmd-seq")
     seq = int(seq_path.read_text()) + 1 if seq_path.exists() else 1
     seq_path.write_text(str(seq))
@@ -116,7 +116,7 @@ elif args[:1] == ["get_staged"]:
     seq_path = state_path.with_name("cmd-seq")
     if target.name.startswith("cmd-") and seq_path.exists():
         seq = int(seq_path.read_text())
-        target.write_text("console log\nrwsh %d start echo hi\nrwsh %d| hi\nrwsh %d exit 0 3 ms\n" % (seq, seq, seq))
+        target.write_text("console log\nannsh %d start echo hi\nannsh %d| hi\nannsh %d exit 0 3 ms\n" % (seq, seq, seq))
     else:
         target.write_text(os.environ.get("FB_KERNEL_LOG", "console log\n"))
 else:

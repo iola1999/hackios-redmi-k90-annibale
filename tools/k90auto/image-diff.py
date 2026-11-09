@@ -6,7 +6,7 @@ none of them compares the packed image against what the previous round actually 
 recipe gap packs silently: round F's first attempt omitted PAYLOAD_PROGRAMS (the channel
 that carries /bin/framewatch, package.py:53-56/:452-454) and the image shipped without
 framewatch — every sampling instance died on "No such file or directory" while lsprobe,
-rwtouch and the touch lines all worked, and the round would have looked alive. A companion
+anntouch and the touch lines all worked, and the round would have looked alive. A companion
 gap in the recipe walk: added files leave only a null->sha trace in the pack record's
 changes field, so recipe reconciliation must attribute every null->sha entry to its channel
 (EXTRA_JOBS / PROBE / PAYLOAD_PROGRAMS) and treat an unattributable one as a gap.

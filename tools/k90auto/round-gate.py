@@ -182,7 +182,7 @@ def main():
         if steps:
             print(f"  (sample interval inside the longest touch: p50 {steps[len(steps) // 2] / 1000:.1f} ms, "
                   f"p95 {steps[int(0.95 * len(steps))] / 1000:.1f} ms, {len(inside)} samples; "
-                  f"rwtouch sends one every 8 ms, so a larger p50 means the script did not keep moving)")
+                  f"anntouch sends one every 8 ms, so a larger p50 means the script did not keep moving)")
 
     failed = [name for name, ok, _ in checks if ok is False]
     undecided = [name for name, ok, _ in checks if ok is None]

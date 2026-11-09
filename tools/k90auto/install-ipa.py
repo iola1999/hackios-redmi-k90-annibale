@@ -4,13 +4,12 @@
 usage: tools/k90auto/install-ipa.py [ROUND_DIR] [FILE.ipa] [--open]
 
 The file goes to the phone in pieces of at most 15 MB, each through the kernel's 16 MB inbox
-(run-auto.py's push request, then rwsh "pull PATH OFFSET" into /private/var/tmp/ipa/). appinst's
+(run-auto.py's push request, then annsh "pull PATH OFFSET" into /private/var/tmp/ipa/). appinst's
 watcher, started at boot from rc.jobs.interactive, installs it once the whole archive is there;
 this waits until "appinst list" names the application, and --open launches it.
 
 Before uploading, Mach-O binaries in Payload (main executable, frameworks, dylibs, appex plugins)
 are recursively signed with ad-hoc signatures and necessary entitlements (get-task-allow, application-groups).
-Once registered, com.annibale.var_save is posted to persist installed state immediately into dsu_store.
 
 Arbitrary IPA paths can be supplied via argument or through the IPA_PATH or K90_IPA environment variable.
 Exit status: 0 once installed, 1 otherwise.
@@ -356,8 +355,7 @@ def main():
         installed_list = rsh(round_dir, "/annibale/bin/appinst", "list")
         if identifier in installed_list:
             print(f"install-ipa: {identifier} is installed")
-            # Post var_save notification to persist immediately
-            rsh(round_dir, "/annibale/bin/rwsh", "notify", "com.annibale.var_save")
+            rsh(round_dir, "/bin/sync")
             if open_after:
                 print(rsh(round_dir, "/annibale/bin/appinst", "open", identifier).strip().splitlines()[-1])
             return 0

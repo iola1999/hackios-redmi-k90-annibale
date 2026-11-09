@@ -12,11 +12,11 @@ from, so the default spends the channel on logs. SHOT_EVERY>0 still takes a shot
 seconds from SHOT_FROM on, for a round that wants a time series instead of the log.
 
 Commands for the running iOS go the same way: tools/k90auto/rsh.py drops RUN_DIR/run/cmd-request-*.txt,
-the run sends each one with `oem sh` (to /annibale/bin/rwsh, which must be in the round's rc.jobs),
+the run sends each one with `oem sh` (to /annibale/bin/annsh, which must be in the round's rc.jobs),
 writes the loader's answer to cmd-reply-*.json and reads the log a few times over the next 18 s
 into cmd-SEQ.log, which is where rsh.py finds the output. A file for the running iOS goes the same
 way: RUN_DIR/run/push-request-*.txt names a host file of at most 16 MB, the run sends it with
-`oem push` and `stage` into the kernel's inbox and writes push-reply-*.json; rwsh "pull" then writes
+`oem push` and `stage` into the kernel's inbox and writes push-reply-*.json; annsh "pull" then writes
 it on the phone (tools/k90auto/install-ipa.py).
 
 Screenshots are otherwise on demand. A run watches RUN_DIR/shot-request; whoever performed an action
@@ -272,7 +272,7 @@ def frame_progress(path):
 
 
 # Seconds after `oem sh` at which the log is read into cmd-SEQ.log: a built-in answers within the
-# first, a program rwsh spawns is killed after 15 s.
+# first, a program annsh spawns is killed after 15 s.
 CMD_FOLLOW_SECONDS = (2, 5, 10, 18)
 command_reads = []      # (host time due, seq)
 
@@ -438,7 +438,7 @@ def teardown():
             if staged["rc"] == 0 and "FAILED" not in staged["output"]:
                 call(["get_staged", run / f"{label}.bin"], 120, False)
         # A kernel that came back ("returned"; one that held the GPU never does) leaves its file for
-        # the host (rwsh "outbox", kern.annibale.outbox) as the run's recording; without one: FAIL.
+        # the host (annsh "outbox", kern.annibale.outbox) as the run's recording; without one: FAIL.
         staged = call(["oem", "recording"], 8, False) if name == "returned" else None
         if staged and staged["rc"] == 0 and "FAILED" not in staged["output"]:
             call(["get_staged", run / "outbox.bin"], 300, False)

@@ -85,7 +85,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 
 - `result: running`：内核仍在运行，读取 USB 日志判断进度。
 - `result: returned ...` 或 `checkpoint ...`：确认没有 held／fault 状态，再取日志、上传下一份内核载荷；小型启动卷仍驻留在本次 loader 的内存窗口中；自动流程要求重新进入常驻区为空的 idle 状态。
-- `result: returned ...`、`oem stop` 成功和 rwsh 退出码 0 只说明对应调用结束。one-shot loader 在内核返回后会进入 recovery 界面；起轮前必须同时检查实际屏幕、`result`、`ramdisk-state`、UFS 在途请求和 GPU 日志。出现 `retained until cold reset` 时，先保存返回快照，再冷复位并重新枚举到 `result: idle`、启动卷为空；在此之前不得开始下一轮，也不得把探针成功写成系统恢复正常。
+- `result: returned ...`、`oem stop` 成功和 annsh 退出码 0 只说明对应调用结束。one-shot loader 在内核返回后会进入 recovery 界面；起轮前必须同时检查实际屏幕、`result`、`ramdisk-state`、UFS 在途请求和 GPU 日志。出现 `retained until cold reset` 时，先保存返回快照，再冷复位并重新枚举到 `result: idle`、启动卷为空；在此之前不得开始下一轮，也不得把探针成功写成系统恢复正常。
 - recovery 界面的 `getvar screen` 可能返回空值。空的可选显示字段不得阻塞已授权的测试；K90 原始帧按已验证的 1156×2510、每行 4624 字节解码，并保留实际字节数校验。
 - 从 standalone 冷复位后可能直接运行 `boot_a`，读到 `result: running 0 0`。更换候选时沿运行中停止、返回快照、`oem ramdisk none`、prepare 载荷进入 LK 的路径执行，避免连续重复冷复位。
 - `result: hung ...`：先保存可读日志，核对资源保留状态，再复位。

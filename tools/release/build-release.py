@@ -43,7 +43,7 @@ import localfiles  # noqa: E402
 from localfiles import file_sha256 as digest  # noqa: E402
 
 PACKED = K / "out/ios26-resume/bbmetal-device"
-IOS = K / "ios26"
+IOS = REPO / "hackios-xnu-userland/ios26"
 IOS_VOLUMES = {"os": IOS / "rootfs", "systemos": IOS / "cryptex", "appos": IOS / "cryptex-app"}
 IPSW = K / "out/ipsw/v57/26"
 # where assemble.py downloads the three disk images from: iPhone 17's IPSW of the extracted build
@@ -67,7 +67,7 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/xnuloader/loader-phone.efi",
                  "hackios-xnu-kernel/tools/reseal-loader-img.py", "hackios-xnu-kernel/prebuilt/uefi/mkbootimg.py",
                  "hackios-xnu-kernel/tools/mk-fw-wifi.py", "hackios-xnu-kernel/tools/mk-fw-bt.py",
-                 "hackios-xnu-kernel/tools/userdata-dual-carve.py",
+                 "hackios-xnu-kernel/tools/darwin-setup.py", "hackios-xnu-kernel/tools/darwin-write.py",
                  "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py"]
 LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
             "hackios-xnu-userland.LICENSE": REPO / "hackios-xnu-userland/LICENSE",
@@ -84,8 +84,7 @@ def sources(allow_dirty):
     """The commits the build came from; a dirty tree is refused unless asked for."""
     trees = {"workspace": (REPO, ["git", "-C", str(REPO)]),
              "hackios-xnu-kernel": (K, ["git", "-C", str(K)]),
-             # the userland the build used is common/setup.sh's checkout inside the kernel tree
-             "hackios-xnu-userland": (K, [str(K / "common/ugit")])}
+             "hackios-xnu-userland": (REPO / "hackios-xnu-userland", ["git", "-C", str(REPO / "hackios-xnu-userland")])}
     commits = {}
     for name, (cwd, cmd) in trees.items():
         run = lambda *a: subprocess.run([*cmd, *a], cwd=cwd, check=True, capture_output=True, text=True).stdout
@@ -227,7 +226,7 @@ def main():
 
     commits = sources(args.allow_dirty)
     root, root_image = PACKED / "root", PACKED / "root.apfs"
-    flashboot, loader_efi = K / "userland/flashboot.apfs", K / "xnuloader/loader-phone.efi"
+    flashboot, loader_efi = REPO / "hackios-xnu-userland/userland/flashboot.apfs", K / "xnuloader/loader-phone.efi"
     android = [K / "tools/android" / n for n in ANDROID_TOOLS]
     for path in [root_image, args.kernel, args.loader_image, flashboot, loader_efi, IOS / "rootfs.slt", *android]:
         if not path.is_file():

@@ -47,13 +47,6 @@ DEFAULT_PROGRAMS = [WORKSPACE / "out/ios26-resume/appinst/appinst"]
 EXTRA_PROGRAMS = ([Path(p) for p in os.environ["PAYLOAD_PROGRAMS"].split(":") if p]
                   if "PAYLOAD_PROGRAMS" in os.environ
                   else [p for p in DEFAULT_PROGRAMS if p.is_file()])
-# SEED=path packs a /private/var archive as etc/var.seed: `var_store save FILE` wrote it at the end of
-# an earlier boot and rwsh "outbox" carried it to the host (run/outbox.bin). With var_store=1 among
-# the boot arguments init unpacks it over the skeleton, so the LaunchServices database, the icon
-# cache and PosterBoard's data are there from the first second instead of being rebuilt.
-DEFAULT_SEED = REPO / "docs/progress/evidence/k90auto/kernel-12377-cmd30-seed3/seed-icons.bin"
-seed_env = os.environ.get("SEED", "")
-SEED = Path(seed_env) if (seed_env and seed_env not in ("0", "none", "no") and Path(seed_env).is_file()) else None
 # The AIR library is not compiled here; tools/k90auto/build-air.py is the only entry point that
 # builds it, because the arm64e build reads its own copy of the sources and an unsynced edit builds
 # a valid library that is missing what the round is meant to measure. Its record says which library
@@ -74,13 +67,6 @@ PROBE_FLAGS = ["-Os", "-Wall", "-Wextra", "-framework", "Foundation"]
 # reaches its second offset, and the answers at t=300 do not depend on the earlier ones. Each is
 # backgrounded so a slow probe cannot hold the rest of the boot script.
 PROBE_LINE = "/annibale/bin/lsprobe 60 &\n/annibale/bin/lsprobe 300 &\n"
-# VARSTORE_SHOW=1 adds one line that reads both slots of the darwin partition. Saving is not part of
-# it: a save writes the partition and is its own variable, while this only answers whether a store
-# from an earlier boot exists at all -- the question that decides whether the data volume can carry
-# install records across boots. No boot argument is involved: var_store=1 is what restores a store
-# over the skeleton, and that one changes every later boot and cannot share a round.
-VARSTORE_SHOW = os.environ.get("VARSTORE_SHOW") == "1"
-VARSTORE_LINE = "/annibale/bin/var_store show\n"
 # The Wi-Fi card's firmware goes into fw/ of the image, from the directory
 # hackios-xnu-kernel/tools/mk-fw-wifi.py extracted out of the phone's own modem partition (not in git).
 # By default, when that directory has them, only the four files the driver reads on the K90 go in
@@ -424,16 +410,15 @@ def dirty_sources():
     """What is uncommitted in the trees a pack is built from, as one git status per repository.
 
     The result goes into the pack record so a round states what it was built from. It does not stop
-    the pack. Two checks, because the sources live in two repositories: the kernel work tree keeps
-    userland, Mesa and the AIR sources under .userland.git, which common/ugit reads, and the packaging
-    code is in the top repository. Documentation and unrelated tools cannot change what a round runs,
-    so they are outside both checks."""
+    the pack."""
     reports = []
     for name, command, cwd in (
-            ("kernel work tree under .userland.git (userland, Mesa, AIR sources)",
-             ["common/ugit", "status", "--short"], WORKSPACE),
+            ("userland repository",
+             ["git", "status", "--short"], REPO / "hackios-xnu-userland"),
+            ("kernel repository",
+             ["git", "status", "--short"], WORKSPACE),
             ("top repository (packaging code)",
-             ["git", "status", "--short", "--", "tools/k90auto"], WORKSPACE.parent)):
+             ["git", "status", "--short", "--", "tools/k90auto"], REPO)):
         try:
             result = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=60)
         except (OSError, subprocess.SubprocessError) as error:
@@ -460,23 +445,6 @@ def sha(path):
 # reads as the library not being injected at all. 0x80000002 is ARM64E with the LIB64 bit, which is
 # what build.sh's own gate (:885-922) requires of everything it stages.
 ARM64E_WITH_LIB64 = 0x80000002
-
-
-def check_seed(path):
-    """The seed's header and contents check out as var_store's own load would check them (struct
-    head in userland/src/var_store.c: one slot at offset 0, the archive from 4096 on, CRC-32 of
-    both). A torn transfer is caught here rather than by init on the phone. Returns its size."""
-    data = path.read_bytes()
-    magic, version, slot, generation, size, entries, seconds, crc, head_crc = struct.unpack_from(
-        "<8sIIQQQQII", data)
-    head = bytearray(data[:56])
-    head[52:56] = b"\0\0\0\0"
-    assert magic == b"ANNVAR\0\0" and version == 1 and slot == 0, f"{path} is not a var_store archive"
-    assert zlib.crc32(bytes(head)) == head_crc, f"{path}: the header does not check out"
-    assert len(data) >= 4096 + size and zlib.crc32(data[4096:4096 + size]) == crc, \
-        f"{path}: the archive is not the {size} bytes its header describes"
-    print(f"seed {path}: {entries} entries, {size} bytes, generation {generation}, saved at {seconds}")
-    return len(data)
 
 
 def cpusubtype(path):
@@ -767,8 +735,7 @@ def main():
     # 2026-10-28 the two lsprobe lines sat behind 500 s of drags and never ran, while the same lines at
     # the top of the file run from the first second of the round.
     jobs_source_bytes = JOBS_SOURCE.read_bytes()
-    jobs = ((PROBE_LINE.encode() if PROBE else b"") + (VARSTORE_LINE.encode() if VARSTORE_SHOW else b"")
-            + jobs_source_bytes)
+    jobs = (PROBE_LINE.encode() if PROBE else b"") + jobs_source_bytes
 
     # The untouched base as an image, built the way root.apfs is below: what the comparison at the
     # end measures against.
@@ -855,9 +822,6 @@ def main():
     for program in EXTRA_PROGRAMS:
         assert program.is_file(), f"{program} is named in PAYLOAD_PROGRAMS and is not a file"
         shutil.copy2(program, dest / "bin" / program.name)
-    if SEED:
-        seed_bytes = check_seed(SEED)
-        shutil.copy2(SEED, dest / "etc/var.seed")
     # /annibale programs must be present in the helper image before its jobs are packaged.
     for plist_path in sorted((dest / "LaunchDaemons").glob("*.plist")):
         plist_data = plistlib.loads(plist_path.read_bytes())
@@ -923,10 +887,6 @@ def main():
     if JOB_ENV:
         cache = add_env(dest, cache, JOB_ENV)
         job = plistlib.loads((dest / JOB).read_bytes())
-    vs_file = dest / "LaunchDaemons/com.annibale.varstore.plist"
-    if vs_file.exists():
-        vs_file.unlink()
-    cache["LaunchDaemons"].pop("/System/Library/LaunchDaemons/com.annibale.varstore.plist", None)
     (dest / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
     # What launchd will know this boot, names only: the cache is the authority (iOS 26 takes its jobs
     # from /System/Library/xpc/launchd.plist, not from the LaunchDaemons directory), so reading the
@@ -952,7 +912,6 @@ def main():
              | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} if WIFI_FW else set())
              | {"/fw/" + name for name in BT_FW_FILES}
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
-             | ({"/etc/var.seed"} if SEED else set())
              | ({"/lib/libannibale-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
              | ({"/lib/libannibale-ax.dylib"} if AX_PROCESSES else set())
              | {"/LaunchDaemons/" + name for name in rest_added}
@@ -983,7 +942,6 @@ def main():
                 # here or the comparison above fails on a directory nobody meant to change.
                 *(["/bin"] if any(name.startswith("/bin/") for name in added) else []),
                 *(["/lib"] if any(name.startswith("/lib/") for name in added) else []),
-                *(["/etc", "/etc/var.seed"] if SEED else []),
                 *(["/etc", "/etc/env", *("/etc/env/" + name for name in EXT_ENV)] if EXT_ENV else []),
                 *(["/bin/lsprobe"] if PROBE else []),
                 *(["/fw", *("/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL])] if WIFI_FW else []),
@@ -1057,12 +1015,11 @@ def main():
         "probe_sources": {name: sources[name] for name in PROBE_SOURCES if name in sources},
         "build_commands": commands, "source_sha256": sources,
         "inject_conf": INJECT.strip(),
-        "jobs_sha256": hashlib.sha256(jobs).hexdigest(), "probe": PROBE, "varstore_show": VARSTORE_SHOW,
+        "jobs_sha256": hashlib.sha256(jobs).hexdigest(), "probe": PROBE,
         "skeleton_appended": appended, "jobs_dropped": sorted(JOBS_DROP), "job_env": [f"{n}:{k}={v}" for n, k, v in JOB_ENV],
         "ext_env": [f"{n}:{s}" for n, settings in EXT_ENV.items() for s in settings],
         "jobs_effective": jobs_effective, "jobs_effective_count": len(jobs_effective),
         "rest": REST, "rest_added_count": len(rest_added), "rest_allow": REST_ALLOW, "rest_deny": REST_DENY,
-        "seed": {"path": str(SEED), "sha256": sha(SEED), "bytes": seed_bytes} if SEED else None,
         "annibale_diag": ANNIBALE_DIAG,
         "wifi_fw": {name: sha(WIFI_FW_DIR / name) for name in WIFI_FW_FILES}
                    if WIFI_FW else None,

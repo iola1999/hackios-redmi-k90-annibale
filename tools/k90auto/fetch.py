@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy one file off the iOS a held round is running, through rwsh's "cat".
+"""Copy one file off the iOS a held round is running, through annsh's "cat".
 
 usage: tools/k90auto/fetch.py ROUND_DIR DEVICE_PATH OUT
 

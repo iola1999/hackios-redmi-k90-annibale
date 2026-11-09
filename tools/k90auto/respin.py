@@ -15,7 +15,7 @@ the processes --restart kills and launchd starts again. --wait is the seconds to
 The round has to be running and has to stay up between calls: start it with cycle.py --hold. The
 commands go through rsh.py, one line of at most 119 characters each, so a long --env is sent as one
 "setenv" and as many "addenv" as it takes. Needs a kernel with kern.annibale.env (12377-cmd13 and
-later) and an image whose rwsh has setenv, addenv and restart.
+later) and an image whose annsh has setenv, addenv and restart.
 """
 import argparse
 import subprocess

@@ -4,15 +4,15 @@
 usage: tools/k90auto/tour.py ROUND_DIR STEP [STEP ...]
 
 Each STEP is LABEL=COMMAND@SETTLE*SHOTS, for example
-  settings=/annibale/bin/rwtouch tap 0.5 0.5@3*2
+  settings=/annibale/bin/anntouch tap 0.5 0.5@3*2
   home@1*1                      (no command: only screenshots)
-COMMAND goes to the device through rsh.py (rwsh, so at most 119 characters); SETTLE is the seconds
+COMMAND goes to the device through rsh.py (annsh, so at most 119 characters); SETTLE is the seconds
 to wait after it; SHOTS is how many screenshots to take after that, one after another. With two or
 more, the shots of one step are compared: the screen did not change between them, so pixels that
 differ outside the status bar are flicker or content that comes and goes.
 
 The round must be running under run-auto.py with on-request screenshots (shot-now.py's channel)
-and rwsh in its rc.jobs. Results go to ROUND_DIR/run/tour.json, appended per call, and
+and annsh in its rc.jobs. Results go to ROUND_DIR/run/tour.json, appended per call, and
 ROUND_DIR/run/tour-sheet.png holds every step so far, numbered in the order of tour.json. Exit code: 0, or 1 when a command
 or a screenshot did not come back.
 """

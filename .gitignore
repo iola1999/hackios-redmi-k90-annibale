@@ -26,10 +26,5 @@ hackios-xnu-kernel/xnu-src/
 hackios-xnu-kernel/Mu-Silicium/
 hackios-xnu-kernel/userland/*.apfs
 hackios-xnu-kernel/qemu/ram.img
-hackios-xnu-kernel/.userland.git/
-hackios-xnu-kernel/ios165/ipsw/
-hackios-xnu-kernel/ios165/extract/
-hackios-xnu-userland/ios165/ipsw/
-hackios-xnu-userland/ios165/extract/
 hackios-xnu-userland/userland/*.apfs
 hackios-xnu-kernel/xnu-annibale.img

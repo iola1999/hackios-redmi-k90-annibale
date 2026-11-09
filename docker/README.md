@@ -11,13 +11,12 @@ iOS 交叉工具链也在镜像里：theos、ld64（x86_64，经 OrbStack 的 Ro
 
 主机装有 Xcode 时，`dev.sh` 读取 `hackios-xnu-kernel/xnu-deps/26/sdk/iPhoneOS.sdk/System` 这个符号链接，把它指向的主机 iOS 26 SDK 按同一绝对路径只读挂进容器；没有这个挂载，iOS 26 的 userland 构建找不到框架头文件（见 `dev.sh` 注释）。
 
-## 1. 容器内首次初始化（两个子模块合成一棵树）
+## 1. 容器内首次初始化
 
 ```sh
-cd /work/hackios-xnu-kernel          # k90-port 分支
-common/setup.sh                      # 把 userland 仓收进 .userland.git，双仓合一棵树
-ios165/fetch.sh                      # 7.4GB IPSW，解包到 ios165/extract/
-userland/build.sh                    # 产 userland/{root,system}.apfs（REST=1 可换源）
+cd /work/hackios-xnu-userland
+ios26/fetch.sh                       # 解包 iOS 26.6.2 IPSW 到 ios26/
+cd userland && ./build.sh            # 产出 userland/{root26,system26}.apfs
 ```
 
 ## 2. headless 跑 QEMU（验收 iOS 开机的标准方式）

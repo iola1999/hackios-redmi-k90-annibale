@@ -3,7 +3,7 @@
 
 usage: tools/k90auto/make-payload.py NAME LABEL RAMDISK "EXTRA BOOT-ARGS"
 
-NAME is a kernel built by build-kernel.py; RAMDISK a root image under hackios-xnu-kernel/ (for an
+NAME is a registered kernel build; RAMDISK a root image under hackios-xnu-kernel/ (for an
 unattended run one whose etc/rc.jobs is rc.jobs.desktop); EXTRA BOOT-ARGS are added after the fixed
 ones (GPU stage 23 with the secure handover, two prime cores, the Goodix touch screen, the volume and
 power keys, the battery gauge). Prints the run directory to give run-queue.sh. Run from the top of
@@ -14,7 +14,7 @@ env: K90_EVIDENCE (default docs/progress/evidence/k90auto), CPU_ARGS (default
 kernels before 34209c1 need 1), GPU_STAGE (adreno8, default 23; 0 boots without the GPU),
 BOOT_IMAGE (workspace-relative flashboot APFS image, default hackios-xnu-kernel/userland/flashboot.apfs),
 MEMSIZE and IDENTITY (passed to mkpayload.py as --memsize and --identity; iOS 26 needs
-300000000 and v57, and 16.5 leaves both to mkpayload.py's defaults).
+300000000 and v57).
 """
 from pathlib import Path
 import hashlib
@@ -118,8 +118,8 @@ if identity:
     assert re.fullmatch(r"[a-z0-9]+", identity), identity
     argv += ["--identity", identity]
 subprocess.run(argv, cwd=root, check=True)
-# The pack manifest beside the packed root says what that pack put in: whether the probe and the
-# var_store line were added, which skeleton lines had to be appended because the base root was older
+# The pack manifest beside the packed root says what that pack put in: whether the probe was added,
+# which skeleton lines had to be appended because the base root was older
 # than userland/var.skel.extra, and which driver the round will run. Without copying it here the round
 # record answers "which files were uploaded" but not "what was in them", and the only copy lives in
 # out/, which the next pack overwrites.

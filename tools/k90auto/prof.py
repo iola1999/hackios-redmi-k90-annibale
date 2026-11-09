@@ -3,7 +3,7 @@
 
 usage: tools/k90auto/prof.py ROUND_DIR [--slide HEX] [--top N] [--threads PID]
 
-The kernel (12377-cmd23 and later) samples the interrupted context at every interrupt; rwsh
+The kernel (12377-cmd23 and later) samples the interrupted context at every interrupt; annsh
 "sysctl kern.annibale.prof_on=1" starts it and "sysctl kern.annibale.prof" prints it, which rsh.py
 leaves in ROUND_DIR/run/cmd-*.log. This takes the newest printout there and prints:
   - samples per process, user and kernel apart, with the process names from the newest "ps";
@@ -45,25 +45,25 @@ def snapshots(run):
 
 
 def newest_profile(text):
-    """The lines of the last kern.annibale.prof printout: rwsh SEQ| lines after its first one."""
-    starts = [m for m in re.finditer(r"^rwsh (\d+)\| kern\.annibale\.prof = (samples .*)$", text, re.M)]
+    """The lines of the last kern.annibale.prof printout: annsh SEQ| lines after its first one."""
+    starts = [m for m in re.finditer(r"^annsh (\d+)\| kern\.annibale\.prof = (samples .*)$", text, re.M)]
     if not starts:
         return []
     last = starts[-1]
     seq = last.group(1)
     lines = [last.group(2)]
     for line in text[last.end():].splitlines():
-        m = re.match(rf"^rwsh {seq}\| (.*)$", line)
+        m = re.match(rf"^annsh {seq}\| (.*)$", line)
         if m:
             lines.append(m.group(1))
-        elif line.startswith(f"rwsh {seq} exit"):
+        elif line.startswith(f"annsh {seq} exit"):
             break
     return lines
 
 
 def process_names(text):
     names = {"-2": "(idle)", "0": "(kernel)"}
-    for m in re.finditer(r"^rwsh \d+\|\s+(\d+)\s+\d+\s+\d+\s+[\d.]+\s+[\d.]+\s+\d+ (.+)$", text, re.M):
+    for m in re.finditer(r"^annsh \d+\|\s+(\d+)\s+\d+\s+\d+\s+[\d.]+\s+[\d.]+\s+\d+ (.+)$", text, re.M):
         names[m.group(1)] = m.group(2).strip()
     return names
 

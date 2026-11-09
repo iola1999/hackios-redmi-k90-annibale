@@ -4,12 +4,12 @@
 usage: tools/k90auto/rsh.py ROUND_DIR COMMAND...
 
 ROUND_DIR is the directory make-payload.py printed and run-auto.py is running. The round must carry
-/annibale/bin/rwsh in its rc.jobs and boot a kernel and loader with the command mailbox (kernel
+/annibale/bin/annsh in its rc.jobs and boot a kernel and loader with the command mailbox (kernel
 loader_live magic3, loader "oem sh"). run-auto.py stays the only process that talks to the device:
 this drops the command into ROUND_DIR/run/cmd-request-*.txt and waits for run-auto.py to send it
 and to read the log into ROUND_DIR/run/cmd-SEQ.log. The command is one line of at most 119
 characters, words split on blanks with no quoting; the built-ins are listed in
-hackios-xnu-kernel/userland/src/rwsh.c. rwsh applies its own command deadline, and a slow native call
+hackios-xnu-kernel/userland/src/annsh.c. annsh applies its own command deadline, and a slow native call
 can also finish after the default output wait. Set RSH_OUTPUT_TIMEOUT and RSH_SUBPROCESS_TIMEOUT for
 callers that need a longer observation window.
 
@@ -57,8 +57,8 @@ def main():
     seq = answer["seq"]
 
     log = run / f"cmd-{seq}.log"
-    line_mark = f"rwsh {seq}| "
-    end = re.compile(rf"^rwsh {seq} exit (-?\d+) (\d+) ms$", re.M)
+    line_mark = f"annsh {seq}| "
+    end = re.compile(rf"^annsh {seq} exit (-?\d+) (\d+) ms$", re.M)
     deadline = time.monotonic() + OUTPUT_TIMEOUT
     text_seen = ""
     while time.monotonic() < deadline:
@@ -70,13 +70,13 @@ def main():
     for line in text_seen.splitlines():
         if line.startswith(line_mark):
             print(line[len(line_mark):])
-        elif line.startswith(f"rwsh {seq} dropped"):
+        elif line.startswith(f"annsh {seq} dropped"):
             print(f"rsh: {line}", file=sys.stderr)
     done = end.search(text_seen)
     if done is None:
-        started = f"rwsh {seq} start" in text_seen
+        started = f"annsh {seq} start" in text_seen
         print(f"rsh: no end of the output in {log.name}"
-              f"{'' if started else ', and rwsh never started it (is /annibale/bin/rwsh in rc.jobs?)'}; "
+              f"{'' if started else ', and annsh never started it (is /annibale/bin/annsh in rc.jobs?)'}; "
               f"later lines may be in the round's next s*.log", file=sys.stderr)
         return 3
     print(f"rsh: exit {done.group(1)} after {done.group(2)} ms", file=sys.stderr)

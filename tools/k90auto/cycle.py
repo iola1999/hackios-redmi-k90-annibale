@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """One unattended desktop round from the working tree: pack, boot, tour, render report.
 
-usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kernel NAME] [--seed FILE] [--hold] [--tour STEP ...]
+usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kernel NAME] [--hold] [--tour STEP ...]
 
---seed FILE (default: the K90_SEED environment variable, else SEED when it is there) boots with a /private/var archive
-unpacked over the skeleton: package.py packs it as etc/var.seed and the round gets var_store=1. The
-archive comes from `var_store save FILE` and tools/k90auto/varseed.py; it stays in a local, ignored
-directory (docs/analysis/2026-10-31-every-boot-is-first-boot.md).
-
-  1. package.py with the interactive jobs and rwsh (the caller's environment goes through, so
+  1. package.py with the interactive jobs and annsh (the caller's environment goes through, so
      ICON_METAL=1 and the other package switches work as they do there), then make-payload.py
      for kernel NAME (default KERNEL) with four cores.
   2. The loader has to be enumerated and idle with an empty RAM disk; otherwise this stops. Every
@@ -50,9 +45,6 @@ LOADER_BUILD = "45d97a8"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # Kernel record used unless --kernel selects another build.
 KERNEL = "12377-st5"
-# The /private/var archive a round boots with unless --seed or K90_SEED names another: with it the first
-# SpringBoard shows every icon (docs/analysis/2026-10-31-every-boot-is-first-boot.md). Local and ignored.
-SEED = EVIDENCE / "kernel-12377-cmd30-seed3/seed-icons.bin"
 # Programs rc.jobs.interactive starts at boot, packed when they have been built (build commands in
 # tools/k90auto/README.md): appinst watches the download folders for .ipa files.
 BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/appinst/appinst"]
@@ -81,13 +73,13 @@ TOUR = [
     "wallpaper-layers=notify com.annibale.layers.Wallpaper@4*0",
     "statusbar-layers=notify com.annibale.layers.StatusBar@4*0",
     "full-layers=notify com.annibale.layers.full@4*0",
-    f"settings=/annibale/bin/rwtouch tap {SETTINGS_ICON[0]} {SETTINGS_ICON[1]}@4*2",
-    "settings-scrolled=/annibale/bin/rwtouch swipe 0.5 0.7 0.5 0.35 300@3*2",
-    "home-again=/annibale/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@4*1",
-    "control-center=/annibale/bin/rwtouch swipe 0.9 0.005 0.9 0.6 300@3*2",
-    "cc-closed=/annibale/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@3*1",
-    "notifications=/annibale/bin/rwtouch swipe 0.3 0.005 0.3 0.7 300@3*1",
-    "nc-closed=/annibale/bin/rwtouch swipe 0.5 0.995 0.5 0.55 200@3*1",
+    f"settings=/annibale/bin/anntouch tap {SETTINGS_ICON[0]} {SETTINGS_ICON[1]}@4*2",
+    "settings-scrolled=/annibale/bin/anntouch swipe 0.5 0.7 0.5 0.35 300@3*2",
+    "home-again=/annibale/bin/anntouch swipe 0.5 0.995 0.5 0.55 200@4*1",
+    "control-center=/annibale/bin/anntouch swipe 0.9 0.005 0.9 0.6 300@3*2",
+    "cc-closed=/annibale/bin/anntouch swipe 0.5 0.995 0.5 0.55 200@3*1",
+    "notifications=/annibale/bin/anntouch swipe 0.3 0.005 0.3 0.7 300@3*1",
+    "nc-closed=/annibale/bin/anntouch swipe 0.5 0.995 0.5 0.55 200@3*1",
 ]
 
 
@@ -170,14 +162,9 @@ def main():
     ap.add_argument("--boot-args", default="", help="observation boot-args added after the fixed ones")
     ap.add_argument("--hold", action="store_true", help="keep the round up after the tour, for respin.py")
     ap.add_argument("--tour", nargs="+", help="tour.py steps instead of TOUR")
-    ap.add_argument("--seed", default=os.environ.get("K90_SEED") or (str(SEED) if SEED.exists() else None),
-                    help="a /private/var archive to boot with")
     args = ap.parse_args()
     if args.hold and "--seconds" not in sys.argv:
         args.seconds = 0
-    if args.seed:
-        os.environ["SEED"] = args.seed
-        args.boot_args = " ".join([args.boot_args, "var_store=1"]).strip()
     if "ufs_write=1" not in FIXED_ARGS and "ufs_write=1" not in args.boot_args:
         args.boot_args = " ".join([args.boot_args, "ufs_write=1"]).strip()
 

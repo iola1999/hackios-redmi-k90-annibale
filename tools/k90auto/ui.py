@@ -12,7 +12,7 @@ dump    posts com.annibale.ax: every process with libannibale-ax.dylib (package.
         ROUND_DIR/run/ax/ and prints them.
 tap     dumps, picks the element whose label or value contains TEXT (case-insensitive; --exact for
         the whole label), from an application in front before SpringBoard, the N-th match from the
-        top (default 0), and touches its middle with rwtouch.
+        top (default 0), and touches its middle with anntouch.
 shot    one screenshot, ROUND_DIR/run/NAME.png.
 wait    dumps every 2 s until TEXT is on the screen or SECONDS (default 30) passed.
 accessibility
@@ -108,7 +108,7 @@ def main():
         process, (x, y, w, h, cls, label, value), sw, sh = found[nth]
         nx, ny = (x + w / 2) / sw, (y + h / 2) / sh
         print(f"ui: tap {label or value!r} ({cls} in {process}) at {nx:.3f} {ny:.3f}")
-        rsh(round_dir, "/annibale/bin/rwtouch", "tap", f"{nx:.4f}", f"{ny:.4f}")
+        rsh(round_dir, "/annibale/bin/anntouch", "tap", f"{nx:.4f}", f"{ny:.4f}")
         return 0
     if command == "accessibility":
         rsh(round_dir, "notify", "com.annibale.ax.on")
