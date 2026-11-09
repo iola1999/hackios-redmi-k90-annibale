@@ -172,12 +172,9 @@ CACHE_KEY = "/System/Library/LaunchDaemons/com.apple.backboardd.plist"
 # backboardd; the GPU stop that kept it off in lock2cpu4 (2026-10-30) has not recurred since render47.
 # ICON_METAL=0 leaves iconservicesagent in software.
 ICON_METAL = os.environ.get("ICON_METAL", "1") == "1"
-# backboardd draws every frame whole (CA_DISABLE_DIRTY_REGIONS=1) unless DIRTY_REGIONS=1. With the
-# dirty regions CoreAnimation draws only what changed, and rectangles of older frames stayed on the
-# screen: grey blocks in Settings, a widget left blank or blue (kernel-12377-cmd50-bo48, the same
-# boot with and without). The cause is not found; drawing whole cost the GPU 72% more time a
-# submission at the same frame rate (bo49 against bo47).
-DIRTY_REGIONS = os.environ.get("DIRTY_REGIONS") == "1"
+# backboardd draws only the dirty regions of a frame by default (DIRTY_REGIONS=1); DIRTY_REGIONS=0 sets
+# CA_DISABLE_DIRTY_REGIONS=1 to draw every frame whole for comparison.
+DIRTY_REGIONS = os.environ.get("DIRTY_REGIONS", "1") == "1"
 ICON_JOB = "LaunchDaemons/com.apple.iconservices.iconservicesagent.plist"
 ICON_CACHE_KEY = "/System/Library/LaunchDaemons/com.apple.iconservices.iconservicesagent.plist"
 # MSAA=1 asks the driver for four samples on both processes that encode render passes:
@@ -506,8 +503,11 @@ def add_switch(root):
         job_path = root / relative
         job = plistlib.loads(job_path.read_bytes())
         job.setdefault("EnvironmentVariables", {})["ANNIBALE_SB_METAL"] = "1"
-        if relative == JOB and not DIRTY_REGIONS:
-            job["EnvironmentVariables"]["CA_DISABLE_DIRTY_REGIONS"] = "1"
+        if relative == JOB:
+            if DIRTY_REGIONS:
+                job["EnvironmentVariables"].pop("CA_DISABLE_DIRTY_REGIONS", None)
+            else:
+                job["EnvironmentVariables"]["CA_DISABLE_DIRTY_REGIONS"] = "1"
         blob = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         job_path.write_bytes(blob)
         assert plistlib.loads(blob) == job, "the job plist did not survive the round trip"

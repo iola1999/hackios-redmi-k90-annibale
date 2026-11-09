@@ -137,7 +137,7 @@ def main():
         "holds": {name: name in text for name in (
             "resolve %llu", "batch cuts", "verts %llu", "calls %llu in", "clock pair adds",
             "perf flush totals", "phase marks off", "perf draw: timing on", "rwa draw:",
-            "rwa shadow:", "tl: x", "tl: y", "tl: z", "tl: z2", "tl: z3", "tl: z4", "tl: z5", "tl: z6", "tl: z7", "tl: z8", "tl: z9", "tl: za", "tl: zb", "tl: zc")},
+            "rwa shadow:", "ir3 cache[", "tl: x", "tl: y", "tl: z", "tl: z2", "tl: z3", "tl: z4", "tl: z5", "tl: z6", "tl: z7", "tl: z8", "tl: z9", "tl: za", "tl: zb", "tl: zc")},
     })
     RECORD.write_text(json.dumps(record, indent=2) + "\n")
     print(f"{OUT.relative_to(WORKSPACE)}: {record['library_bytes']} bytes, "
