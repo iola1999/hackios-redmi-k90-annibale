@@ -41,7 +41,7 @@ python3 tools/k90auto/gestures.py docs/progress/evidence/k90auto/kernel-NAME-LAB
 python3 tools/k90auto/frame-split.py docs/progress/evidence/k90auto/kernel-NAME-LABEL 120   # 第二个参数是 fb_hz
 ```
 
-`make-payload.py` 把内核、辅助盘（`hackios-xnu-kernel/` 下的相对路径）和启动参数打成 `hackios-xnu-kernel/out/handoff-NAME-LABEL.bin`，打印本轮目录。固定参数包括 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1 launchd_unsecure_cache=1`、GPU 一组（`adreno8=<GPU_STAGE> adreno8_keep=1 adreno8_return=0 adreno8_speed=<GPU_SPEED>` 等）和 `touchscreen=2 buttons=1 battery=1`，第四个参数追加在后面；载荷禁止带 `loader_return_after`。根设备与 UFS 参数必须各有且只有一项。
+`make-payload.py` 把内核、辅助盘（`hackios-xnu-kernel/` 下的相对路径）和启动参数打成 `hackios-xnu-kernel/out/handoff-NAME-LABEL.bin`，打印本轮目录。固定参数包括 `rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1 launchd_unsecure_cache=1`、GPU 一组（`adreno8=<GPU_STAGE> adreno8_keep=1 adreno8_return=0 adreno8_speed=<GPU_SPEED>` 等）和 `touchscreen=2 buttons=1 battery=1`，第四个参数追加在后面；载荷禁止带 `loader_return_after`。根设备与 UFS 参数必须各有且只有一项。
 
 | 变量 | 默认值 | 作用 |
 |---|---|---|

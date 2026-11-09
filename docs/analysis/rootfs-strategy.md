@@ -13,7 +13,7 @@
 
 ## 2. 启动路径
 
-1. loader 把小型启动卷发布为 `RAMDisk`，内核创建 `/dev/md0`。参数为 `rd=md0 rootdev=md0`。这个内存盘只包含启动卷，不包含系统镜像和用户数据。
+1. loader 把小型启动卷发布为 `RAMDisk`，内核创建 `/dev/md0`。参数为 `rootdev=md0`，不带 `rd=md0`：launchd 见到 `rd=md0` 会按恢复环境启动，跳过开机任务。这个内存盘只包含启动卷，不包含系统镜像和用户数据。
 2. loader 把辅助盘发布为 `RAMDisk1`。`stage0` 将 `/dev/md1` 挂载到 `/annibale`，执行 `/annibale/sbin/init`。
 3. `root_apfs=ufs_darwin ufs=2 ufs_native=1` 使 `init` 从 `/dev/ufs_darwin` 只读挂载 APFS 系统卷，准备启动任务与驱动挂载点，再通过 `kern.annibale_switch_root` 切换根目录。
 4. 原版三容器部署从 `darwin` 的后续容器挂载 OS/App Cryptex；合成 `system26.apfs` 使用卷内已有的 `/System/Cryptexes/OS` 与 `/System/Cryptexes/App`。

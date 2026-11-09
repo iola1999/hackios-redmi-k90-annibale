@@ -221,7 +221,7 @@ class RunAutoTests(unittest.TestCase):
     """run-auto.py against a loader stand-in: what the teardown leaves behind, and what it stages."""
 
     MAX_BOOT_IMAGE = 64 * 1024 * 1024
-    CMDLINE = "rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1"
+    CMDLINE = "rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1"
 
     def prepare(self, root, boot_bytes=4096, payload_entry=None, legacy=False, boot_sha256=None,
                 cmdline=None, manifest_cmdline=None, memsize=None):

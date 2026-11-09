@@ -5,9 +5,10 @@ Safari 下载完成后，文件要交给 FileProvider 的 LocalStorage 域，落
 ## 1. 开机补齐 persona
 
 - 现象：`usermanagerd` 没有建立系统与用户 persona，fileproviderd 拿不到用户会话，LocalStorage 域不出现。
-- 原因：启动参数 `rd=md0` 让 `launchd` 跳过开机任务，`usermanagerd --init` 是其中之一。
-- 修复：用户态 `userland/rc.launchd` 在 `exec /sbin/launchd.ios` 之前运行 `/usr/libexec/usermanagerd --init`，与原生开机任务做同一件事。开机后 persona 99、199、100、1000、200 都存在。
-- 另一条路：`launchd` 读 `kern.bootargs`，其中含字面串 `rd=md0` 时打印「Restore environment starting.」并按恢复环境处理。内核在 `bsd_init.c` 与 `IOKitBSDInit.cpp` 里对 `rd` 与 `rootdev` 一视同仁，`xnuloader/mkstandalone.py` 的默认参数两个都给了，只留 `rootdev=md0` 时根盘不变、`launchd` 不再判为恢复环境。代价是 `launchd` 内置的开机任务会按非恢复模式执行。`/sbin/launchd` 内嵌的任务表里，`mount-phase-1`、`mount-phase-2`（`mount -P 1`／`-P 2`）、`fsck`、`dirs_cleaner`、`launchd_cache_loader` 标了 `RequireSuccess` 与 `RequireRun`，`data-protection`（`seputil`）、`fsck-safe`、`tzinit` 标了 `RequireSuccess`，`recovery-mode` 会执行 `nvram auto-boot=false`；`usermanagerd --init` 本身只标了 `AllowCrash`。这些任务在本机的 `/private/var` 直写持久化、没有 SEP 的条件下能否通过没有验证，`nvram` 一项还会写引导变量，所以没有在真机上直接试。
+- 原因：`launchd` 读 `kern.bootargs`，其中含字面串 `rd=md0` 时打印「Restore environment starting.」，按恢复环境启动，跳过内嵌任务表里的开机任务，`usermanagerd --init` 是其中之一。
+- 修复（启动参数）：内核在 `bsd_init.c` 与 `IOKitBSDInit.cpp` 里对 `rd` 与 `rootdev` 一视同仁，载荷只带 `rootdev=md0`，根盘不变。`xnuloader/mkstandalone.py`、`tools/k90auto/make-payload.py` 与 `run-auto.py` 拒绝带 `rd=` 的参数。
+- 修复（内核 ramfs）：非恢复模式下，`dirs_cleaner` 用 `renamex_np(RENAME_SWAP)` 把 `/private/var/tmp`、`/private/var/run`、`/private/var/mobile/tmp` 与新建的空目录交换。ramfs 原先只交换文件，目录返回 `ENOTSUP`（errno 45），开机停在这一步。现在 `ramfs_renamex()` 也交换目录：先确认两个目录都不会移到自己下面，再更新目录的 `rn_parent`（`..` 和 `darwin_var` 节点记录的 `parent_ino` 都取自它）；目录与非目录跨父目录交换时，同时调整两个父目录的链接数。
+- 开机任务：`fsck`、`mount-phase-1`、`mount-phase-2`、`data-protection`、`keybag`、`usermanagerd`、`dirs_cleaner`、`tzinit`、`launchd_cache_loader` 依次执行，日志以「Early boot complete. Continuing system boot.」结束，没有出现 `recovery-mode`（`nvram auto-boot=false`）。换下的旧目录留在 `/private/var/dirs_cleaner/` 下。用户态 `rc.launchd` 不再手动运行 `usermanagerd --init`，开机后 persona 99、199、100、1000、200 都在。
 
 ## 2. sync-root fsctl
 
@@ -50,7 +51,7 @@ revisiond 用 BSD flags 的比较交换给 LocalStorage 新建的每一项设置
 
 | 层 | 文件 |
 |---|---|
-| 用户态启动 | `hackios-xnu-userland/userland/rc.launchd` |
+| 启动参数 | `xnuloader/mkstandalone.py`，`tools/k90auto/make-payload.py` 与 `run-auto.py` |
 | 内核 ramfs | `xnu/files/bsd/miscfs/ramfs/ramfs_fsctl.inc`、`ramfs.c`、`ramfs_vnops.inc`、`ramfs_getattr.inc`、`ramfs_clonefile.inc`、`ramfs_rename.inc` |
 | 持久化格式 | `ramfs_disk.inc`、`ramfs_disk_restore.inc`、`ramfs_disk_mount.inc`，主机工具 `tools/annfs-inspect.py` |
 
@@ -61,4 +62,5 @@ revisiond 用 BSD flags 的比较交换给 LocalStorage 新建的每一项设置
 - Safari 下载 4,001,101 字节的 IPA 完成，文件写入 LocalStorage 的 `File Provider Storage/Downloads`。
 - 「文件」App「我的 iPhone > 下载」显示这个文件，大小 4 MB。
 - IPA 管理器「安装包」列表显示这个文件，从这里安装的应用见 [IPA 管理器的签名](2026-11-09-appinst-codesign.md)。
+- 改为只带 `rootdev=md0` 后（内核加上目录交换，用户态 `rc.launchd` 只交给 `launchd`），09:06 重跑一次：开机后没有手动步骤，Wi-Fi 连上后 Safari 下载完成，「网易云Kumone_0.3.26 3.ipa」同时出现在「我的 iPhone > 下载」和 IPA 管理器的安装包列表。
 - 截图与 systrace 日志保存在本地调试目录 `out/s1109/`。

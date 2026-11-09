@@ -85,25 +85,27 @@ gpu_speed = int(os.environ.get("GPU_SPEED", "3"))
 gpu_stage = int(os.environ.get("GPU_STAGE", "23"))
 memsize = os.environ.get("MEMSIZE", "")       # iOS 26 needs the RAM it is staged into: 300000000
 identity = os.environ.get("IDENTITY", "")     # and the loader identity of that iOS: v57
-# rd=md0 and rootdev=md0 keep the initial root on the boot volume. root_apfs=ufs_darwin makes init mount
+# rootdev=md0 keeps the initial root on the boot volume; rd=md0 would do the same for the kernel, but launchd
+# reads it as a restore environment and skips its boot tasks. root_apfs=ufs_darwin makes init mount
 # the iOS APFS volume from UFS and switch to it. launchd_unsecure_cache=1 lets iOS 26's launchd take its jobs
 # and its 733 AppExtensions records from /System/Library/xpc/launchd.plist, and launchd_cache_loader
 # hands that cache over only with this boot-arg (it otherwise has to verify Apple's signature). Without
 # them launchd prints "Skipping boot-task" instead of "Using unsecure cache" and no extension record
 # ever reaches it. Every run before this harness carried them; the desktop of 2026-10-27 12:40 on the
 # same root image (15 icons, two named widgets, four Dock icons) is one of those runs.
-cmdline = (f"debug=0x10e rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1 launchd_unsecure_cache=1 {cpu_args} adreno8={gpu_stage} adreno8_pause=0 adreno8_fine=0 adreno8_watch=0 "
+cmdline = (f"debug=0x10e rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1 launchd_unsecure_cache=1 {cpu_args} adreno8={gpu_stage} adreno8_pause=0 adreno8_fine=0 adreno8_watch=0 "
            f"adreno8_keep=1 adreno8_return=0 adreno8_speed={gpu_speed} adreno8_secure_preflight=4 touchscreen=2 buttons=1 battery=1 "
            f"{extra}").strip()
 # Fail here rather than discover it 400 seconds into a run: a payload that boots into a desktop with
 # two icons looks exactly like a registration problem, and it took two days to see that the cache
 # never arrived. REQUIRED is recorded in the manifest so a later diff shows whether a run had them.
-REQUIRED = ("rd=md0", "rootdev=md0", "root_apfs=ufs_darwin", "launchd_unsecure_cache=1",
+REQUIRED = ("rootdev=md0", "root_apfs=ufs_darwin", "launchd_unsecure_cache=1",
             f"adreno8_speed={gpu_speed}")
 absent = [arg for arg in REQUIRED if arg not in cmdline.split()]
 assert not absent, f"boot-args lost {absent}: iOS 26's launchd will run with no cache and no AppExtensions"
-for key in ("rd", "rootdev", "root_apfs", "ufs", "ufs_native"):
+for key in ("rootdev", "root_apfs", "ufs", "ufs_native"):
     assert sum(arg.split("=", 1)[0] == key for arg in cmdline.split()) == 1, f"duplicate {key} boot-arg"
+assert not any(arg.split("=", 1)[0] == "rd" for arg in cmdline.split()), "rd= makes launchd boot as a restore environment"
 argv = ["python3", "xnuloader/mkpayload.py", "-o", str(payload.relative_to(root)),
         "kernel=" + str(kernel.relative_to(root)), "ramdisk=" + str(ramdisk.relative_to(root)),
         "--cmdline", cmdline, "--exact-cmd", cmdline, "--require", "kernel=" + digest(kernel),

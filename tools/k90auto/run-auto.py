@@ -163,10 +163,11 @@ if entries["ramdisk"] != {"bytes": ramdisk_path.stat().st_size, "sha256": manife
 cmdline = entries["cmdline"]["text"]
 if cmdline != manifest.get("cmdline"):
     raise SystemExit("refusing to run: payload cmdline differs from its manifest")
-for key, value in (("rd", "md0"), ("rootdev", "md0"), ("root_apfs", "ufs_darwin"),
-                   ("ufs", "2"), ("ufs_native", "1")):
+for key, value in (("rootdev", "md0"), ("root_apfs", "ufs_darwin"), ("ufs", "2"), ("ufs_native", "1")):
     if [arg for arg in cmdline.split() if arg.split("=", 1)[0] == key] != [f"{key}={value}"]:
         raise SystemExit(f"refusing to run: payload requires exactly one {key}={value}")
+if any(arg.split("=", 1)[0] == "rd" for arg in cmdline.split()):
+    raise SystemExit("refusing to run: rd= makes launchd boot as a restore environment")
 window_bytes = int(entries.get("memsize", {}).get("text", "180000000"), 16)
 if window_bytes <= 0 or window_bytes % 0x2000000 or window_bytes > 0x380000000:
     raise SystemExit("refusing to run: invalid payload memory window")

@@ -21,7 +21,7 @@
 - `run-auto.py` 起轮前按 manifest 重算哈希并核对实际 XNUP 启动参数，不一致拒跑，日志第一行是 `GUARD payload=<前 16 位> root=<前 16 位> dir=<目录名>`；`run/` 非空也拒跑。打包每次重建 `root.apfs`，旧轮次目录不能重跑，要重建载荷。
 - `build-air.py` 不带 `--check` 会就地覆盖 `bbmetal-device/libannibaleair.dylib`，三个同名库与构建路径见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
 
-当前工作树使用本轮构建为 4 MiB 的 `flashboot.apfs` 作为 `md0`，`root.apfs` 作为辅助盘 `md1`；系统卷位于 UFS `darwin`。`make-payload.py` 固定 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。`run-auto.py` 确认 loader idle 且常驻区为空后，依次上传 payload、执行 `oem ramdisk`、上传启动卷，核对实际接收长度与窗口后才运行内核。独立启动由 `mkstandalone.py` 嵌入 `rdimage`。该路径尚未进行真机验证，详见[根文件系统说明](../analysis/rootfs-strategy.md)。
+当前工作树使用本轮构建为 4 MiB 的 `flashboot.apfs` 作为 `md0`，`root.apfs` 作为辅助盘 `md1`；系统卷位于 UFS `darwin`。`make-payload.py` 固定 `rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。`run-auto.py` 确认 loader idle 且常驻区为空后，依次上传 payload、执行 `oem ramdisk`、上传启动卷，核对实际接收长度与窗口后才运行内核。独立启动由 `mkstandalone.py` 嵌入 `rdimage`。该路径尚未进行真机验证，详见[根文件系统说明](../analysis/rootfs-strategy.md)。
 
 ## 3. 改了但没生效
 

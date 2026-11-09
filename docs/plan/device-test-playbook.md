@@ -114,7 +114,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 
 ## 8. 外设开关（修改 kernel payload 的 cmdline）
 
-`make-payload.py` 固定带 `rd=md0 rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1` 与 `touchscreen=2 buttons=1 battery=1`，`cycle.py` 的 `FIXED_ARGS` 再加 GPU、120 Hz、触摸轮询和 Wi-Fi 一组，其余参数用 `cycle.py --boot-args` 追加。每轮只增加一个待测参数，先检查 USB 日志和对应的实际行为。触摸、震动、手电不带参数时不做任何动作，QEMU 也不需要它们。
+`make-payload.py` 固定带 `rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1` 与 `touchscreen=2 buttons=1 battery=1`，`cycle.py` 的 `FIXED_ARGS` 再加 GPU、120 Hz、触摸轮询和 Wi-Fi 一组，其余参数用 `cycle.py --boot-args` 追加。每轮只增加一个待测参数，先检查 USB 日志和对应的实际行为。触摸、震动、手电不带参数时不做任何动作，QEMU 也不需要它们。
 
 - `touchscreen=2`：annibale Goodix 触摸。先查芯片身份、报告模式和有效触点，再验证用户滑动与点击的坐标及延迟。`ready` 日志和自动操作脚本的手势都不足以完成手指操作验收。`cycle.py` 另带 `touch_poll_us=4000`，每 4 ms 读一次。
 - `buttons=1`：音量键与电源键，只读 PMIC，不写入（`annibale_buttons.c`）。音量上是 PMI GPIO slave 1 function `0x18d`，低有效带上拉；电源和音量下是 PMK8550 PON（KPDPWR／RESIN）。事件进 USB 日志的 `buttons:` 行和 `/dev/annibale-input`，`buttons_hv_steps=1..5` 分步诊断。验收依次查看 arbiter、通道表、TYPE/SUBTYPE、引脚状态和 `buttons:` 事件，再核对 iOS 行为。
