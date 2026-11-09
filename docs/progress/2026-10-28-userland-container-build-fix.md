@@ -45,12 +45,12 @@ build.sh: why this image needs arm64e, and what would falsify it: docs/progress/
 「被拒的文件在 26 镜像里加载不了」由「镜像只有 arm64e 共享缓存」推出，闸门本身没有测。能推翻它的观察是：任何一份 26 线日志里出现被拒程序的输出。
 
 - 库：推论有实测支持，见 §1 的两例。
-- 可执行文件：已有反例。`package.py` 的基础根盘里 `hackios-xnu-kernel/out/ios26-resume/air-arm64e-device/on/root/bin/rwtouch` 是 arm64（cpusubtype `0x0`，`build.sh` 用 `$DYN`，即 `-arch arm64` 加 iOS 16.5 SDK 编出），`cycle.py` 的巡检在 iOS 26 上用它点按和滑动，[总账](../plan/2026-10-23-tracking.md)也记有 26 线日志里 rwtouch 正常。arm64 动态可执行文件能在 26 镜像里运行，闸门拒绝它们比实测需要的更严。2026-11-05 起 macOS 上的 `build.sh` 用 Xcode 的 clang 把动态程序也编成 arm64e，闸门全部通过，闸门保持原样；`base26a` 一轮里 arm64e 的 `rwtouch` 点按、滑动正常。
+- 可执行文件：已有反例。`package.py` 的基础根盘里 `hackios-xnu-kernel/out/ios26-resume/air-arm64e-device/on/root/bin/anntouch` 是 arm64（cpusubtype `0x0`，`build.sh` 用 `$DYN`，即 `-arch arm64` 加 iOS 16.5 SDK 编出），`cycle.py` 的巡检在 iOS 26 上用它点按和滑动，[进度跟踪](../plan/2026-10-23-tracking.md)也记有 26 线日志里 `anntouch` 正常。arm64 动态可执行文件能在 26 镜像里运行，闸门拒绝它们比实测需要的更严。2026-11-05 起 macOS 上的 `build.sh` 用 Xcode 的 clang 把动态程序也编成 arm64e，闸门全部通过，闸门保持原样；`base26a` 一轮里 arm64e 的 `anntouch` 点按、滑动正常。
 
 ## 4. 在容器里跑 26 线构建会遇到的问题
 
 - `CoreFoundation/CoreFoundation.h not found`：`hackios-xnu-kernel/xnu-deps/26/sdk/iPhoneOS.sdk` 的 `System`、`Developer`、`Entitlements.plist` 是指向宿主 Xcode SDK 的符号链接（`System` 指向 `/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.1.sdk/System`），容器里没有 `/Applications`，框架头整个不存在。theos 的 `iPhoneOS16.5.sdk` 是另一份 SDK，与此无关。
-- `docker/dev.sh` 用 `readlink` 求出这个 SDK 的根，以同一绝对路径只读挂进容器；解析不出或不是目录时打印一行并照原参数启动。`build.sh` 在编译前检查 SDK 能否解析，不能时报 `build.sh: the iOS 26 SDK has no frameworks in this environment`，并说明要以同一绝对路径只读挂载。
+- `docker/dev.sh` 用 `readlink` 求出这个 SDK 的根，以同一绝对路径只读挂进容器；解析不出或路径非目录时打印一行并照原参数启动。`build.sh` 在编译前检查 SDK 能否解析，不能时报 `build.sh: the iOS 26 SDK has no frameworks in this environment`，并说明要以同一绝对路径只读挂载。
 - 挂上 SDK 之后，容器构建停在 `src/inject_sb26.c:11` 的 `'ptrauth.h' file not found`，这是 §1 的预期结果。
 - `xnu-deps/host/bin/ld64`：`hackios-xnu-kernel/tools/mk-mesa.sh` 用 `[ -e "$LD64" ] || ln -sfn "$THEOS/toolchain/linux/iphone/bin/ld" "$LD64"` 建这个链接。`-e` 跟随符号链接，链接失效时会被改写；宿主和容器的 `$THEOS` 不同，在同一工作区跑过容器构建后，链接指向容器内的路径。该目录被 `.gitignore` 忽略，没有历史可查。这个问题只记录，没有做结构性修复。
 - `PREBUILT=1` 静默生效：`build.sh` 在 `PREBUILT` 未设且 PATH 上没有 `ld64` 时自动设为 1，跳过整段编译，改用 `prebuilt/userland`。`libannibalemetal.dylib` 与 `lsprobe` 有「存在且比源文件新」的断言（`lsprobe` 的断言还没有被真实构建触发过）；其余程序按 `if [ -f obj/$t ]` 装进镜像，缺了不装，旧了装旧的。

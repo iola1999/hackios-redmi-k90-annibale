@@ -10,7 +10,7 @@
 - NIR 包含 `uses_fbfetch_output: true`、`FRAG_RESULT_DATA0`、coherent `load_output` 和 `f2f16`。`fbfetchcheck.py` 的 7 项接口检查全部符合预期。
 - 当前 Mesa 26.x 树没有独立 `ir3_compiler`，`isamm` 指令检查保留为未验证项。
 
-QuartzCore 通用模块的静态记录显示，`dest_0` 是参数 36 的条件化 `half4` render-target 输入，谓词为 `has_dest_0`。缺少该输入时，通用模块选择 NaN 常量。完整通用模块的离线 decode 在运行时指针参数处返回错误：`intrinsic: a call passing a pointer chosen at run time as argument 2 (block 81, instruction 0, opcode 17)`，没有生成 NIR。证据见 `quartzcore-static-review.json` 和 `fixed_frag_lph_cph.decode.log`。
+QuartzCore 通用模块的静态记录显示，`dest_0` 是参数 36 的条件化 `half4` render-target 输入，谓词为 `has_dest_0`。缺少该输入时，通用模块选择 NaN 常量。完整通用模块的离线 decode 在运行时指针参数处返回错误：`intrinsic: a call passing a pointer chosen at run time as argument 2 (block 81, instruction 0, opcode 17)`，没有生成 NIR。输出文件见 `quartzcore-static-review.json` 和 `fixed_frag_lph_cph.decode.log`。
 
 ## 2. 真机像素结果
 

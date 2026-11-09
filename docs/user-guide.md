@@ -123,7 +123,7 @@ loader 开机时检查两个槽位的 `boot` 分区，装着 loader 镜像的是
 - 从 iOS 切回 Android：重启后在倒计时内选「[2] BOOT ANDROID」并按电源键确认，loader 会切换活动槽位并重启进入 Android。
 - 从 Android 切回 iOS：在 root 终端或 `adb shell` 里把活动槽位切到 loader 所在的槽位（`0` 对应 `a`，`1` 对应 `b`）并重启，例如 `su -c 'bootctl set-active-boot-slot 0 && reboot'`。
 - 联网：在「设置 → Wi-Fi」中加入网络，重启后自动保留。
-- 安装应用：用 Safari 下载已解密的 `.ipa`，下载完成约 10 秒后图标出现在主屏；也可以打开「安装包管理器」查看、启动或卸载已安装的应用。
+- 安装应用：用 Safari 下载已解密的 `.ipa`（文件保存在「文件」App 的「我的 iPhone > 下载」），打开主屏的「IPA 管理器」在「安装包」列表点击安装，也可在「已安装」列表启动或卸载应用。
 
 ## 12. 升级
 

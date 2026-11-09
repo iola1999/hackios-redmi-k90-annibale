@@ -9,7 +9,7 @@
 | `xpc1`、`rest1`、`rest2` | `12377-cmd24` | launchd 任务集与 `REST=1` | 见 [launchd 任务集分析](../analysis/2026-10-31-launchd-jobs-and-boot-cpu.md) |
 | `hash1` | `12377-cmd24` | AIR 对 buffer 纹理按内容哈希，未变时跳过上传 | backboardd 每 1024 次刷新里 202 次上传 |
 | `wait1` | `12377-cmd26` | 等 GPU 时健康检查最多每毫秒一次；`CPU_PREP` 只等该 buffer 最后一次使用 | 控制中心打开由 197 毫秒降到 25 毫秒 |
-| `bo1` | `12377-cmd27` | GPU buffer 地址改为 next-fit | 帧率不变，buffer 分配不是瓶颈 |
+| `bo1` | `12377-cmd27` | GPU buffer 地址改为 next-fit | 帧率不变，排除 buffer 分配瓶颈 |
 | `mac1`、`delay1`、`log1`、`style1`、`style2`、`seed1`～`seed3`、`warm1`～`warm6` | `12377-cmd25`～`cmd31` | 开机图标的假设与开机种子 | 见 §4 |
 | `bo2`～`bo4` | `12377-cmd32`、`cmd33` | GPU buffer 地址在 512 MB 内循环；`REST=1` 改为默认；温度限制逐档升降 | `bo2`、`bo3` 共 160 次翻页 GPU 没有停用；见 §2、§3 |
 | `bo5`～`bo23` | `12377-cmd33`～`cmd44` | backboardd 合成路径 | 见[合成路径的处理器开销](../analysis/2026-10-31-compositor-cpu-path.md) |

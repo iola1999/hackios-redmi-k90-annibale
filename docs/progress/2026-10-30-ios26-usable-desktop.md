@@ -83,10 +83,10 @@
 | iconservicesagent 每个 commit 后 SIGTRAP | IconRendering 对纹理底下的 MTLBuffer 取弱引用，nil 时 `brk #1`；驱动 `-buffer` 恒为 nil，结果也不拷回 buffer | 纹理持有 buffer 并如实返回；已写的 buffer 纹理在 `-waitUntilCompleted` 与每次 commit 前拷回（`rwa_buffer_textures_writeback`） | `render45` |
 | GPU SMMU 缺页，随后三个进程崩溃 | GPU 读过最后一个 BO 的末尾 | 内核 `12377-cmd11` 给每个 BO 后多留一页，映射到清零的只读页 | `render49` |
 | 图标里成块的绿、品红、白色 | `-newBufferWithBytesNoCopy:` 复制调用方内存，GPU 结果只进驱动副本 | `rwa_buffer_set_mirror` 拷回时同时写调用方内存，只写不读（调用方可能已释放）；每批工作前用 `vm_read_overwrite` 读调用方内存，有变化才拷进副本 | `render54`、`render58` |
-| 覆盖率填充没有写出像素 | 常量 buffer 偏移原样交给 freedreno，A830 读不是 16 倍数的 UBO 地址时数据错位 | 偏移不是 16 的倍数时按 `air.buffer_size` 拷贝后绑定（`air_metal.c` 的 `bind_stage`） | `render69`、`render70` |
+| 覆盖率填充没有写出像素 | 常量 buffer 偏移原样交给 freedreno，A830 读非 16 倍数的 UBO 地址时数据错位 | 偏移非 16 的倍数时按 `air.buffer_size` 拷贝后绑定（`air_metal.c` 的 `bind_stage`） | `render69`、`render70` |
 | 图标上一条对角细线 | 翻译路径不跑 `nir_shader_gather_info`，ir3 不开 `PIXLODENABLE`、`LODPIXMASK`，边上的导数读到没有运行的辅助线程 | `air_gather_quad_helpers` 按 `nir_gather_info.c` 的规则补上 | `render71` |
 | 文字碎片与黑块 | RGB10A2 的纹理 buffer 对齐答 16、线性纹理答 64，客户端按 64 写 | `minimumTextureBufferAlignmentForPixelFormat:` 返回线性纹理的值 | `render77` |
-| 图形里的斜向条纹 | SpringBoard 的图形 IOSurface 行字节数按 32 对齐（50×83 为 224），A830 按 64 的倍数取行距；客户端按自己的行距写，内核补齐无效（`render88`） | 单平面二维、行距不是 64 倍数的 surface 经覆盖其内存的 buffer 纹理拷贝采样，GPU 写过的写回（`annibalemetal_texture.inc` 的 `rw_surface_through_copy`） | `render89`、`render90` |
+| 图形里的斜向条纹 | SpringBoard 的图形 IOSurface 行字节数按 32 对齐（50×83 为 224），A830 按 64 的倍数取行距；客户端按自己的行距写，内核补齐无效（`render88`） | 单平面二维、行距非 64 倍数的 surface 经覆盖其内存的 buffer 纹理拷贝采样，GPU 写过的写回（`annibalemetal_texture.inc` 的 `ann_surface_through_copy`） | `render89`、`render90` |
 | 黑色弧形与边缘黑点 | freedreno 新建资源不清零，距离与模糊滤镜读到所画区域以外的残留 | 新建颜色与深度目标先清零（`texture_start_zeroed`） | `render93` |
 
 ## 6. PosterBoard 的数据存储

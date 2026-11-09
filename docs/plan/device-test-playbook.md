@@ -1,6 +1,6 @@
 # annibale 真机调试手册
 
-本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见[体验说明 §11](../user-guide.md#11-日常使用与切换)与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[总账](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。本文已按 UFS 系统卷与 4 MiB 启动卷更新；该路径已通过真机切根与重启验证，验收边界见[根文件系统说明](../analysis/rootfs-strategy.md)。
+本手册收集驻留 loader 的安装、手工运行内核、读日志、故障恢复和启动参数。日常启动 iOS 26 用 `tools/k90auto/cycle.py`，见[体验说明 §11](../user-guide.md#11-日常使用与切换)与 [k90auto 说明](../../tools/k90auto/README.md)；Android／LK／loader 之间的切换见[引导目标切换 SOP](device-boot-target-sop.md)；USB 命令超时与无应答见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。当前进度见[进度表](2026-10-23-tracking.md)，操作前仍需确认设备与产物现状。本文已按 UFS 系统卷与 4 MiB 启动卷更新；该路径已通过真机切根与重启验证，验收边界见[根文件系统说明](../analysis/rootfs-strategy.md)。
 
 ## 1. 槽位假设与当前启动方式
 
@@ -124,11 +124,11 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - `pcie=N`：Wi-Fi 卡（WCN7850）执行第 1～N 步，最多 10（`mhi_pcie.c` 文件头）。第 1～6 步是诊断读取，7～9 步启动卡上固件并与 WLFW 服务交换，第 10 步由 ath12k 驱动代替第 7～9 步。`cycle.py` 固定带 `pcie=10` 一组和 `wifi_station=1`，见 [Wi-Fi 驱动记录](../progress/2026-11-01-wifi-ath12k-driver.md)。
 - 手电（`annibale_torch.c`，需要内核 `4d6eee3` 及以后）：`torch_secs=3` 亮 3 秒后自动熄灭（驱动内最多 5 秒），`torch_ma=1..500` 调电流，默认 125；`torch=3` 提供 `/dev/annibale-torch` 给 iOS 的 AVFlashlight 与 mediaserverd，单次默认 30 秒，`torch_max_s` 最多 120 秒。驱动先验 TYPE/SUBTYPE 且无 fault 才写，每次写入都回读，遇到 fault 拒绝点亮。
 - 震动（`annibale_haptic.c`，需要内核 `5847dd3` 及以后）：`hv_haptic=3` 起内核后直驱马达 30 ms，靠手感验收，没感觉时加 `haptic_amp=128`，仍没有就读 USB 日志的 `haptic:` 行；`hv_haptic=4` 让 iOS 触感反馈经 `/dev/annibale-haptic` 驱动马达，单次最长 1 秒，出现 fault 后停用。
-- 更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。手电与震动在 iOS 16.5 上实测通过，iOS 26 上还不能用。
+- 更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。手电与震动在 iOS 26 上还不能用。
 
 ## 9. 启动卷与内存窗口检查
 
-在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，生成 `userland/flashboot.apfs`。本轮产物为 4 MiB，包含 `stage0` 与挂载目录。`stage0` 挂载辅助盘并执行 `/annibale/sbin/init`，后者从 UFS 挂载系统卷并切换根目录。
+在 `hackios-xnu-userland/userland/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh`，生成 `flashboot.apfs`。本轮产物为 4 MiB，包含 `stage0` 与挂载目录。`stage0` 挂载辅助盘并执行 `/annibale/sbin/init`，后者从 UFS 挂载系统卷并切换根目录。
 
 - 启动卷上限为 64 MiB；完整 XNUP 容器上限为 `0x03700000` 字节（55 MiB），以未压缩长度校验。
 - `getvar ramdisk-protocol` 应返回 `1`；`getvar ramdisk-state` 返回状态、已接收长度、总长度和窗口长度，三个长度均为十六进制。

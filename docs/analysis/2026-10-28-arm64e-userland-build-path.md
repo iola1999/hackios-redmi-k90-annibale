@@ -56,15 +56,15 @@ codesign --force --sign - <目录>/libannibalemetal.dylib
 26 线的进程都是 arm64e。arm64 分片的库在 arm64e 进程里不会被装载，dyld 也不留一行说明：库的构造器从不执行，日志里既没有它的横幅也没有架构报错，读起来与「库没被注入」一样。判据用头部，不用文件名：
 
 - `otool -hv <库>` 的 `cpusubtype` 必须是 `0x80000002`（ARM64E 加 LIB64 位），与镜像里其它 arm64e 库一致。
-- `userland/build.sh` 在 V=26 的 staging 之后、第一个 `mkapfs` 之前拒绝不是 arm64e 加 LIB64 位的 Mach-O；`package.py` 对 `libannibale.dylib` 做同样的检查，因为那条路径不经 `build.sh` 的闸。
+- `userland/build.sh` 在 V=26 的 staging 之后、第一个 `mkapfs` 之前拒绝非 arm64e 加 LIB64 位的 Mach-O；`package.py` 对 `libannibale.dylib` 做同样的检查，因为那条路径不经 `build.sh` 的闸。
 - 签名同样在判据之内。签名会改变文件字节与哈希，所以比哈希要在签名之后做。
 - `build.sh` 里 `libannibale.dylib` 的编译行用的是 `$DYN`（`-arch arm64`、iOS 16.5 SDK），编出的是 arm64；`package.py` 的检查会拒绝这份，打包要用 arm64e、iOS 26 SDK 重编并签名的那份。
 
 ## 5. 可复现性与新鲜度
 
-- 容器那条 Mesa 构建不是逐字节可复现的，`tools/mk-mesa.sh` 的注释记了实测：同一份源树两次构建，`libOSMesa.8.dylib` 与 `air_run` 字节数相同、内容有大段不同。宿主这条 arm64e meson 构建在固定 `PYTHONHASHSEED=0` 时逐字节可复现，见第 6 节。
+- 容器内的 Mesa 构建无法逐字节复现，`tools/mk-mesa.sh` 的注释记了实测：同一份源树两次构建，`libOSMesa.8.dylib` 与 `air_run` 字节数相同、内容有大段不同。宿主这条 arm64e meson 构建在固定 `PYTHONHASHSEED=0` 时逐字节可复现，见第 6 节。
 - 所以产物哈希相同可以推出源相同，产物哈希不同推不出源不同。重编 AIR 后哈希与记录值不同时，先核 `air-build-record.json` 的 `source_sha256` 与 `tree_sha256`：两侧一致就说明库是按当前源编的。
-- 判断产物是不是按当前源编出，用内容哈希，不用 mtime。`package.py` 的 manifest 与 `build-air.py` 的 record 都记了源摘要和产物哈希。
+- 判断产物是否按当前源码编出，用内容哈希，不用 mtime。`package.py` 的 manifest 与 `build-air.py` 的 record 都记了源摘要和产物哈希。
 - `build-air.py` 不带 `--check` 时就地覆盖 `OUT`，路径是硬编码的，没有环境变量能改。需要保留上一份库作对照时，先把 `out/ios26-resume/bbmetal-device/` 备份到 Git 忽略的目录。
 - 打包或跑轮期间不要运行会写 `out/ios26-resume/` 或 `userland/obj/` 的命令，`build.sh` 也在其中（它写 `userland/obj/`，并 `rm -rf root`）。只读复核不受此限：`build-air.py --check`、`ninja -n` 干跑、`shasum`、`codesign -dv`、`otool`。
 

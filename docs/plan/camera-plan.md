@@ -1,21 +1,21 @@
 # 相机路线：annibale（REDMI K90 / SM8750 "sun"）
 
-状态：调研稿，相机还没开始做。本文记录可复用的 POCO X5 Pro（SM7375 "yupik"）相机栈、K90 的资源与差异、分级路线和放弃准则。CAMSS 各块基址与 sensor 挂线见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
+状态：调研与基础通路接入稿。本文记录相机栈结构、K90（SM8750 `"sun"`）的硬件资源与差异、分级路线和放弃准则。CAMSS 各块基址与 sensor 挂线见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
 
 ## 1. 结论
 
-- annibale 的相机栈是端到端能跑的裸寄存器方案：内核 `annibale_camera.c` 出 RAW10 帧，mediaserverd 里的注入库冒充 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有真机回归脚本。
-- 用户态没有裁剪或修改相机框架，K90 上要重写的主要在内核与资源层；这部分用户态按 iOS 16.5 写成，在 iOS 26 上要重新核对（§4.2）。
-- 最大未知数是主摄 OV50E（光影猎人800，OV 定制）的上电序列、初始化寄存器表与模式表，只存在于设备的 `/vendor/lib64/camera/com.qti.sensormodule.*.bin`；`annibale-backup/` 没有 vendor 分区。
+- 相机栈采用裸寄存器方案：内核 `annibale_camera.c` 出 RAW10 帧，mediaserverd／cameracaptured 里的注入库冒充 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有回归脚本。
+- 用户态没有裁剪或修改相机框架，K90 上主要适配内核 CAMSS 寄存器与 iOS 26 CMCapture 契约（§4.2）。
+- 最大未知数是主摄 OV50E（光影猎人 800，OV 定制）的上电序列、初始化寄存器表与模式表，来自设备的 `/vendor/lib64/camera/com.qti.sensormodule.*.bin`。
 - 估算：L1（单摄预览，先 TPG 后真 sensor）3–5 周加 6–10 个真机窗口，L2（拍照）再加 2–3 周；拿不到 sensor 表就停在 TPG 演示。
 
 ## 2. annibale 相机栈
 
-### 2.1 内核：`hackios-xnu-kernel/xnu/files/bsd/dev/annibale_camera.c`
+### 2.1 内核：`hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera.c`
 
 - 纯手写寄存器驱动，不用 IOKit 相机框架和高通固件（不碰 CamX/CHI，不用 ICP 固件）。文件头注释是完整的设计说明。
 - boot-arg 分级：`cam=1` 只读勘察；`cam=2` 上电读 chip ID 再下电；`cam=3` 无 sensor，CSID test pattern → RDI0 → IFE-lite0 → 内存；`cam=4` 真 sensor 帧走同一路径；`cam=5` iOS 模式，出 `/dev/annibale-camera`（接口见 `xnu/files/bsd/sys/annibale_camera.h`）。修饰项有 `cam_sensor=`、`cam_pattern=1`（彩条）、`cam_fake=1`（QEMU 假帧）等。
-- 硬件路径按 yupik 写：camcc／GDSC／PLL、PM8008i 经手写 I2C 供电、CCI 位时序（含总线卡死恢复）、cam SMMU 只配一个 context；每次写都读回，失败即全下电。K90 上可复用的是骨架、日志、分级与 CCI 时序。
+- 硬件路径包含 `sun-camcc`／CPAS／GDSC／PLL、SPMI LDO 供电、CCI 位时序（含总线卡死恢复）、cam SMMU context 配置；每次写都读回，失败即全下电。
 - sensor 初始化序列不在代码里：`hackios-xnu-kernel/tools/camsensor.py` 把 `com.qti.sensormodule.*.bin` 转成 `fw/camera-*.tab`，`tools/camtuning.py` 把 `com.qti.tuned.*.bin` 转成 `fw/camera-*.isp`，由 `userland/build.sh` 从不入库的 `../fw-camera/` 读入。
 
 ### 2.2 用户态：`hackios-xnu-userland/userland/src/`
@@ -42,23 +42,23 @@
 - 主摄：光影猎人800 是 OmniVision OV50E 的小米定制版，50MP、1/1.55"、OIS（[fonearena 发布稿](https://www.fonearena.com/blog/467264#1)）。设备树不含型号与寄存器表，CamX 从 vendor 用户态 bin 探测加载。
 - 供电轨是 RPMH PMIC LDO，走 SPMI/RPMH，annibale 的 PM8008i 手写 I2C 经验不适用。
 
-## 4. 结构性差异与最小路线
+## 4. SM8750 硬件要点与最小路线
 
-### 4.1 SM7375 → SM8750 的差异
+### 4.1 SM8750 硬件要点
 
-1. CPAS/CAMNOC/cesta 是新的必经环节：不初始化 CPAS（`0xac13000`，含 RPMH 带宽投票），titan 域起不来；annibale 没有这一步，只能靠读回加报错二分。
-2. camcc 换成 `sun-camcc`，GDSC 偏移与时钟 id 要重排，多出 camnoc_rt／cesta 时钟族。
-3. CSID980／IFE980 走 RT-CDM 缓冲编程；csid-lite980／ife-lite0 仍在，L1 首选复刻 annibale `cam=3/4` 的 lite 路径，先用 TPG13–15 证明通路。
+1. CPAS/CAMNOC/cesta 是必经环节：不初始化 CPAS（`0xac13000`，含 RPMH 带宽投票），titan 域起不来；靠寄存器读回加报错二分验证。
+2. camcc 为 `sun-camcc`，包含 camnoc_rt／cesta 时钟族与对应 GDSC 偏移。
+3. CSID980／IFE980 走 RT-CDM 缓冲编程；csid-lite980／ife-lite0 仍在，L1 首选 `cam=3/4` 的 lite 路径，先用 TPG13–15 验证通路。
 4. CSIPHY v2.3.0 的 D-PHY 4 lane settle 与时序常数要真机标定。
-5. wide／tele 在 CCI 上，annibale 的 CCI 代码可移植；ultra／front 在 QUP GENI I2C 上，L1 用不到。
+5. wide／tele 在 CCI 上；ultra／front 在 QUP GENI I2C 上，L1 用不到。
 6. SMMU 至少要配 IFE context 和 RT buffer 区（可用 `camera_region`）。
 
 ### 4.2 iOS 侧
 
-annibale 在 iOS 16.5 上的做法：内核出 `/dev/annibale-camera`，loader 加假 `/arm-io/isp` 节点，`inject_media.c` 替换 `BWFigCaptureDeviceVendor`，Camera.app 即可预览与拍照。当前系统是 iOS 26（iPhone 17 身份），以下各项要重新核对：
+内核出 `/dev/annibale-camera`，loader 加假 `/arm-io/isp` 节点，`inject_media.c` 替换 `BWFigCaptureDeviceVendor` 与 `FigCaptureSourceRemoteCreateFigCaptureSource`。在 iOS 26（iPhone 17 身份，`V57AP`）上需要核对以下各项：
 
-- 承载 CMCapture 的进程与 vendor 的替换点。
-- 属性表与 `AVCaptureSession.plist` 的机型目录（16.5 照抄的是 D22）。
+- 承载 CMCapture 的进程（`cameracaptured`／`mediaserverd`）与 vendor 的替换点。
+- 属性表与 `AVCaptureSession.plist` 的 `V57` 机型目录及格式匹配契约。
 - loader 假 `/arm-io/isp` 节点在 annibale loader 里的注入点。
 - iOS 26 的系统进程是 arm64e，注入库要按 arm64e 构建并签名，否则 dyld 不加载。
 

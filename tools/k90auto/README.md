@@ -14,11 +14,11 @@
 
 各产物的来源：
 
-- 系统盘 `hackios-xnu-kernel/userland/system26.apfs`：构建见[开发指南](../../docs/development.md) §6，磁盘部署见[双系统分区与持久化部署手册](../../docs/plan/dual-boot-setup.md)。
-- 启动卷 `hackios-xnu-kernel/userland/flashboot.apfs`：在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，只编译 `stage0` 并生成小型 APFS 启动卷。系统卷从 UFS 挂载，切根路径与待完成的真机验收见[根文件系统说明](../../docs/analysis/rootfs-strategy.md)。
+- 系统盘 `hackios-xnu-userland/userland/system26.apfs`：构建见[开发指南](../../docs/development.md) §6，磁盘部署见[双系统分区与持久化部署手册](../../docs/plan/dual-boot-setup.md)。
+- 启动卷 `hackios-xnu-userland/userland/flashboot.apfs`：在 `hackios-xnu-userland/userland/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh`，只编译 `stage0` 并生成小型 APFS 启动卷。系统卷从 UFS 挂载，切根路径与待完成的真机验收见[根文件系统说明](../../docs/analysis/rootfs-strategy.md)。
 - iOS 26 内核（12377 线）从头构建按[内核仓库说明](../../hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§2，构建完执行 `python3 tools/k90auto/register-kernel.py 12377-<名字>`：内核复制为 `hackios-xnu-kernel/out/xnu12377-<名字>.bin`，记录写进 `kernel-12377-<名字>/kernel.json`，`cycle.py --kernel 12377-<名字>` 和 `make-payload.py` 从这份记录取内核并核对哈希。`cycle.py` 的默认内核 `12377-rate10` 只在本项目的测试机上登记过，新环境要用 `--kernel` 指定。
 - iOS 26 内核在 Mac 上增量构建：把改动的文件从 `hackios-xnu-kernel/xnu/files` 复制进 `hackios-xnu-kernel/out/xnu12377-cmd`，在 `hackios-xnu-kernel/` 下按上一版 `kernel-12377-<名字>/kernel.json` 里 `build.command` 记录的命令执行 `xnu26/build-macos.sh`（`KERNEL_UUID` 换新值），产物复制为 `out/xnu12377-<名字>.bin`，再写一份新的 `kernel-12377-<名字>/kernel.json`（`kernel.path`、`kernel.bytes`、`kernel.sha256`）。`make-payload.py` 从这份记录取内核并核对哈希。
-- AIR 库：`build-air.py` 是唯一的构建入口，先把 `hackios-xnu-kernel/tools/mesa/air/` 的源码复制进 arm64e 构建树再编译、签名，记录写在 `out/ios26-resume/mesa-arm64e/air-build-record.json`；`--check` 只核对。构建树由 `setup-mesa-arm64e.py` 建立，步骤见 [arm64e 用户态构建 §6](../../docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)。
+- AIR 库：`build-air.py` 是唯一的构建入口，先把 `hackios-xnu-userland/tools/mesa/air/` 的源码复制进 arm64e 构建树再编译、签名，记录写在 `out/ios26-resume/mesa-arm64e/air-build-record.json`；`--check` 只核对。构建树由 `setup-mesa-arm64e.py` 建立，步骤见 [arm64e 用户态构建 §6](../../docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)。
 - 根盘、Metal 驱动与注入库：`package.py`（第 7 节）。
 - Wi-Fi 固件：`hackios-xnu-kernel/tools/mk-fw-wifi.py` 从手机的 modem 分区取出，放在 `hackios-xnu-kernel/out/fw-wifi/`。
 
@@ -47,7 +47,7 @@ python3 tools/k90auto/frame-split.py docs/progress/evidence/k90auto/kernel-NAME-
 | `CPU_ARGS` | `cpus=2 bootcpu=7 small_cores_after=0` | CPU 部分的启动参数 |
 | `GPU_SPEED` | `3` | GPU 档位上限 `adreno8_speed` |
 | `GPU_STAGE` | `23` | `adreno8=`；`0` 不起 GPU，内核可以返回 loader |
-| `BOOT_IMAGE` | `hackios-xnu-kernel/userland/flashboot.apfs` | 启动卷，大小上限 64 MiB（工作区相对路径） |
+| `BOOT_IMAGE` | `hackios-xnu-userland/userland/flashboot.apfs` | 启动卷，大小上限 64 MiB（工作区相对路径） |
 | `MEMSIZE`、`IDENTITY` | 无 | 传给 `mkpayload.py` 的 `--memsize`、`--identity` |
 
 iOS 26 用 `MEMSIZE=300000000 IDENTITY=v57`，`cycle.py` 另把 `CPU_ARGS` 设为 `cpus=4 bootcpu=7 small_cores_after=0`。
@@ -116,7 +116,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 `package.py` 组装 iOS 26 根盘：用 xcrun clang 编译 shim、Metal 驱动（`hackios-xnu-kernel/tools/userland-driver/`）和 SpringBoard 适配库等 arm64e 库，把 `build-air.py` 签好名的 AIR 库与这些库装进根盘副本，写入 `etc/inject.conf`、backboardd 的 `ANNIBALE_SB_METAL=1` 与 `etc/rc.jobs`，补上 `jobs/` 里的 launchd 任务，用 `mkapfs.py` 打包，最后逐文件回读校验并把哈希写进 `manifest.json`。从工作区根目录运行 `python3 tools/k90auto/package.py`。
 
-基线根盘是 `userland/build.sh` 的暂存目录 `hackios-xnu-kernel/userland/root/`（`package.py` 的 `BASE`）。打包前在 `hackios-xnu-kernel/userland/` 执行 `IOS=../ios26 bash build.sh`（只要根盘时加 `COMPILE_ONLY=1`，不写镜像），需要 macOS 与 Xcode。`package.py` 把基线打成 `base.apfs`，打包后核对两份镜像之间变化的路径都在它要改的范围内。
+基线根盘是 `userland/build.sh` 的暂存目录 `hackios-xnu-userland/userland/root/`（`package.py` 的 `BASE`）。打包前在 `hackios-xnu-userland/userland/` 执行 `IOS=../ios26 bash build.sh`（只要根盘时加 `COMPILE_ONLY=1`，不写镜像），需要 macOS 与 Xcode。`package.py` 把基线打成 `base.apfs`，打包后核对两份镜像之间变化的路径都在它要改的范围内。
 
 产物在 Git 忽略的 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/`（`root.apfs`、各个库、`manifest.json`、构建日志）。基线没有按 iOS 26 暂存、AIR 库的构建记录或 adhoc 签名不符、变更超出范围，任一项成立就退出；AIR 库漏签名会让 dyld 拒绝加载，整轮退回 CPU 合成。
 
@@ -131,7 +131,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `POSTER_METAL` | `1` | MercuryPosterExtension 插入 Metal 设备登记库；`0` 时壁纸为黑色，见[锁屏壁纸](../../docs/analysis/2026-10-31-mercury-wallpaper.md) |
 | `DIRTY_REGIONS` | 关 | `1` 时 backboardd 只重绘变化区域；默认整帧重绘 |
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
-| `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB，加开机种子会超过内核与启动卷常驻区之间的 40.9 MB）；`0` 不放 |
+| `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB）；`0` 不放 |
 | `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal MobileSlideShow Music Maps AppStore Files HelloK90` | 插入 `libannibale-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。进程名写进 `kern.exec_inject`，总长不能超过 510 字节 |
 | `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `AnnibaleAudio.driver` 按 arm64e 重编，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
@@ -139,7 +139,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 开机自动运行的程序（`jobs/rc.jobs.interactive`，`cycle.py` 在产物存在时打包，构建命令见各源文件头）：
 
-- `appinst watch`（`hackios-xnu-userland/userland/src/apps/appinst.m`）：每秒查看 Safari 的下载暂存目录、FileProvider 的 Downloads 和 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就复制出来安装。`appinst install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
+- `appinst watch`（`hackios-xnu-userland/userland/src/apps/appinst.m`）：监听 `/private/var/db/appinst-inbox` 和 `/private/var/tmp/ipa/`，出现完整的 `.ipa` 就复制出来安装。`appinst install|remove|list|open|url` 也可以经 `rsh.py` 直接调用。
 
 运行中的操作工具：
 
@@ -151,7 +151,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 `JOB_ENV="任务.plist:变量=值 ..."` 给指定任务的 plist 和 launchd 缓存各加一个环境变量，一项一个变量。常用的几个：
 
 - `OS_ACTIVITY_DT_MODE=YES`：os_log 随 stderr 进控制台日志；backboardd、iconservicesagent、chronod 已带。SpringBoard 的 os_log 量大，两次拉取之间日志环会转过多圈，开机解锁那一行被覆盖，不要给它打开。
-- `ANNIBALE_SYNC_DRAWS=1`：驱动每个绘制后提交并等待完成，没完成的打印 `sync: commit N work M did not finish`，并以 `AIRFAIL begin hung-vertex`／`hung-fragment` 打出该管线的着色器，用 `hackios-xnu-kernel/tools/mesa/air/airfail-extract.py` 取回。每个绘制都要等 GPU，只给怀疑的进程打开。
+- `ANNIBALE_SYNC_DRAWS=1`：驱动每个绘制后提交并等待完成，没完成的打印 `sync: commit N work M did not finish`，并以 `AIRFAIL begin hung-vertex`／`hung-fragment` 打出该管线的着色器，用 `hackios-xnu-userland/tools/mesa/air/airfail-extract.py` 取回。每个绘制都要等 GPU，只给怀疑的进程打开。
 - `FD_MESA_DEBUG=...`：freedreno 的调试开关，例如 `sysmem` 让所有批次不走 GMEM。
 - `IR3_SHADER_DEBUG=vs`／`fs`：把这一类着色器的 NIR 和 A830 机器码打进 stderr，量大，只给一个进程打开。
 

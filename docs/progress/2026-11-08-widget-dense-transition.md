@@ -21,7 +21,7 @@
 - vertex：`VfxU11Xh`
 - fragment：`TmuaBscnA2Xhfsn_IsrcN3Oc3mtc4nlnlnl_Isqr`
 
-本轮 AIR 过滤值为 `Tbds`，没有取得这个 fragment 的完整 AIR。当前证据同时排除了按 Tbds 名称、其他启动的 work 序号或当前同步轮 work 66 替代本次黑化 draw 的做法。
+本轮 AIR 过滤值为 `Tbds`，没有取得这个 fragment 的完整 AIR。当前数据同时排除了按 Tbds 名称、其他启动的 work 序号或当前同步轮 work 66 替代本次黑化 draw 的做法。
 
 ## 3. 目标 AIR 候选
 

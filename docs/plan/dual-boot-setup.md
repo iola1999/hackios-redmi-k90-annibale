@@ -65,7 +65,7 @@ adb -s "$ANDROID_SERIAL" push "$IPSW_DIR/appos.dmg" /data/local/tmp/appos.dmg
 adb -s "$ANDROID_SERIAL" shell "dd if=/data/local/tmp/appos.dmg of=/dev/block/sda bs=4096 seek=$((32584704 + 3666944)) conv=notrunc,fsync && rm -f /data/local/tmp/appos.dmg"
 ```
 
-`darwin_var` 的持久化格式（`ANNFS001` 超级块或节点记录）变化后，内核不读取旧数据：两个元数据槽位都不是有效超级块且不全为零时，`/private/var` 挂载失败，开机停在 launchd 之前。这时在 LK 下把 `darwin_var` 前 64 MiB（两个 32 MiB 元数据槽位）写零，下次开机重建空的 `/private/var`，已安装的应用、Wi-Fi 网络和设置随之清空，需要保留的先备份：
+`darwin_var` 的持久化格式（`ANNFS001` 超级块或节点记录）变化后，内核不读取旧数据：两个元数据槽位均无有效超级块且不全为零时，`/private/var` 挂载失败，开机停在 launchd 之前。这时在 LK 下把 `darwin_var` 前 64 MiB（两个 32 MiB 元数据槽位）写零，下次开机重建空的 `/private/var`，已安装的应用、Wi-Fi 网络和设置随之清空，需要保留的先备份：
 
 ```sh
 head -c 67108864 /dev/zero > zero64m.img
@@ -87,7 +87,7 @@ fastboot -s "$ANDROID_SERIAL" set_active a
 fastboot -s "$ANDROID_SERIAL" reboot
 ```
 
-`xnuloader` 启动时读取 `boot_a` 与 `boot_b` 开头的镜像头：header v1 且 kernel 段为 gzip 的是 loader 镜像，原厂 Android 的 boot 镜像是 header v4。只有一侧是 loader 镜像时，那一侧记为自身槽位（`loader_slot`），另一侧记为 Android 槽位（`android_slot`），不需要固定哪个槽位是 A 或 B。两侧都不是 loader 镜像（从 LK 用 `fastboot boot` 临时启动）或两侧都是时，loader 不改动任何槽位属性，菜单不显示槽位，「Boot Android」直接重启进入当前活动槽位，USB 刷写命令也会拒绝执行。刷入后的启动与切换方式（详见[引导目标切换 SOP](device-boot-target-sop.md)）：
+`xnuloader` 启动时读取 `boot_a` 与 `boot_b` 开头的镜像头：header v1 且 kernel 段为 gzip 的是 loader 镜像，原厂 Android 的 boot 镜像是 header v4。只有一侧是 loader 镜像时，那一侧记为自身槽位（`loader_slot`），另一侧记为 Android 槽位（`android_slot`），不需要固定哪个槽位是 A 或 B。两侧均非 loader 镜像（从 LK 用 `fastboot boot` 临时启动）或两侧都是时，loader 不改动任何槽位属性，菜单不显示槽位，「Boot Android」直接重启进入当前活动槽位，USB 刷写命令也会拒绝执行。刷入后的启动与切换方式（详见[引导目标切换 SOP](device-boot-target-sop.md)）：
 
 - **日常开机进 iOS 26**：按电源键开机，`xnuloader` 自动维护自身槽位的 `slot-retry-count`，显示启动菜单并倒计时 5 秒；倒计时结束后自动加载内核、挂载 `darwin` 与 `darwin_var` 进入 iOS 26 桌面。
 - **从开机菜单切回 Android 或调试模式**：在 5 秒倒计时内按音量上／下键移动光标，按电源键确认，可选「Boot iOS 26」、「Boot Android」（自动将活动槽位切换到另一侧的 `android_slot` 并重启）或「USB Fastboot Debug Mode」。

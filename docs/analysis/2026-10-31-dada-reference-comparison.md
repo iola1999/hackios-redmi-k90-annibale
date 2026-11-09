@@ -25,7 +25,7 @@
 
 ### 3.1 已采用的两处改动
 
-- 单采样 resolve：对方只要 storeAction 是 resolve 且 resolveTexture 不为空，就在 endEncoding 时拷贝，不看采样数（`annibalemetal.m:5384-5394,6706-6736`）。我们在 storeAction 为 `MultisampleResolve`、loadAction 不是 Load、像素格式相同时，把 resolve 目标（按 `resolveLevel`）直接当作颜色附件；`ANNIBALE_RESOLVE_BLIT=1` 恢复旧行为。
+- 单采样 resolve：对方只要 storeAction 是 resolve 且 resolveTexture 不为空，就在 endEncoding 时拷贝，不看采样数（`annibalemetal.m:5384-5394,6706-6736`）。我们在 storeAction 为 `MultisampleResolve`、loadAction 异于 Load、像素格式相同时，把 resolve 目标（按 `resolveLevel`）直接当作颜色附件；`ANNIBALE_RESOLVE_BLIT=1` 恢复旧行为。
 - 导数：对方 `dfdx`、`dfdy`、`fwidth` 一律按 32 位、按像素计算（`air_intrinsics.c:533-549`），注释记录 half 操作数在 A830 上让 `fwidth.f16` 得到 inf 和 NaN。QuartzCore 里导数操作数为 half 的只有 `glass_background_*_lph` 四个函数。`AIR_COARSE_DERIVATIVES=1` 恢复旧行为。
 - `bo45` 同一次开机内逐个关掉这两处，锁屏时间仍显示，时钟由指针槽改动修好（[锁屏壁纸](2026-10-31-mercury-wallpaper.md) §8）。两处保留。
 

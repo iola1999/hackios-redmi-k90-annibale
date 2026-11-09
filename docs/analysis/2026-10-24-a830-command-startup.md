@@ -1,6 +1,6 @@
 # A830 GPU 启动参考
 
-本文记录 SM8750 Adreno 830 在本项目 `adreno8` 驱动中的启动顺序、成功判据、关键修复和仍未确认的条件。源码在 `hackios-xnu-kernel/xnu/files/bsd/dev/adreno8*.c`，阶段编号和启动参数以 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8.c) 文件头为准。2026-10-26 起阶段 1～23 全部通过，桌面由 Mesa freedreno 在 A830 上绘制，见 [GPU 桌面记录](../progress/2026-10-26-gpu-desktop-acceleration.md)。
+本文记录 SM8750 Adreno 830 在本项目 `adreno8` 驱动中的启动顺序、成功判据、关键修复和仍未确认的条件。源码在 `hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8*.c`，阶段编号和启动参数以 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 文件头为准。2026-10-26 起阶段 1～23 全部通过，桌面由 Mesa freedreno 在 A830 上绘制，见 [GPU 桌面记录](../progress/2026-10-26-gpu-desktop-acceleration.md)。
 
 厂商参考固定为 [OnePlusOSS SM8750 `d50b305`](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750/tree/d50b305f7da9e14715a25120a4ac7b1a4b8b97c3/vendor/qcom/opensource/graphics-kernel) 的 graphics-kernel 和 [OnePlus 内核 `6028f47`](https://github.com/OnePlusOSS/android_kernel_oneplus_sm8750/tree/6028f47faddaa27700f8dd3a1d83906ea8f27170)。下文 `文件:L行号` 形式的引用都在 graphics-kernel 目录内。
 
@@ -77,7 +77,7 @@ START 期间固件请求 kind 5 安全缓冲（`CSW_PRIV_SECURE`，flags `0x1007
 
 - MP_ASSIGN（`0x42000c16`，arginfo `0x1117`）把数据页从 HLOS（VMID 3）移交 CP_PIXEL（VMID 10）读写；页表保留 HLOS 读写并给 CP_PIXEL 只读。移交前从 TTBR 根遍历全部缓冲（`537f970`），移交后 CPU 不再访问这些页。
 - 安全 IOVA 从 trusted base `0xf0000000` 起分配，普通缓冲从 `0x10000000` 起（`9134960`）。
-- 同次启动完成移交、CB3 配置和路由读回（`0x303`）后才回复 MEM_ALLOC。之后允许普通分配和原请求的精确重放，新的安全 handle 被拒绝；START 失败则停止服务，资源保留到冷复位（`744092c`，见 [`adreno8_memory.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8_memory.c)）。
+- 同次启动完成移交、CB3 配置和路由读回（`0x303`）后才回复 MEM_ALLOC。之后允许普通分配和原请求的精确重放，新的安全 handle 被拒绝；START 失败则停止服务，资源保留到冷复位（`744092c`，见 [`adreno8_memory.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8_memory.c)）。
 
 ## 5. CP 初始化与 zap
 

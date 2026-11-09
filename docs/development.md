@@ -41,10 +41,10 @@ python3 tools/ipsw/fetch.py 094-96441-094.dmg $D/appos.dmg "$URL" 11481186987
 for n in os systemos; do
   python3 tools/ipsw/aea.py $D/$n.dmg.aea $D/$n.dmg
 done
-hackios-xnu-kernel/ios26/fetch.sh
+hackios-xnu-userland/ios26/fetch.sh
 ```
 
-`tools/ipsw/aea.py` 是 macOS `aea decrypt` 的 Python 实现，两者解出的镜像逐字节相同；macOS 上也可以继续用 `aea decrypt -i $D/$n.dmg.aea -o $D/$n.dmg -key-value "base64:$(python3 tools/ipsw/aea-key.py $D/$n.dmg.aea)"`。`ios26/fetch.sh` 用 `hdiutil` 挂载镜像，把系统文件复制到 `hackios-xnu-kernel/ios26/`，供用户态构建生成启动任务。
+`tools/ipsw/aea.py` 是 macOS `aea decrypt` 的 Python 实现，两者解出的镜像逐字节相同；macOS 上也可以继续用 `aea decrypt -i $D/$n.dmg.aea -o $D/$n.dmg -key-value "base64:$(python3 tools/ipsw/aea-key.py $D/$n.dmg.aea)"`。`ios26/fetch.sh` 用 `hdiutil` 挂载镜像，把系统文件复制到 `hackios-xnu-userland/ios26/`，供用户态构建生成启动任务。
 
 ## 4. 提取硬件固件
 
@@ -79,8 +79,6 @@ FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh   # 只含 stage0 与
 
 `package.py` 基于 `userland/root/` 编译并注入 Metal 驱动与各个注入库，合并 Wi-Fi、蓝牙固件，输出 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root/`（根盘目录）和同目录的 `root.apfs`。
 
-可选的开机种子是一份开机稳定后的 `/private/var` 归档，用于首次初始化 `darwin_var`，取法见[每次开机都是首次开机](analysis/2026-10-31-every-boot-is-first-boot.md) §5。
-
 ## 8. 构建 loader 与双系统引导镜像
 
 完整细节见 [loader 镜像构建](analysis/annibale-uefi-build.md)。
@@ -97,7 +95,7 @@ FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh   # 只含 stage0 与
 python3 hackios-xnu-kernel/xnuloader/mkstandalone.py --no-lz4 \
   --kernel hackios-xnu-kernel/out/xnu12377-local.bin \
   --ramdisk hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs \
-  --boot-image hackios-xnu-kernel/userland/flashboot.apfs \
+  --boot-image hackios-xnu-userland/userland/flashboot.apfs \
   -o hackios-xnu-kernel/out/standalone-payload.bin
 
 # 3. 用参考 loader 镜像封装 boot-a-ios.img

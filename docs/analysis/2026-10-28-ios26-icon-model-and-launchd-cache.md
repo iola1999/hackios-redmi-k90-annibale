@@ -9,7 +9,7 @@
 - 回归来自启动参数：从 `bbmetal17` 那轮起，载荷不再带 `rootdev=md0 launchd_unsecure_cache=1`。iOS 26 的 launchd 因此没有收到任务缓存，缓存里 733 条 `AppExtensions` 一起丢了（§3）。
 - 补回两个参数后（`bbm29`），桌面完整：15 个应用、2 个带名字的小组件、4 个 Dock 图标、2 个页码圆点。
 - 缓存缺失能直接解释扩展相关的现象：没有 `AppExtensions` 就没有 `.appex` 宿主进程，chronod 只能报 `Extension not found`，小组件停在 `Waiting…`，壁纸的 posterkit provider 走同一条路。缓存里没有应用清单，图标数从 15 降到 2 的机制没有单独分析。
-- 守护进程数量不是桌面内容的决定项。同一份根盘（`33ed5fc9`）、同一份 `system26.apfs`（`d11083be`）、同样 27 条任务的 2026-10-27 12:40 那轮，桌面是 15 个应用、2 个带名字的小组件、4 个 Dock、Search 胶囊。
+- 守护进程数量不决定桌面内容。同一份根盘（`33ed5fc9`）、同一份 `system26.apfs`（`d11083be`）、同样 27 条任务的 2026-10-27 12:40 那轮，桌面是 15 个应用、2 个带名字的小组件、4 个 Dock、Search 胶囊。
 - 防止再丢：`tools/k90auto/make-payload.py` 把这两个参数写在固定 cmdline 里，最终 cmdline 缺任何一个就断言失败，并把 `required_cmdline` 写进 manifest。
 
 ## 2. 差集：16.5 的 388 条与 26 的 31 条

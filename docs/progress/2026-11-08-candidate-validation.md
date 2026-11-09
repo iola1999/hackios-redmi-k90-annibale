@@ -1,6 +1,6 @@
 # 2026-11-08 候选真机验证与音频服务崩溃定位
 
-本轮接手[暂停交接](2026-11-08-handoff.md)中的两个候选，按每轮一个变量完成三轮真机检查。原始日志、截图、逐帧结果和设备命令保存在本地忽略目录 `docs/progress/evidence/storage-boot-device-1108/phase10/`，进度队列见[总账](../plan/2026-10-23-tracking.md)。
+本轮接手[暂停交接](2026-11-08-handoff.md)中的两个候选，按每轮一个变量完成三轮真机检查。原始日志、截图、逐帧结果和设备命令保存在本地忽略目录 `docs/progress/evidence/storage-boot-device-1108/phase10/`，进度队列见[进度跟踪](../plan/2026-10-23-tracking.md)。
 
 ## 1. 候选与验证范围
 

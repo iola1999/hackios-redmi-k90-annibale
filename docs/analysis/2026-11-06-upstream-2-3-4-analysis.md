@@ -22,13 +22,13 @@
 
 在本仓库当前的 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_goodix.c` 中：
 
-- `idle_looks = 80000 / poll_us`，对应 80 ms 的空闲兜底周期（上游 `annibale` 改动前为 `160000 / poll_us`，对应 160 ms）。
+- `idle_looks = 80000 / poll_us`，对应 80 ms 的空闲轮询周期（上游 `annibale` 改动前为 `160000 / poll_us`，对应 160 ms）。
 - 手指按下并保持接触或慢速移动直到停下再抬起时，若芯片在上一帧被读取的瞬间更新了抬指状态（0 触点报告），或者单次下降沿在清锁存窗口内未被捕获，`poll_thread` 会等待整整一个 `idle_looks`（本仓 80 ms，上游 169 ms）才读出抬指报告。
 - 手指抬起事件延后 80 ms 送达 `backboardd` 与 `SpringBoard`，会导致惯性滚动起手速度估算偏低、轻点（Tap）与长按（Long Press）判定拖尾。
 
 上游 `81b5dd2` 与 `a3975b6` 做了三处改动：
 
-1. 新增 `chip_touching()`，检查当前是否有任一触点处于 `contact[i].down == true` 状态；只要有手指按下，每一个 `poll_us` 周期（`annibale` 上为 4 ms）都无条件调用 `chip_poll()` 读取芯片，不再依赖 GPIO 中断线或 80 ms 兜底周期。
+1. 新增 `chip_touching()`，检查当前是否有任一触点处于 `contact[i].down == true` 状态；只要有手指按下，每一个 `poll_us` 周期（`annibale` 上为 4 ms）都无条件调用 `chip_poll()` 读取芯片，不再依赖 GPIO 中断线或 80 ms 空闲轮询周期。
 2. 无手指按下时，将 `idle_looks` 从 `80000 / poll_us`（80 ms）缩短到 `16000 / poll_us`（16 ms），即使起手第一帧漏掉中断边沿，最坏延迟也控制在 16 ms 以内。
 3. 在 `annibale_input.c` 中新增 `touch_feel_add()`，每完成 8 次单指触摸笔画（`DOWN -> MOVE... -> UP`）在内核日志打印一行汇总：`first move after X ms`、`moves Y ms apart`、`lift Z ms after last move`，直接量化实指操作在驱动层的采样间隔与抬指延迟。
 
@@ -102,6 +102,6 @@
 
 基于以上对比，本仓立即合入三项有直接收益的改进：
 
-1. 在 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_goodix.c` 与 `annibale_input.c` 中合入 `chip_touching()` 按下期间每轮轮询、16 ms 空闲兜底以及 `touch_feel_add()` 每 8 次滑动延迟统计（对应上游 `81b5dd2`、`a3975b6`）。
+1. 在 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_goodix.c` 与 `annibale_input.c` 中合入 `chip_touching()` 按下期间每轮轮询、16 ms 空闲轮询以及 `touch_feel_add()` 每 8 次滑动延迟统计（对应上游 `81b5dd2`、`a3975b6`）。
 2. 在 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferPacing.inc` 与 `MiniIOMobileFramebuffer.cpp` 中合入 `fFastFrames` 连续快帧过滤判定与 `settle()` 前的 `shownDrawn` 表面复用校验（对应上游 `539d35e`）。
 3. 在 `hackios-xnu-userland/userland/src/inject_sb26_rate.c` 中合入适配 `arm64e` PAC 剥离的 `stall_watch` 主线程慢帧采样器（对应上游 `3b9db78`），用于捕获实指滑动与长按时的 SpringBoard 主线程阻塞调用栈。

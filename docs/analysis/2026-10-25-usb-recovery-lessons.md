@@ -88,16 +88,13 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 - 现象一：独立引导进度条走完停在 `SYSTEM READY`，约 3 分钟后手机自动重启。
 - 根因一：通过 `fastboot -s xnuloader oem log` 拉取 3602 行完整日志定位到两处原因：
-  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `hackios-xnu-kernel/userland/root/bin/var_store` 与 `userland/root/lib/libannibale*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起 `/annibale/bin/var_store` 触发 `userspace panic: unexpected exec of non-platform binary: /annibale/bin/var_store: com.annibale.varstore [48]`，此时 `SpringBoard` 尚未绘制首帧。
-  2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`；Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`；随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
+  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `userland/root/lib/libannibale*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起无签名二进制触发 `userspace panic: unexpected exec of non-platform binary`，此时 `SpringBoard` 尚未绘制首帧。
+  2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`；Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`；随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
 - 现象二：修复签名后，进度条走满 `5643 / 5643 MB` 且顶部白点仍在左右移动，但屏幕长时间停在 `SYSTEM READY`（`MiniIOSurface: 0 surfaces`）。
 - 根因二：
-  1. [`userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 追加 `var.skel.extra` 时包含与基础模板重复的 `/private/var/mobile/Containers`、`/private/var/mobile/Containers/Data`、`/private/var/mobile/Containers/Shared` 目录项；[`init.c`](../../hackios-xnu-userland/userland/src/init.c) 的 `mount_writable()` 遇到已存在目录返回 `EEXIST` 并提前终止，跳过了第 157～158 行 `/private/var/keybags/persona.kb` 的创建，导致 `usermanagerd` 反复崩溃退出、`SpringBoard` 无法完成初始化。
-  2. [`loader_dsu.inc`](../../hackios-xnu-kernel/xnuloader/loader_dsu.inc) 的 `dsu_find()` 将 8 GiB 的只读 `darwin` 分区优先返回给 `dsu_store_open()`，因容量不足 12 GiB 跳过创建 `/dev/rufs_dsu_store`，导致 `var_store` 无法读取 `darwin_var` 分区起始处的持久化归档。
-  3. 批量重签 `userland/root/bin/` 时未携带 `.entitlements`，导致 `input26-service` 丢失 `com.apple.private.hid.client.event-dispatch` 权限退出。
-- 修复：
-  1. `userland/build.sh` 合并 `var.skel.extra` 时过滤已存在的 `d\t` 目录项，确保 `/private/var/keybags/persona.kb` 创建成功。
-  2. 拆分 `dsu_find_gsi()` 与 `dsu_find()`，`dsu_store_open()` 在无 Android DSU 分区时回退映射 `darwin_var` 的前 4 GiB（`dsu_store_at = 0`）为 `dsu_store`。
+  1. [`userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 追加 `var.skel.extra` 时包含与基础模板重复的 `/private/var/mobile/Containers`、`/private/var/mobile/Containers/Data`、`/private/var/mobile/Containers/Shared` 目录项；[`init.c`](../../hackios-xnu-userland/userland/src/boot/init.c) 的 `mount_writable()` 遇到已存在目录返回 `EEXIST` 并提前终止，跳过了第 157～158 行 `/private/var/keybags/persona.kb` 的创建，导致 `usermanagerd` 反复崩溃退出、`SpringBoard` 无法完成初始化。
+  2. 批量重签 `userland/root/bin/` 时未携带 `.entitlements`，导致 `input26-service` 丢失 `com.apple.private.hid.client.event-dispatch` 权限退出。
+- 修复：`userland/build.sh` 合并 `var.skel.extra` 时过滤已存在的 `d\t` 目录项，确保 `/private/var/keybags/persona.kb` 创建成功；重签时保留 `.entitlements`。
   3. 为 `input26-service`、`store_test`、`battery_test`、`keychain_test`、`wifipw_test` 按各自 `.entitlements` 重签，并在 [`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py) 默认启动参数中加入 `epoch=` 时间戳。
 
 ### 6.4 LUN 4 Vendor GUID 路径识别与槽位属性同步

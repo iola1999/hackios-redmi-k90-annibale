@@ -7,14 +7,14 @@
 - `tools/k90auto/cycle.py`：
   - 固定参数整理为 `FIXED_ARGS`，加上 `touch_poll_us=4000` 与 `kernel-12377-cmd83-wd32` 的 Wi-Fi 一组（`pcie=10` 起到 `wifi_station=1`，不含诊断用的 `net_trace=80`）。
   - 默认内核 `12377-rate8`；`--seed` 缺省时用本地的 `kernel-12377-cmd30-seed3/seed-icons.bin`。
-  - 驻留的 loader 不是 v16（build-id 不含 `a48c7fb`）时，先经 LK 用 `fastboot boot` 启动 `out/handoff-loader-v16.img`，不需要再给 `LOADER_IMAGE`。
+  - 驻留的 loader 非 v16（build-id 不含 `a48c7fb`）时，先经 LK 用 `fastboot boot` 启动 `out/handoff-loader-v16.img`，不需要再给 `LOADER_IMAGE`。
   - 巡检里设置图标的点按位置由 0.616 改为 0.385。
   - `appinst`、`wifijoin` 已构建时自动打包，`jobs/rc.jobs.interactive` 开机运行 `wifijoin` 与 `appinst watch`。
 - `tools/k90auto/package.py`：本地固件目录有 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 时默认只放这四个文件，约 6.9 MB，有 `network` 文件时一起放入；`WIFI_FW=1` 仍放入全部文件，`WIFI_FW=0` 不放。`AX` 控制插入 `libannibale-ax.dylib` 的进程；`AUDIO=1` 放行音频任务并按 arm64e 重编 `AnnibaleAudio.driver`，还没有上机。
 - `tools/k90auto/run-auto.py`：处理 `push-request-*.txt`，用 `oem push` 加 `stage` 把文件放进内核的 16 MB 收件区。
 - 新工具：`install-ipa.py`（经 USB 分块推送并安装 IPA）、`ui.py`（读界面元素、按文字点按、截图）。
 - 用户态（`.userland.git` `1c51c1d21`，移植为 userland `36136c4`）：`appinst`、`wifijoin`、`libannibale-ax`、rwsh 的 `pull 路径 偏移`、Mesa 补丁 0010。
-- 内核（`67f8d61`）：电池读数来自电量计 BQ27Z561（`annibale_battery.c`），电流不低于 −50 mA 就算外部供电；`AnnibaleBattery.cpp` 在外部供电且状态不是放电时报充电，供电或状态变化时打印一行 `AnnibaleBattery: N%, ...`。`12377-rate8` 只含 `AnnibaleBattery.cpp` 的改动，`12377-rate9` 两处都含。
+- 内核（`67f8d61`）：电池读数来自电量计 BQ27Z561（`annibale_battery.c`），电流不低于 −50 mA 就算外部供电；`AnnibaleBattery.cpp` 在外部供电且状态非放电时报充电，供电或状态变化时打印一行 `AnnibaleBattery: N%, ...`。`12377-rate8` 只含 `AnnibaleBattery.cpp` 的改动，`12377-rate9` 两处都含。
 - 内核（`6027b2d`，`12377-rate14`）：发布 `AppleARMBacklight` 与 CoreBrightness 要读的校准参数、亮度表；`fb_dim=1`（默认 0）时由显示控制器的混合器按亮度调暗画面，见 §3.7。
 - 内核（`9922d45`，`12377-rate10` = rate9 加这一笔）：加入后的信号跟随接入点的实际帧；数据路径前 64 行发送读数和硬件模式相关的 WMI 事件。`cycle.py` 默认内核改为 `12377-rate10`。
 - 用户态（`.userland.git` `c9f2428ac`，移植为 userland `46b970b`）：`inject_fpvolume.c`（`libannibale-fpvolume.dylib`，只插入 fileproviderd）让 fileproviderd 接受内存盘上的 `/private/var`，`package.py` 的 `FPVOLUME` 默认打开。

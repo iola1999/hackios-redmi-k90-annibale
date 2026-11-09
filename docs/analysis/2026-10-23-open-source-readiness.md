@@ -23,7 +23,7 @@
 | 会话标识 | 经验文档和可复用 Prompt 中存在；固定标识清理，Prompt 由执行者填写来源链接 |
 | 私钥与常见服务令牌 | 本次规则扫描未检出；扫描结果不能覆盖所有凭据格式和编码方式 |
 | 测试密码与内网地址匹配 | userland 中的匹配来自未修改的上游测试与任务配置，经上游文件比较确认；未发现属于本机用户的配置 |
-| 图片与二进制材料 | 顶层已跟踪截图未见个人账号内容或 PNG 文本／EXIF 元数据；固件及镜像来源仍需按分发范围单独审阅 |
+| 图片与二进制材料 | 顶层已跟踪截图未见个人身份内容或 PNG 文本／EXIF 元数据；固件及镜像来源仍需按分发范围单独审阅 |
 
 运行脚本使用 `SER` 或 `ANDROID_SERIAL` 选择设备。设备备份、原始日志、缓存及历史备份继续保存在 Git 忽略目录，仓库内仅保存分析结论和必要示例。
 
@@ -51,7 +51,7 @@
 
 公开上游的 fork 必须公开，参见 [GitHub fork 可见性规则](https://docs.github.com/en/pull-requests/reference/forks)。本轮使用 [创建 fork API](https://docs.github.com/en/rest/repos/forks#create-a-fork) 建立关联，随后推送本地分支。
 
-三个仓库的描述注明 REDMI K90、annibale、SM8750 及各自职责。GitHub Topics 使用 `hackios`、`ios`、`redmi-k90`、`annibale`、`sm8750`、`qualcomm`、`arm64` 等共同关键词，并按仓库补充文档、内核、UEFI、用户态、APFS 和图形相关主题。Topics 用于项目分类，Git 版本标签按实际发布计划维护。
+三个仓库的描述注明 REDMI K90、annibale、SM8750 及各自职责。GitHub Topics 使用 `hackios`、`ios`、`redmi-k90`、`annibale`、`sm8750`、`qualcomm`、`arm64` 等共同关键词，并按仓库设置文档、内核、UEFI、用户态、APFS 和图形相关主题。Topics 用于项目分类，Git 版本标签按实际发布计划维护。
 
 ## 5. 检查边界与后续维护
 
@@ -59,4 +59,4 @@
 
 本轮只修改仓库关系说明与线上设置，并更新顶层子模块版本；设备调试会话正在修改的源码继续留在本地工作树。待发布分支及标签的可达历史未检出已识别的个人标识，顶层历史中的子模块指针均可在对应子模块分支或标签中找到。重建前没有 Issue、PR、Release、Actions 产物或额外协作者需要迁移。
 
-后续推送继续检查当前文件、分支历史以及 Git LFS／Release／Actions 等托管内容。新发现的隐私格式需要补充扫描规则，原始日志和设备备份继续保存在 Git 忽略目录。
+后续推送继续检查当前文件、分支历史以及 Git LFS／Release／Actions 等托管内容。新发现的隐私格式及时加入扫描规则，原始日志和设备备份继续保存在 Git 忽略目录。

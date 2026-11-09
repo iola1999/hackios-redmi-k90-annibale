@@ -21,7 +21,7 @@
 
 - 内核的 `usertrap` 行和它自己的崩溃报告给出同一个位置：去掉 shared cache slide 后是 libxpc `0x197fbbbd8` 的 `brk #1`，触发前的提示是「XPC API Misuse: Given object not of required type. Given: %s, required: %s.」。
 - 调用栈从上到下是 libxpc 的 `xpc_dictionary_get_int64`，OSASubmissionClient 的 `0x2676fbaf0`、`0x2676fbc94`、`0x2676fb11c`，再往下是 libxpc 与 libdispatch 的事件派发。
-- `0x2676fbaf0` 的前一条指令以 `XPC_ACTIVITY_DELAY` 为键调用 `xpc_dictionary_get_int64`，对象来自 XPC activity 上的一次取值调用。同一段代码按 activity 状态分支，在 CHECK_IN 状态下取出同一个对象，写入 `XPC_ACTIVITY_DELAY`、`XPC_ACTIVITY_INTERVAL`、`XPC_ACTIVITY_GRACE_PERIOD` 后设回 activity，日志文案是「Submission cadences were unchanged for activity %{public}@」。按调用形态判断，这个对象是 `xpc_activity_copy_criteria()` 的返回值，崩溃时它的类型不是字典。
+- `0x2676fbaf0` 的前一条指令以 `XPC_ACTIVITY_DELAY` 为键调用 `xpc_dictionary_get_int64`，对象来自 XPC activity 上的一次取值调用。同一段代码按 activity 状态分支，在 CHECK_IN 状态下取出同一个对象，写入 `XPC_ACTIVITY_DELAY`、`XPC_ACTIVITY_INTERVAL`、`XPC_ACTIVITY_GRACE_PERIOD` 后设回 activity，日志文案是「Submission cadences were unchanged for activity %{public}@」。按调用形态判断，这个对象是 `xpc_activity_copy_criteria()` 的返回值，崩溃时它的类型为非字典对象。
 - `osanalyticshelper` 的 launchd plist 在 `LaunchEvents` 的 `com.apple.xpc.activity` 下登记了 `submissions.submit`、`state-monitor`、`daily.telemetry` 等 activity 及各自的 `Delay`、`Interval`、`GracePeriod`。`mkjobs.py --rest` 生成按需任务时去掉全部启动条件，`LaunchEvents` 也在其中，所以 activity 以 CHECK_IN 登记时没有 criteria。
 
 ## 4. 修复与真机验证

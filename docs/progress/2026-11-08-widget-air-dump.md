@@ -5,12 +5,12 @@
 ## 1. 启动与主屏验收
 
 - 临时 boot 成功，loader 为 `running 0 0`，启动卷状态为 `ready 400000 400000 300000000`。
-- 解锁 rwsh 退出码为 0，耗时 6122 毫秒，日志包含 `locked_after=0`。
+- 解锁 `annsh` 退出码为 0，耗时 6122 毫秒，日志包含 `locked_after=0`。
 - 首次 `after-unlock.png` 仍是锁屏封面，未据此确认主屏。
 - 后续 `after-home-wait.png` 和 `home-air-correlation.png` 显示完整主屏，Weather 与 Calendar 大组件保持黑底。
 - 设备保持运行，本轮未在启动后发送 `oem stop`。
 
-原始证据位于本地忽略目录 `out/widget-render-1108/widget-trace/dump-air-candidate/device-run/run/`，汇总见其中的 `result.json`。
+原始记录位于本地忽略目录 `out/widget-render-1108/widget-trace/dump-air-candidate/device-run/run/`，汇总见其中的 `result.json`。
 
 ## 2. 特化 AIR 与真实 decode
 
@@ -36,7 +36,7 @@ NIR 包含 `uses_fbfetch_output: true`，分别读取 coherent `FRAG_RESULT_DATA
 
 因此，本轮只建立「pipeline 创建行 → fragment 名 → 完整 AIR」的关联，尚未建立「Calendar 首个黑底 draw → 当前 pipeline」的关联。该模块不能直接认定为历史 `commit 863 / work 70` 的 fragment。
 
-解锁后再次下拉控制中心并返回主屏，rwsh 退出码为 0，主屏截图仍显示黑底组件，但新日志仍没有 sync draw 文本。
+解锁后再次下拉控制中心并返回主屏，`annsh` 退出码为 0，主屏截图仍显示黑底组件，但新日志仍没有 sync draw 文本。
 
 ## 4. 日志缺口与后续
 

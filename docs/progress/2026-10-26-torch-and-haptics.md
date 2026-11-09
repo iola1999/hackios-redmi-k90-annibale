@@ -5,7 +5,7 @@
 ## 1. 结论
 
 - 手电（iOS 16.5）：`torch_secs=2 torch_ma=50` 时，驱动依次写入安全定时器、目标电流、模块使能和通道 0 使能，每次写入都读回一致，报告通道 0 以 50 mA 点亮 2 s 后熄灭。`torch=3` 时 iOS 经 AVFlashlight 和 mediaserverd 控制手电，控制中心出现手电按钮（§4）。
-- 震动（iOS 16.5）：`hv_haptic=3` 时，驱动完成配置（1300 mV、5714 µs 周期、闭环制动、正弦波形），以幅度 0x60 直驱马达 30 ms，故障寄存器为 0。`hv_haptic=4` 时，长按图标弹出快捷菜单，iOS 播放的触感经 `/dev/annibale-haptic` 驱动马达（§6）。
+- 震动（iOS 16.5）：`hv_haptic=3` 时，驱动完成配置（1300 mV、5714 µs 周期、反馈制动、正弦波形），以幅度 0x60 直驱马达 30 ms，故障寄存器为 0。`hv_haptic=4` 时，长按图标弹出快捷菜单，iOS 播放的触感经 `/dev/annibale-haptic` 驱动马达（§6）。
 - PMIC 写入必须用 Extended Register Write Long（仲裁器操作码 0）；用 Extended Register Write（操作码 2）写 1～4 字节时 K90 上寄存器值不变（§2）。
 - 仲裁器写通道窗口只映射用到的通道各 4 KB；只映射前 64 KB 或整个 4 MB 窗口都导致过 panic（§3）。
 - iOS 26（`kernel-12377-rate7-def1`，11-05）：手电初始化报 `reading 0x0018 gave: the transfer was dropped`，随后 `the light for iOS stops after 0 times lit: the module said something surprising`；震动的故障寄存器 0x10 清不掉。原因没有查，两项不进默认参数，见[默认参数与充电状态](2026-11-05-defaults-and-charging.md)。

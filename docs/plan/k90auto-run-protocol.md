@@ -13,10 +13,10 @@
 
 - `make-payload.py` 在 `docs/progress/evidence/k90auto/kernel-<NAME>-<LABEL>/manifest.json` 写下 payload、辅助盘、启动卷的字节数与 SHA-256，把打包记录抄进 `pack` 段，并断言 `root_sha256` 等于根盘哈希、`gpu_speed` 与 cmdline 的 `adreno8_speed` 一致。manifest 不手改。
 - `pack` 回答这一轮的六项构成：内核 `kernel`、驱动 `driver_sha256`、AIR 库 `air_sha256` 与 `air_sources`、作业 `jobs_effective` 与 `jobs_dropped`、手势脚本 `jobs_source`、探针 `probe_sources`。作业集合只读 `jobs_effective`（从 launchd 缓存读回）；`JOBS_DROP` 只用于一轮内临时排除。
-- 工作树状态只记录、不阻止打包：`package.py` 查 `common/ugit status --short` 和顶层 `tools/k90auto`，写进 `worktree_status`。两个库每次从工作树重编，未提交改动会进驱动；`touch` 不改内容，`status` 看不出来。
+- 工作树状态只记录、不阻止打包：`package.py` 查各仓库 `git status --short` 和顶层 `tools/k90auto`，写进 `worktree_status`。两个库每次从工作树重编，未提交改动会进驱动；`touch` 不改内容，`status` 看不出来。
 - manifest 记的是应该跑什么，从 apfs 解出的文件是实际跑了什么，不一致以 apfs 为准。内核以 `kernel` 段哈希为准，HEAD 号只说明从哪份源码起编。
 - AIR 库记源码摘要（`air-build-record.json` 的 `source_sha256:<文件>`、`tree_sha256:<文件>`）和库的 sha256。同一棵树重链得到的库 sha 可复现，库 sha 不同说明构建输入有摘要没覆盖的差异。
-- 配方对账两层：pack 字段与本轮配方逐项对，不设的开关写出依据（`package.py` 漏设开关不报错，只让镜像多或少一个文件）；`changes` 里每个 `null→sha` 新增条目归到 `EXTRA_JOBS`／`PROBE`／`PAYLOAD_PROGRAMS` 之一，归不到的就是缺口。
+- 配方核对分两层：pack 字段与本轮配方逐项核对，不设的开关写出依据（`package.py` 漏设开关不报错，只让镜像多或少一个文件）；`changes` 里每个 `null→sha` 新增条目归到 `EXTRA_JOBS`／`PROBE`／`PAYLOAD_PROGRAMS` 之一，归不到的就是缺口。
 - 载荷构成变了，用 `image-diff.py` 把新镜像与上一轮实际跑过的镜像逐条目比较。`package.py` 的断言以基础镜像为参照，查不出本来就不在基础镜像里的文件消失：round F 漏设 `PAYLOAD_PROGRAMS`，镜像缺 `framewatch`，断言全过，整轮采样为零。
 - `run-auto.py` 起轮前按 manifest 重算哈希并核对实际 XNUP 启动参数，不一致拒跑，日志第一行是 `GUARD payload=<前 16 位> root=<前 16 位> dir=<目录名>`；`run/` 非空也拒跑。打包每次重建 `root.apfs`，旧轮次目录不能重跑，要重建载荷。
 - `build-air.py` 不带 `--check` 会就地覆盖 `bbmetal-device/libannibaleair.dylib`，三个同名库与构建路径见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
@@ -27,7 +27,7 @@
 
 改动落在一处、生效点在另一处时，源码改过说明不了产物。每处改动都从产物读回来验证：产物里相关串 `grep -c` 非零，或 apfs 解出的文件与新编译的哈希一致。实例：
 
-- `userland/build.sh` 里 `obj/libannibalemetal.dylib` 的编译在 `if [ -d $IOS/rootfs/usr/lib ]` 与 `if [ -z "$PREBUILT" ]` 之内，拷进 `root/lib/` 在两层之外。`IOS` 默认 `../ios165`（本机没有 rootfs），`ld64` 不在 `PATH` 时 `PREBUILT` 自动置 1，任一情形都跳过编译、照常装箱，10 月 23 日的驱动因此进了 10 月 28 日的镜像。`build.sh` 现在装箱前断言目标文件比源文件新。
+- `userland/build.sh` 里 `obj/libannibalemetal.dylib` 的编译在 `if [ -d $IOS/rootfs/usr/lib ]` 与 `if [ -z "$PREBUILT" ]` 之内，拷进 `root/lib/` 在两层之外。`$IOS/rootfs` 未提取或 `ld64` 不在 `PATH`（`PREBUILT` 自动置 1）时都会跳过编译、照常装箱，10 月 23 日的驱动因此进了 10 月 28 日的镜像。`build.sh` 现在装箱前断言目标文件比源文件新。
 - 改了 `build.sh` 追加进 `var.skel` 的行，不重跑 `build.sh` 不进载荷。
 - `build-air.py` 曾漏复制 `air_to_nir.c`，构建读的是树里的旧副本且不报错；复制清单本身也要断言。
 - `package.py` 的 `add_diag` 曾只改内存缓存、没写回 `xpc/launchd.plist`。

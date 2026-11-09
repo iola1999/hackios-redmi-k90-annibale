@@ -56,7 +56,7 @@
 
 - 参数：`tools/k90auto/cycle.py` 的固定参数沿用 `kernel-12377-cmd83-wd32` 的 Wi-Fi 一组：`pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1 pcie_rddm=1 wifi_mlo=1 wifi_mac=<本地管理地址> wifi_station=1`。
 - 从设置加入网络并上网必需的三项：`wifi_mlo=1`（3.2）、`wifi_mac=`（3.3）、`wifi_station=1`（3.6）。`pcie_sleep_clock=board` 到 `pcie_aop_pdc=1` 五项是 3.2 排查时逐项换成 Android 的做法留下的，`wd21` 起一直带着，去掉后能否工作没有验证。`pcie_rddm=1` 给网卡留转储的接收向量，SYS_ERR 后才用到。
-- loader 要 v16：`pcie=10` 的低端 DMA 内存由 loader 申请，A 槽里刷的 v14 不给，驱动建不起内存池（`wd25`）。驻留的不是 v16 时，`cycle.py` 先经 LK 启动 v16（[11-05 记录](2026-11-05-defaults-and-charging.md)）。
+- loader 要 v16：`pcie=10` 的低端 DMA 内存由 loader 申请，A 槽里刷的 v14 不给，驱动建不起内存池（`wd25`）。驻留版本低于 v16 时，`cycle.py` 先经 LK 启动 v16（[11-05 记录](2026-11-05-defaults-and-charging.md)）。
 - 固件文件与提取方法见[固件启动记录](2026-10-31-wifi-firmware-boot.md) §2。`package.py` 放固件时一并放 configd 的 `ConfigureNewInterfaces` 偏好（3.6）；系统盘要带 `PingFangUI.ttc`（3.7）。
 - `wifi=1` 不能用：它在 K90 的内核里会同时打开旧芯片的一组选项。
 

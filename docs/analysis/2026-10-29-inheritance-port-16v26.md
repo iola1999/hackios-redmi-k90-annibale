@@ -5,7 +5,7 @@
 - 在 iOS 26 用的 12377 内核上跑 iOS 16.5 的 launchd（系统盘 `userland/system.apfs`），launchd 在 `start()` 里调用 `mach_ports_register` 失败，打印 `could not set up inheritance port` 后 abort（§3）。
 - 原因是两边的消息格式对不上：16.5 的 `mach_ports_register` 在线上发一个 OOL 端口数组（由 EXC_GUARD 的 payload 反推，§5）；26 内核对同一 msgh_id 的服务端只接受三个 inline 端口描述符（§4）。
 - iOS 26 用户态（`system26.apfs`）在同一内核上能过这一步。按源码与 ABI 表，26 的 `libsyscall` 发的就是三个 inline 描述符（推断，§4）。
-- 16.5 用户态不是目标配置，这条失败只在打包时漏写 `SYSTEM`／`SYSTEM_WINDOW` 时出现：`SYSTEM` 的默认值仍是 16.5 那份镜像。`tools/k90auto/system_guard.py` 在打包时拦下这种载荷，判据见 §2。
+- 16.5 用户态不在目标配置范围内，这条失败只在打包时漏写 `SYSTEM`／`SYSTEM_WINDOW` 时出现：`SYSTEM` 的默认值仍是 16.5 那份镜像。`tools/k90auto/system_guard.py` 在打包时拦下这种载荷，判据见 §2。
 - boot-arg `ool_port_array_enforced=0` 只让 16.5 客户端不再被 26 内核的 `IPC_SEC_POLICY_RESTRICT_OOL_PORT_ARRAYS` 杀掉，launchd 仍然停在 `mach_ports_register`（§6）。26 配置带不带这个参数，没有做过对照。
 
 ## 2. 两份系统盘与打包检查
@@ -49,7 +49,7 @@
 | `subcode` 低 32 位 | `0x11` = 17 | `ip_type(dest_port)`，即 `IKOT_TASK_CONTROL` |
 | `code` 低 32 位 | `0x00800407` | 发送方空间里目的端口的名字（`target` 同值） |
 
-`flag` 为 `0x03` 对应 `osfmk/ipc/ipc_policy.c` 里 `!ip_is_port_array_allowed(dest_port)` 的分支，判据是目的端口类型不是 `IOT_CONNECTION_PORT_WITH_PORT_ARRAY`。被杀的消息是 launchd 发给自己 task 控制端口的、带 `MACH_MSG_OOL_PORTS_DESCRIPTOR` 的消息：`ipc_kmsg.c` 对每个 OOL 端口描述符给 `send_dsc_port_arrays_count` 加一，计数非 0 且目的端口类型不符就触发检查。
+`flag` 为 `0x03` 对应 `osfmk/ipc/ipc_policy.c` 里 `!ip_is_port_array_allowed(dest_port)` 的分支，判据是目的端口类型异于 `IOT_CONNECTION_PORT_WITH_PORT_ARRAY`。被杀的消息是 launchd 发给自己 task 控制端口的、带 `MACH_MSG_OOL_PORTS_DESCRIPTOR` 的消息：`ipc_kmsg.c` 对每个 OOL 端口描述符给 `send_dsc_port_arrays_count` 加一，计数非 0 且目的端口类型不符就触发检查。
 
 ## 6. 关掉守卫之后
 

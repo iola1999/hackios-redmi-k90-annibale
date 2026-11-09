@@ -67,7 +67,7 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/xnuloader/loader-phone.efi",
                  "hackios-xnu-kernel/tools/reseal-loader-img.py", "hackios-xnu-kernel/prebuilt/uefi/mkbootimg.py",
                  "hackios-xnu-kernel/tools/mk-fw-wifi.py", "hackios-xnu-kernel/tools/mk-fw-bt.py",
-                 "hackios-xnu-kernel/tools/darwin-setup.py", "hackios-xnu-kernel/tools/darwin-write.py",
+                 "hackios-xnu-kernel/tools/userdata-dual-carve.py",
                  "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py"]
 LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
             "hackios-xnu-userland.LICENSE": REPO / "hackios-xnu-userland/LICENSE",

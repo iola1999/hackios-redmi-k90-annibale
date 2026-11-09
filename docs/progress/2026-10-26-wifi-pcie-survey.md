@@ -1,6 +1,6 @@
 # K90 Wi-Fi：PCIe 根复合体 0 勘察与上电（2026-10-26）
 
-`bsd/dev/mhi_pcie.c` 的分阶段勘察（`pcie=N`）与 `bsd/dev/mhi_pcie_power.c` 的上电（`pcie_power=1`）在 K90 上的结果。下一阶段的固件下载与 WLFW 握手见[固件启动记录](2026-10-31-wifi-firmware-boot.md)，ath12k 驱动接入见[驱动接入记录](2026-11-01-wifi-ath12k-driver.md)。文中的内核短 SHA 早于 10-28 的子模块历史压缩，不在当前分支上，说明见[总账](../plan/2026-10-23-tracking.md)开头。
+`bsd/dev/mhi_pcie.c` 的分阶段勘察（`pcie=N`）与 `bsd/dev/mhi_pcie_power.c` 的上电（`pcie_power=1`）在 K90 上的结果。下一阶段的固件下载与 WLFW 握手见[固件启动记录](2026-10-31-wifi-firmware-boot.md)，ath12k 驱动接入见[驱动接入记录](2026-11-01-wifi-ath12k-driver.md)。文中的内核短 SHA 早于 10-28 的子模块历史压缩，不在当前分支上，说明见[进度跟踪](../plan/2026-10-23-tracking.md)。
 
 ## 1. 结论
 

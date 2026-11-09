@@ -1,6 +1,6 @@
 # iOS 26 QuartzCore 静态分析：窗口服务器虚表、槽位与刷新周期（2026-10-29）
 
-本文用 `hackios-xnu-kernel/tools/dsc/` 解析 iOS 26（23G90，`iPhone18,3`）的 dyld 共享缓存，给 [`inject.c`](../../hackios-xnu-userland/userland/src/inject.c) 里取自 iOS 16.5（20F66）的虚表常量找 26 的对应值，并读 `CA_HEARTBEAT_RATE` 所在的函数。结论都来自缓存文件与静态反汇编，没有真机验证。
+本文用 `hackios-xnu-kernel/tools/dsc/` 解析 iOS 26（23G90，`iPhone18,3`）的 dyld 共享缓存，给 [`inject.c`](../../hackios-xnu-userland/userland/src/inject/inject.c) 里的虚表常量找 iOS 26 的对应值，并读 `CA_HEARTBEAT_RATE` 所在的函数。结论都来自缓存文件与静态反汇编，没有真机验证。
 
 槽位一律写成「vtable + 0x10 + offset」里的 offset，与 `inject.c` 的 `VSLOT` 一致。
 
