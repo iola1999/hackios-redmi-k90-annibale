@@ -120,6 +120,7 @@ loader 开机时检查两个槽位的 `boot` 分区，装着 loader 镜像的是
 ## 11. 日常使用与切换
 
 - 开机进 iOS 26：按电源键开机，开机菜单倒计时 5 秒后自动进入 iOS 26。
+- 从 iOS 退回 `xnuloader`：五指同时按住屏幕 1.5 秒，内核会将 `/private/var` 脏块与元数据落盘、停止 Wi-Fi 并直接退回驻留 `xnuloader`（USB 枚举为 `xnuloader`）。
 - 从 iOS 切回 Android：重启后在倒计时内选「[2] BOOT ANDROID」并按电源键确认，loader 会切换活动槽位并重启进入 Android。
 - 从 Android 切回 iOS：在 root 终端或 `adb shell` 里把活动槽位切到 loader 所在的槽位（`0` 对应 `a`，`1` 对应 `b`）并重启，例如 `su -c 'bootctl set-active-boot-slot 0 && reboot'`。
 - 联网：在「设置 → Wi-Fi」中加入网络，重启后自动保留。

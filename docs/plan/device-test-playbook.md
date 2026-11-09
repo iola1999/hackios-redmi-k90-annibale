@@ -59,7 +59,7 @@ fastboot -s xnuloader getvar result
 
 - 先上传 payload，再执行 `oem ramdisk` 并上传启动卷，使 loader 按本轮 payload 分配内存窗口。运行前核对 `ramdisk-state` 的已接收长度、总长度与启动卷大小一致，窗口与 payload 的 `memsize` 一致；本轮 4 MiB 启动卷和 12 GiB 窗口对应 `ready 400000 400000 300000000`。任一项不符就停止。
 - `bootcpu=7` 让内核从 MPIDR `0x10100` 的核启动，loader 留在当前 CPU 上处理 USB。
-- 结束运行用 `fastboot -s xnuloader oem stop`，再查询 `result`。带 GPU 的载荷（`make-payload.py` 默认 `adreno8=23 adreno8_keep=1 adreno8_return=0`）停止后不返回 loader，约 50 秒后 loader 报 `hung-held`，按第 5、6 节保存日志后复位，过程见[无人值守收尾](../analysis/2026-10-28-unattended-teardown.md)。`GPU_STAGE=0` 打包的载荷不起 GPU，内核可以返回 loader。
+- 结束运行用 `fastboot -s xnuloader oem stop`，或在触摸屏五指同时按住 1.5 秒（`annibale_input.c` 的 `exit_hold_elapsed()`，退回前自动同步 `/private/var` 并停止 Wi-Fi），再查询 `result`。带 GPU 的载荷（`make-payload.py` 默认 `adreno8=23 adreno8_keep=1 adreno8_return=0`）停止后不返回 loader，约 50 秒后 loader 报 `hung-held`，按第 5、6 节保存日志后复位，过程见[无人值守收尾](../analysis/2026-10-28-unattended-teardown.md)。`GPU_STAGE=0` 打包的载荷不起 GPU，内核可以返回 loader。
 - `loader_return_after=N` 让内核限时返回，取消不了 GPU 资源保留；`make-payload.py` 生成的载荷禁止带这个参数。
 - 屏幕停在最后一帧时先查询 `result`，避免重复调查已经退出的系统。
 

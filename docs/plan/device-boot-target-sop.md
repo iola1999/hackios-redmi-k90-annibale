@@ -30,6 +30,7 @@
 - 两个方向都靠 `set_active` 换目标槽再 `reboot`。LK 的 `reboot` 本身只做复位，启动哪个槽由 `set_active` 决定。
 - 切到 A 槽前先核 B 槽可用：`slot-successful:b=yes`、`slot-unbootable:b=no`。`reboot-lk.py --return-loader` 会自动检查这两个量，手工切槽时要自己核对。
 - 从 loader 回 Android 要两跳：先 `reboot-lk.py` 进 LK，再 `set_active b` 加 `reboot`。loader 自己的 `reboot` 只会回到 A 槽。
+- 从运行中的 iOS 退回驻留 loader：除主机执行 `fastboot -s xnuloader oem stop` 外，也可在触摸屏五指同时按住 1.5 秒（`annibale_input.c` 的 `EXIT_FINGERS=5`、`EXIT_HOLD_MS=1500`），内核依次调用 `annibale_var_save_on_return()` 同步 `/private/var`、`annibale_wifi_stop()` 停止 Wi-Fi，再经 `loader_return()` 退回 `xnuloader`（`getvar result` 答 `returned ...`）。
 - `reboot-lk.py` 的前置条件、记录文件与往返模式见 [k90auto 说明 §5](../../tools/k90auto/README.md#5-软件进入-lk-fastboot)。
 
 表中的 `idle` 判据适用于等待主机载荷的调试镜像。内置 standalone 的日常镜像会自动启动 iOS，需要核对 `build-id`、`running 0 0`、启动卷实际长度和启动日志；2026-11-08 的镜像使用 4 MiB 启动卷。`run-auto.py` 和 `cycle.py` 只接受空闲且常驻区为空的 loader，更换正在运行的镜像按 §4 第 8 条先正常停止并保存日志。

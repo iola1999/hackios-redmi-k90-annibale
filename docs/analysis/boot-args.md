@@ -2,12 +2,10 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 194 个参数。
+共 155 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
-| `-ubsan_force_panic` | `san/memory/ubsan_minimal.c` |
-| `adreno` | `bsd/dev/annibale/annibale_adreno.c` |
 | `adreno8` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_arc_read` | `bsd/dev/adreno8/adreno8_rpmh.c` |
 | `adreno8_cbscan` | `bsd/dev/adreno8/adreno8.c` |
@@ -28,17 +26,6 @@
 | `adreno8_speed` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_touch_ms` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_watch` | `bsd/dev/adreno8/adreno8.c` |
-| `adreno_blind` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_dirty` | `bsd/dev/annibale/annibale_gpu_service.inc` |
-| `adreno_fine` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_keep` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_only` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_pause` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_return` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_skip` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_speed` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_stream1` | `bsd/dev/annibale/annibale_adreno.c` |
-| `adreno_watch` | `bsd/dev/annibale/annibale_adreno.c` |
 | `als_lux` | `bsd/dev/annibale/annibale_sensors.c` |
 | `annibale_adsp` | `bsd/dev/annibale/annibale_adsp.c` |
 | `annibale_reboot_lk` | `bsd/dev/annibale/annibale_reboot_probe.inc` |
@@ -72,8 +59,7 @@
 | `apfs_write_len` | `bsd/dev/annibale/annibale_apfs_check_write.c` |
 | `apfs_write_path` | `bsd/dev/annibale/annibale_apfs_check_write.c` |
 | `arm64e` | `osfmk/arm/cpuid.c` |
-| `battery` | `bsd/dev/annibale/annibale_battery.c`、`bsd/dev/annibale/annibale_battery_state.c` |
-| `battery_shared_pa` | `bsd/dev/annibale/annibale_battery_state.c` |
+| `battery` | `bsd/dev/annibale/annibale_battery.c` |
 | `bootcpu` | `osfmk/arm64/loader_return.c` |
 | `bt` | `bsd/dev/annibale/annibale_bt_hci.c`、`bsd/dev/mhi/mhi_pcie.c` |
 | `bt_baud` | `bsd/dev/annibale/annibale_bt_hci.c` |
@@ -92,16 +78,11 @@
 | `dadabt_fake` | `bsd/dev/annibale/annibale_bt_ios.c` |
 | `dadabt_short` | `bsd/dev/annibale/annibale_bt_ios.c` |
 | `dadabt_vsc` | `bsd/dev/annibale/annibale_bt_ios.c` |
-| `display_probe` | `bsd/dev/annibale/annibale_adreno.c` |
-| `gpu` | `bsd/dev/annibale/annibale_adreno.c` |
 | `gpu_cached` | `iokit/Kernel/AnnibaleGPU.cpp` |
 | `gpu_coherent` | `bsd/dev/adreno8/adreno8.c`、`iokit/Kernel/AnnibaleGPU.cpp` |
-| `gpu_exact` | `bsd/dev/annibale/annibale_adreno.c` |
 | `gpu_irq` | `bsd/dev/adreno8/adreno8_hfi.c` |
-| `gpu_log` | `bsd/dev/annibale/annibale_adreno.c`、`bsd/dev/annibale/annibale_gpu_dispatch.c` |
-| `gpu_recover` | `bsd/dev/annibale/annibale_adreno.c` |
+| `gpu_log` | `bsd/dev/annibale/annibale_gpu_dispatch.c` |
 | `gpu_tl` | `bsd/dev/adreno8/adreno8_hfi.c` |
-| `gpu_va` | `bsd/dev/annibale/annibale_adreno.c` |
 | `haptic` | `bsd/dev/annibale/annibale_haptic.c` |
 | `haptic_amp` | `bsd/dev/annibale/annibale_haptic.c` |
 | `hv_haptic` | `bsd/dev/annibale/annibale_haptic.c` |
@@ -110,7 +91,7 @@
 | `lowdma` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
 | `lowdma_mb` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
 | `machine_name` | `iokit/Kernel/GenericARMPE.cpp` |
-| `metal` | `iokit/Kernel/MiniIOMobileFramebuffer.cpp` |
+| `metal` | `iokit/Kernel/MiniFramebufferUserClient.inc` |
 | `mic` | `bsd/dev/annibale/annibale_mic.c` |
 | `modem` | `bsd/dev/annibale/annibale_modem.c` |
 | `net_names` | `bsd/dev/annibale/annibale_net.c` |
@@ -169,34 +150,14 @@
 | `ufs_native_slots` | `bsd/dev/annibale/annibale_ufshc.c` |
 | `ufs_native_spin` | `bsd/dev/annibale/annibale_ufshc.c` |
 | `ufs_shared_pa` | `bsd/dev/annibale/annibale_ufs.c` |
-| `ufs_write` | `bsd/dev/annibale/annibale_ufs.c` |
 | `ustacks` | `osfmk/arm64/user_exception_trace.c` |
 | `ustacks_at` | `osfmk/arm64/user_exception_trace.c` |
 | `ustacks_count` | `osfmk/arm64/user_exception_trace.c` |
 | `ustacks_ms` | `osfmk/arm64/user_exception_trace.c` |
 | `ustacks_threads` | `osfmk/arm64/user_exception_trace.c` |
 | `ustacks_tname` | `osfmk/arm64/user_exception_trace.c` |
-| `var_save_ms` | `bsd/dev/annibale/annibale_ufs.c` |
 | `virtio_blk` | `bsd/dev/annibale/annibale_virtio_blk.c` |
 | `virtio_input` | `bsd/dev/annibale/annibale_virtio_input.c` |
 | `virtio_net` | `bsd/dev/annibale/annibale_virtio_net.c` |
 | `virtio_sound` | `bsd/dev/annibale/annibale_virtio_sound.c` |
-| `wifi` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_again` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_ask` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_cal` | `bsd/dev/annibale/annibale_wlfw.c` |
-| `wifi_dirty` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_fine` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_listen` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_loud` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_lx` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_mac` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_mission` | `bsd/dev/annibale/annibale_wlfw.c` |
-| `wifi_new` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_pause` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_radio_read` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_ready` | `bsd/dev/annibale/annibale_wlfw.c` |
-| `wifi_return` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_step` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_wait` | `bsd/dev/annibale/annibale_wifi.c` |
-| `wifi_watch` | `bsd/dev/annibale/annibale_wifi.c` |
+| `wifi_mac` | `bsd/dev/annibale/annibale_lx.c` |
