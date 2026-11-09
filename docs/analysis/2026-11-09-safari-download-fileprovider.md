@@ -7,6 +7,7 @@ Safari 下载完成后，文件要交给 FileProvider 的 LocalStorage 域，落
 - 现象：`usermanagerd` 没有建立系统与用户 persona，fileproviderd 拿不到用户会话，LocalStorage 域不出现。
 - 原因：启动参数 `rd=md0` 让 `launchd` 跳过开机任务，`usermanagerd --init` 是其中之一。
 - 修复：用户态 `userland/rc.launchd` 在 `exec /sbin/launchd.ios` 之前运行 `/usr/libexec/usermanagerd --init`，与原生开机任务做同一件事。开机后 persona 99、199、100、1000、200 都存在。
+- 另一条路：`launchd` 读 `kern.bootargs`，其中含字面串 `rd=md0` 时打印「Restore environment starting.」并按恢复环境处理。内核在 `bsd_init.c` 与 `IOKitBSDInit.cpp` 里对 `rd` 与 `rootdev` 一视同仁，`xnuloader/mkstandalone.py` 的默认参数两个都给了，只留 `rootdev=md0` 时根盘不变、`launchd` 不再判为恢复环境。代价是 `launchd` 内置的开机任务会全部执行：除 `usermanagerd` 外还有 `mount-phase-1`、`mount-phase-2`、`keybag`、`data-protection`、`fsck`、`sysstatuscheck`、`launchd_cache_loader` 等，它们在本机的 `/private/var` 直写持久化、没有 SEP 的条件下能否通过没有验证，改动前要逐个核对。
 
 ## 2. sync-root fsctl
 
