@@ -8,11 +8,11 @@
 |---|---|---|---|---|
 | 1 | `v0.1.2` 发布与三仓推送 | `tools/release/`、三仓 `k90-port` | 已完成 | 构建并校验 `hackios-annibale-0.1.2-darwin-arm64.tar.gz`，推送顶层与两个代码子模块，发布 GitHub Release `v0.1.2` |
 | 2 | 开机三里程碑时间戳与驱动／注入库 `LC_UUID` 自报（审查 §13、§16） | `rc.launchd`、`inject_sb26.c`、`annibalemetal.m`、`userland/src/inject/` | 已真机验证 | 真机 `out/s1110/verify1..4.log` 输出 `[boot-milestone] 1/3..3/3` 及 `backboardd`、`SpringBoard`、`iconservicesagent` 加载的驱动与注入库 `LC_UUID`（内核 `82028632`、用户态 `0d9ebbc`） |
-| 3 | 相机设备与流属性及 `CMVideoFormatDescription` 补齐（审查 §10.3） | `camera_device.c`、`camera_device_stream.inc`、`inject_media.c` | 代码已完成，待合并上机验证 | 补齐 `CameraUI` 查询的 9 项设备属性、7 项流属性读写，并在 `IOSurface` 跨进程丢失宽高元数据时回退合成 1080×1920 BGRA 格式描述，消除 `-12710` |
-| 4 | 屏幕亮度与控制中心滑块脱节修复 | `MiniAppleARMBacklight.cpp`、`input26_service.c`、`inject.c`、`ramfs_disk.inc` | 已定位根因，正在修复 | 查明 `input26_service.c` 在无硬件 ALS（`SE12 clk=0`）时注册虚拟 ALS 并以整数写入 16.16 定点字段 `FIELD_ALS_ILLUMINANCE`（`150 / 65536 = 0.0023 lux`），触发 `CoreBrightness` 自动降光至 `15.07%`（`32.477 nits`），叠加内核滑块窗口过滤丢弃 `IOMFBBrightnessLevel`，导致物理面板 `400 nits` 与控制中心滑块 `15%` 脱节 |
-| 5 | 触觉反馈 `CHHapticEngine` `Code=4099` 与 `AVHapticServer` 启动（审查 §10.1、§11.1） | `GenericARMPE.cpp`、`audio_plugin.c` | 已定位根因，正在修复 | 反汇编确认 `VirtualAudio.plugin` 检查 `MGGetBoolAnswer("cBy4BcYs5YWtFHbBpt4C6A")`（`gIODTPlane` 节点 `"haptics"` 对应 MD5 Base64 `"6S9CvPHPtzHQqKudHSfsag"`）及 `AID8023` 2 通道 `'pact'` 端口映射 |
-| 6 | 右上角状态栏 Wi-Fi 图标灰色问题 | `WiFi`／`SystemStatus` 链路 | 排查中 | 结合 `STUIStatusBarWifiSignalView` 渲染状态与 `WiFiManager`／`SystemStatus` 路径继续定位 |
-| 7 | `xnuloader` 511 字节 USB Bulk OUT TRB 长度修正（审查 §11.2） | `loader_06_usb_entry.inc` | 待合入 | 将 511 字节控制块接收 TRB 长度对齐为 `max_pkt`（512 字节） |
+| 3 | 相机 `BWMultiStreamCameraSourceNode` 四阶段生命周期对齐与格式表补齐（审查 §10.3） | `camera_device.c`、`camera_device_stream.inc`、`inject_media.c` | 代码已完成，单测通过，待上机验证 | 反汇编 `CMCapture` 还原 `configure:`、`allocateOrReuseBufferPoolsFromSourceNode:`、`prepareForCurrentConfigurationToBecomeLive`、`start:` 四阶段完整调用链，补齐 `Depth` 输出槽位、`Metadata` 10 项掩码与缩略图配置、`VideoOutputConfigurations` 合并保留与 `BufferPoolCountForCaptureStream` 默认值、9 种像素格式与 `V57` 格式表，宿主单测 `test-camera-device-ios26.py` 通过 |
+| 4 | 屏幕亮度与控制中心滑块脱节修复 | `MiniAppleARMBacklight.cpp`、`input26_service.c`、`inject.c`、`ramfs_disk.inc` | 代码已完成，单测通过，待上机验证 | 查明 `input26_service.c` 在无硬件 ALS（`SE12 clk=0`）时注册虚拟 ALS 并以整数写入 16.16 定点字段 `FIELD_ALS_ILLUMINANCE`（`150 / 65536 = 0.0023 lux`），触发 `CoreBrightness` 自动降光至 `15.07%`（`32.477 nits`），叠加内核滑块窗口过滤丢弃 `IOMFBBrightnessLevel`，导致物理面板 `400 nits` 与控制中心滑块 `15%` 脱节，宿主单测 `test_challenger_m6_backlight.py` 通过 |
+| 5 | 触觉反馈 `CHHapticEngine` `Code=4099` 与 `AVHapticServer` 启动（审查 §10.1、§11.1） | `GenericARMPE.cpp`、`audio_plugin.c`、`init26.c` | 代码已完成，单测通过，待上机验证 | 反汇编确认 `VirtualAudio.plugin` 检查 `MGGetBoolAnswer("cBy4BcYs5YWtFHbBpt4C6A")`（`gIODTPlane` 节点 `"haptics"` 对应 MD5 Base64 `"6S9CvPHPtzHQqKudHSfsag"`）及 `AID8023` 2 通道 `'pact'` 端口映射，补齐 `audio_plugin.c` 属性与 `com.apple.audio.AVHapticServer` XPC 注册，宿主单测 `test-audio-plugin.py` 通过 |
+| 6 | 右上角状态栏 Wi-Fi 图标灰色问题 | `annibale_apple80211.c`、`inject_sb26.c` | 代码已完成，单测通过 | 补齐 `SIOCSA80211` `cmd=564`（`Apple80211FilterMonitoringEvent`）处理与已关联 `en0` 的初始 `EVENT_LINK_CHANGED(4)`／`EVENT_LQM_CHANGED(39)` 推送及 `SBWiFiManager` 主接口重评估 |
+| 7 | `xnuloader` 511 字节 USB Bulk OUT TRB 长度修正（审查 §11.2） | `loader_06_usb_entry.inc` | 已完成 | 将 511 字节控制块接收 TRB 长度对齐为 `max_pkt`（512 字节） |
 
 ## 2. 开机三里程碑时间戳与注入库 `LC_UUID` 自报（已完成）
 
@@ -29,19 +29,42 @@
   - 里程碑读数：`1/3 userspace_init` 在 `3.05 s`，`2/3 springboard_checkin` 在 `11.15 s`，`3/3 first_unlock` 在 `37.45 s`。
   - `backboardd[81]`、`SpringBoard[78]`、`iconservicesagent[112]` 均在内核日志输出各自加载的 `annibalemetal.bundle`、`libannibale.dylib`、`libannibalegles.dylib`、`libannibaleair.dylib` 的完整 `LC_UUID`。
 
-## 3. 相机设备与流属性补齐及 `-12710` 修复（代码已完成）
+## 3. 相机 `BWMultiStreamCameraSourceNode` 四阶段生命周期反汇编与完整对齐（审查 §10.3）
 
-基于真机相机打开日志与[方案架构审查](../analysis/2026-11-08-architecture-review.md) §10.3 分析，定位到三处缺失并完成代码修改：
+### 3.1 `verify4.log` 复现现象与 `CMCapture` 四阶段原生调用链
 
-- 设备级属性缺口（`hackios-xnu-userland/userland/src/services/camera_device.c`）：
-  - `CameraUI` 启动预览时查询 `ZoomFactor`、`VideoZoomFactor`、`TorchLevel`、`FlashMode`、`HDRMode`、`HighDynamicRangeMode`、`SensorOrientation`、`CameraOrientation`、`ModuleInfo`，原先返回 `-12784`（属性不支持）。
-  - 在 `device_get_property` 中补齐上述 9 个属性的默认值返回（缩放因子 `1.0`、方向 `90`、闪光灯与 HDR 关闭、模块信息字典）。
-- 流级属性缺口（`hackios-xnu-userland/userland/src/services/camera_device_stream.inc`）：
-  - `avconferenced`／`cameracaptured` 会话配置阶段读写流的 `FormatIndex`、`ActiveFormatIndex`、`FrameDuration`、`MinFrameDuration`、`MaxFrameDuration`、`VideoZoomFactor`、`StillImageCaptureEnabled`。
-  - 在 `stream_get_property` 与 `stream_set_property` 中补齐对应 `CFNumber`、`CFBoolean` 与 30 fps `CMTime`（`1/30 s`）字典返回。
-- 跨进程 `IOSurface` 样本缓冲区格式描述 `-12710`（`hackios-xnu-userland/userland/src/inject/inject_media.c`）：
-  - `CMVideoFormatDescriptionCreateForImageBuffer` 在 `IOSurface` 经 Mach 端口跨进程传递后若读取不到平面宽高定义会返回 `-12710`（`kFigFormatDescriptionError_InvalidParameter`），阻断预览帧入队。
-  - 在 `fig_format_desc_hook` 中当原函数返回非零且输入为非空 `IOSurface`／`CVPixelBuffer` 时，提取宽高（缺失时回退为 `1080×1920`、`kCVPixelFormatType_32BGRA`）调用 `CMVideoFormatDescriptionCreate` 合成有效格式描述。
+在 `out/s1110/verify4.log` 中启动 `Camera.app` 时，`cameracaptured` 成功创建 `AnnibaleCaptureDevice` 并由 `device_request_streams` 拉起后台 `worker` 线程（`/dev/annibale-camera` 稳定产出 `4096×3072` 原始帧），但 `stream_set_property` 仅收到 `FormatIndex = 3` 与 `VideoOutputHandlers`，随后报 `stream: an output not here: Depth`，从未收到 `VideoOutputConfigurations`、`VideoOutputsEnabled` 与 `stream_start`。使用 `dsc.py` 反汇编 iOS 26（`23G90__iPhone18,3`）`CMCapture` 中 `BWMultiStreamCameraSourceNode` 的完整生命周期，查明其四阶段原生调用链与全部契约要求：
+
+1. **阶段 1：`-[BWMultiStreamCameraSourceNode configure:]`（`0x1ae99f16c` -> `0x1ae99fb20`）**：
+   - `0x1ae9a0bd0` 调用 `-[BWFigCaptureStream setFormatIndex:]`（`0x1ae9a0cd8`），向流写入 `kFigCaptureStreamProperty_FormatIndex`（`0x1e6e5e1b8`）。
+   - `0x1ae9c74bc` 选择首选输出端口：`_preferredPreviewOutput`（`+0x9a8`）设为 `"PrimaryScaler"`（`0x1e6e5edc8`），`_preferredVideoOutput`（`+0x9b0`）设为 `"SecondaryScaler"`（`0x1e6e5ede0`），`_stillImageOutput`（`+0x988`）设为 `"StillImage"`（`0x1e6e5ede8`）。
+   - `0x1ae9c79f4` 构建 `VideoOutputHandlers` 字典：在 `0x1ae9c7b08..0x1ae9c7b38` 检查 `(1 << _deviceType) & 0x1e7ffc`（广角相机 `_deviceType == 2` 恒命中），**无条件向 `VideoOutputHandlers` 字典加入 `"Depth"`（`0x1e6e5eda8`）的 `PixelBufferHandler`**，再调用 `setProperty:kFigCaptureStreamProperty_VideoOutputHandlers`。若驱动不接受 `"Depth"` 或缺少后续阶段所需的属性配置，`configure:` 无法进入缓冲池分配阶段。
+   - `0x1ae9ac204` 在 `0x1ae9ac284` 调用 `copyProperty:kFigCaptureStreamProperty_VideoOutputConfigurations`，遍历 `0..21` 输出槽位读取各输出字典的 `BufferPoolBytesPerRowAlignmentRequirement`（`0x1e6e5ecf0`，存入 `slot + 0x6c`）与 `BufferPoolPlaneAlignmentRequirement`（`0x1e6e5ed00`，存入 `slot + 0x70`），同时读取 `SupportedOutputs` 中各输出的 `SupportedPixelFormats`、`SashimiRawPixelFormat`（`0x1e6e5ea38`）、`SushiRawPixelFormat`（`0x1e6e5ea40`）。
+   - `0x1ae99fccc..0x1ae9a0b20` 按需调用 `0x1aee31d04`（`PreLTMThumbnailConfiguration`）、`0x1aee31e4c`（`LTMThumbnailConfiguration`）、`0x1aee321d4`（`PostColorProcessingThumbnailConfiguration`）、`0x1aee3231c`（`WeightSegmentMapConfiguration`）、`0x1aee32630`（`LightSourceMaskConfiguration`）、`0x1aee327bc`（`KeypointDescriptorDataConfiguration`）、`0x1aee328dc`（语义掩码 `HumanFullBodiesMaskConfiguration`／`HumanHairMaskConfiguration`／`HumanSkinsMaskConfiguration`／`SkyMaskConfiguration`），从 `VideoOutputConfigurations[@"Metadata"]` 读取上述 10 项子配置字典的 `Width`、`Height`、`PixelFormat`、`DataBufferSize`、`BufferPoolBytesPerRowAlignmentRequirement`、`BufferPoolPlaneAlignmentRequirement`、`BufferPoolCountForCaptureStream` 构建 `BWVideoFormatRequirements`。若缺少任一子字典，对应辅助函数返回 `nil` 并终止节点配置。
+2. **阶段 2：`-[BWMultiStreamCameraSourceNode allocateOrReuseBufferPoolsFromSourceNode:]`（`0x1aea19998`）**：
+   - `BWGraph` 完成全图格式协商后调用该方法。
+   - `0x1aea199d0` 调用 `0x1aea1af70` -> `0x1aee38068` -> `0x1aea1e274` -> `0x1ae9afc70`（及 `0x1ae9d3610`、`0x1ae9c9544`）：根据各 `BWNodeOutput` 协商后的 `resolvedVideoFormat` 构建包含 `"PrimaryScaler"`、`"SecondaryScaler"`、`"StillImage"` 等输出字典（含 `"Width"`、`"Height"`、`"CropRect"`、`"PixelFormat"`、`"MaxOutputFrameRate"`）的字典 `x21`，在 `0x1aea1e574` 首次调用 `[stream setProperty:kFigCaptureStreamProperty_VideoOutputConfigurations value:x21]`。
+   - 紧接着在 `0x1aea199f8..0x1aea19a0c` 调用 `[stream copyProperty:kFigCaptureStreamProperty_VideoOutputConfigurations]`，并在 `0x1aea19b80..0x1aea1a630` 遍历已启用输出槽位：从驱动返回的 `VideoOutputConfigurations[outputID]` 中读取 `"BufferPoolCountForCaptureStream"`（`0x1e6e5ecf8`，在 `0x1aea19eec` 读取）与 `BWNodeOutput` 的 `retainedBufferCount` 相加作为容量 `capacity`（`x20`），调用 `-[BWPixelBufferPool initWithVideoFormat:capacity:name:...]`（`0x1af2103c0`）创建 `BWPixelBufferPool`。若驱动未在 `VideoOutputConfigurations[outputID]` 中提供非零 `"BufferPoolCountForCaptureStream"` 且下游 `retainedBufferCount == 0`，池容量为 `0` 会导致 `BWPixelBufferPool` 创建返回 `nil`（`0x1aea1ac38`）并中止。
+   - 池创建成功后，在 `0x1aea1a5b4..0x1aea1a628` 生成仅含 `@{ @"BufferPool": cvPixelBufferPool, @"RetainedBufferCount": @(N) }` 的字典并在 `0x1aea1aba0` **第二次调用 `[stream setProperty:kFigCaptureStreamProperty_VideoOutputConfigurations]`**。若驱动的 `setProperty:VideoOutputConfigurations` 直接用新字典覆盖旧字典而非按字段合并，会丢失首次写入的 `"Width"`、`"Height"`、`"PixelFormat"`、`"CropRect"`，导致后续缩放或重配置读取失败。
+3. **阶段 3：`-[BWMultiStreamCameraSourceNode prepareForCurrentConfigurationToBecomeLive]`（`0x1aea24618`）**：
+   - 调用父类准备方法并初始化内部同步状态。
+4. **阶段 4：`-[BWMultiStreamCameraSourceNode start:]`（`0x1aea24bcc`）**：
+   - `0x1aea24e74` 调用 `0x1aea58340(self, 1, 1, 0)`：若启用了 `"Metadata"` 子输出，在 `0x1aea58878` 调用 `setProperty:VideoOutputConfigurations` 写入 `@{ @"Metadata": ... }`；随后在 `0x1aea588f8..0x1aea58910` 调用 `[stream setProperty:kFigCaptureStreamProperty_VideoOutputsEnabled value:enabledDict]` 开启 `"PrimaryScaler"`、`"SecondaryScaler"`、`"StillImage"` 等输出。
+   - `0x1aea24e9c` 调用 `[self->_captureStream start]`（`0x1af238f60`），进入 `camera_device_stream.inc` 的 `stream_start()` 将流状态置为 `CAM_STREAM_ACTIVE`，开始通过 `PixelBufferHandler` 向预览与拍照管线投递图像帧。
+
+### 3.2 修复实现（`camera_device.c`、`camera_device_stream.inc`、`inject_media.c`）
+
+1. **输出槽位与像素格式补齐**：
+   - `OUTPUTS` 扩充为 6 项（`"PrimaryScaler"`、`"SecondaryScaler"`、`"StillImage"`、`"StillImageQuadra"`、`"StillImageRaw"`、`"Depth"`），`worker()` 帧投递循环跳过 `"Depth"` 槽位，使阶段 1 无条件注册 `"Depth"` handler 时正常接纳。
+   - `output_info()` 支持 9 种像素格式（`PF_420F`、`PF_420V`、`PF_X420`、`PF_XF20`、`PF_P422`、`PF_PF22`、`PF_X422`、`PF_XF22`、`PF_BGRA`）及 `SashimiRawPixelFormat`、`SushiRawPixelFormat`、`FocusPixelDataSupported`；`deliver()` 支持 10-bit Bi-Planar（`x420`／`xf20`）平面左移 8 位写入。
+   - 前后置相机格式表补齐 `V57/AVCaptureSession.plist`（`iPhone18,3`）要求的 30 fps／60 fps、`FESCompanion`、`DepthCompanion`、`ActionCameraCompanion` 与 `FrontVirtual` 全部条目。
+2. **`VideoOutputConfigurations` 读写契约完整对齐**：
+   - `stream_copy_property("VideoOutputConfigurations")` 对全部 6 个输出槽位始终返回包含默认 `"BufferPoolBytesPerRowAlignmentRequirement": 64`、`"BufferPoolPlaneAlignmentRequirement": 64`、`"BufferPoolCountForCaptureStream": 6` 的字典（合并已设置的 `"Width"`、`"Height"`、`"PixelFormat"`、`"BufferPool"` 等键值），满足阶段 1（`0x1ae9ac204`）与阶段 2（`0x1aea19998`）的对齐及池容量计算。
+   - `stream_copy_property("VideoOutputConfigurations")` 在 `"Metadata"` 下完整返回全部 10 项子配置（含新增的 `"PreLTMThumbnailConfiguration"`、`"LTMThumbnailConfiguration"`、`"PostColorProcessingThumbnailConfiguration"`），并合并 `stream_set_property` 写入的 `"Metadata"` 覆盖项。
+   - `stream_set_property("VideoOutputConfigurations")` 对每个输出槽位采用字典键值合并（`CFDictionaryCreateMutableCopy` + 逐键更新），确保阶段 2 第二次写入 `BufferPool` 时保留阶段 2 首次写入的 `Width`、`Height`、`PixelFormat`、`CropRect`。
+3. **四阶段生命周期日志观测与宿主单测**：
+   - 在 `inject_media.c` 中为 `BWMultiStreamCameraSourceNode` 的 `configure:`、`allocateOrReuseBufferPoolsFromSourceNode:`、`prepareForCurrentConfigurationToBecomeLive`、`start:` 挂载轻量日志包装，上机即可直接核验四阶段返回值。
+   - 新增宿主单测 `hackios-xnu-userland/tools/tests/test-camera-device-ios26.py`，模拟 `BWMultiStreamCameraSourceNode` 四阶段完整属性读写与两阶段 `VideoOutputConfigurations` 合并保留契约，编译与运行验证通过。
 
 ## 4. 屏幕高亮度与控制中心滑块低位不同步的根因与修复方案
 
@@ -64,15 +87,16 @@
 
 ### 4.2 修复方案
 
-1. 移除无硬件支撑的虚拟 ALS 自动降光触发源（`input26_service.c`）：
-   - 仅当 `/dev/annibale-sensors` 具有真实硬件 I2C 采样或显式注入标记（`ANNIBALE_SENSOR_SRC_HW_I2C | ANNIBALE_SENSOR_SRC_INJECTED`）时才注册 `"Annibale ambient light sensor"`（`HID_USAGE_APPLE_ALS`）；默认无硬件 ALS 时不注册该虚拟 HID 服务，使 `CoreBrightness` 原生识别无 ALS 硬件而不再后台改写滑块。
+1. 仅在真实硬件传感器就绪时注册 ALS（`input26_service.c`）：
+   - 仅当 `/dev/annibale-sensors` 具有真实硬件 I2C 采样或显式注入标记（`ANNIBALE_SENSOR_SRC_HW_I2C | ANNIBALE_SENSOR_SRC_INJECTED`）时才注册 `"Annibale ambient light sensor"`（`HID_USAGE_APPLE_ALS`）；默认无硬件 ALS 时仅注册加速度与陀螺仪 HID 服务，使 `CoreBrightness` 原生识别无 ALS 硬件。
    - 修正 `create_als_event()` 中 `FIELD_ALS_ILLUMINANCE` 的 16.16 定点编码（`(CFIndex)lux << 16`）。
-2. 移除内核单向丢弃过滤，保持物理面板与控制中心滑块始终 1:1 同步（`MiniAppleARMBacklight.cpp`）：
-   - 去掉 `outside slider window ignored` 拦截，任何 `s16 > 0` 的 `IOMFBBrightnessLevel`、`brightness-nits` 或嵌套 `"DisplayBrightness"` 字典更新均立即驱动 DSI 面板并更新 `IODisplayParameters["brightness"]["value"]`。
+2. 保持物理面板与控制中心滑块始终 1:1 同步（`MiniAppleARMBacklight.cpp`）：
+   - 任何 `s16 > 0` 的 `IOMFBBrightnessLevel`、`brightness-nits` 或嵌套 `"DisplayBrightness"` 字典更新均立即驱动 DSI 面板并更新 `IODisplayParameters["brightness"]["value"]`。
    - 补齐嵌套 `"DisplayBrightness"` `OSDictionary` 的键值提取与日志打印；仅在 `s16 <= 0`（锁屏熄屏）时关闭面板背光而不覆盖 `bl.last_v`／`bl.last_millinits` 与 `ramfs_backlight_save`。
-3. 清理旧脏持久化值并对齐 `SBBacklightLevel2` 与 `ANNFS001`（`ramfs_disk.inc`、`inject.c`）：
-   - 将 `ANNFS001` 背光持久化魔数升级为 `ANNFS_BL_MAGIC`（`0x414e4232U`，`'ANB2'`），自动淘汰此前被虚拟 ALS 污染的 `474`（`32.477 nits`）记录，并在 `AppleARMBacklight` 上发布 `"annibale-bl-restored"` 布尔属性。
+3. 升级背光持久化魔数并对齐 `SBBacklightLevel2` 与 `ANNFS001`（`ramfs_disk.inc`、`inject.c`）：
+   - 将 `ANNFS001` 背光持久化魔数升级为 `ANNFS_BL_MAGIC`（`0x424c5332U`，`'BLS2'`），并在 `AppleARMBacklight` 上发布 `"annibale-bl-restored"` 布尔属性。
    - 在 `backboardd` 启动早期（`inject.c`），当 `"annibale-bl-restored"` 为 `false`（尚无用户手动滑块持久化记录）时，将 `com.apple.springboard` 的 `SBBacklightLevel2` 同步初始化为 `1.0`（`400 nits`），确保首次启动及后续跨重启恢复时控制中心滑块位置与物理屏幕亮度严格一致。
+   - 更新宿主单测 `hackios-xnu-kernel/tools/tests/test_challenger_m6_backlight.py`，校验 1:1 滑块／面板同步、嵌套 `"DisplayBrightness"` 字典解析与 `'BLS2'` 持久化契约并通过。
 
 ## 5. 触觉反馈 `CHHapticEngine` `Code=4099` 根因与修复方案（审查 §10.1、§11.1）
 
@@ -88,7 +112,7 @@
 ### 5.2 修复方案
 
 1. 在内核 `GenericARMPE.cpp` 的 `GenericARMPE::populateDeviceTree()` 中向 `/product`（`gIODTPlane`）挂载名称为 `"haptics"` 的 `IOService` 节点，使 `MGGetBoolAnswer("cBy4BcYs5YWtFHbBpt4C6A")` 原生返回 `true`。
-2. 将 `hackios-xnu-userland/userland/src/services/audio_plugin.c` 中 `OBJECT_ACTUATOR` 的 `output_channels` 调整为 `2`，满足 `ActuatorSettingsFactory_Aspen` 对 `AID8023` 的双通道映射要求。
+2. 将 `hackios-xnu-userland/userland/src/services/audio_plugin.c` 中 `OBJECT_ACTUATOR` 的 `output_channels` 调整为 `2`，补齐 `'aunt'`、`0x70636d64`、`'bchn'` 与 `mSampleSize=2`，并在 `init26.c` 为 `audiomxd` 登记 `com.apple.audio.AVHapticServer` Mach 服务；宿主单测 `hackios-xnu-userland/tools/tests/test-audio-plugin.py` 验证通过。
 
 ## 6. 状态栏右上角 Wi-Fi 图标灰色问题定位（`STUIStatusBarWifiSignalView` `a=0.20`）
 
@@ -131,4 +155,4 @@
    - `set()` 兼容 iOS 26 `wifid`/`configd` 下发的其余配置项（`25`、`383`、`471`、`473`、`481`、`483`、`485`、`512`、`539`、`542`、`543`、`544`、`545`、`547`、`548`、`572`、`582`）并返回 `0`。
    - `give_network()` 与 `ANNIBALE_STA_LINK` 在 `bss->rssi == 0` 时统一回退为 `-55` dBm，`noise` 回退为 `-95` dBm，`snr` 设为 `40`。
 2. 在 `hackios-xnu-userland/userland/src/inject/inject_sb26.c` 的周期刷新步进（`sb26_stepped_refresh_step`，`+3s..+110s`）中检查 `SBWiFiManager.sharedInstance`：当 `isAssociated` 为真且 `isPrimaryInterface` 为假时，调用 `[wifiMgr _primaryInterfaceChanged:YES]` 触发主接口重评估，并记录 `isPowered`、`isAssociated`、`isPrimaryInterface`、`signalStrengthBars`、`signalStrengthRSSI` 读数。
-3. 产物与提交：内核提交 `8c62d586`（登记为 `12377-s1110-v6`，SHA-256 `610b90a7676ef54e3a150223946cc535eb207a17a244b9f0b26e90087bbf00aa`），用户态提交 `bad0a1a`（`root_sha256` `e073fb446dc1b73c37ee245a4234f8aaca2f4ce8579facb350fff0fc27809cd5`），单测 `tools/tests/test-annibale-apple80211-events.py` 通过；当前真机停留在上一轮 iOS 桌面，待设备切回 `xnuloader` 后执行合并轮真机复核。
+3. 产物与提交：内核提交 `8c62d586`..`e7d652b4`（登记为 `12377-s1110-v6`，SHA-256 `610b90a7676ef54e3a150223946cc535eb207a17a244b9f0b26e90087bbf00aa`），用户态提交 `bad0a1a`..`32ffefa`（`root_sha256` `e79915ca85dcb9cfffa06e1e64d715efb590757475f366db3ce3ff25a5d1d2c8`），单测 `test-annibale-apple80211-events.py`、`test_challenger_m6_backlight.py`、`test-audio-plugin.py`、`test-camera-device-ios26.py` 全部通过；当前真机停留在上一轮 iOS 桌面，待设备切回 `xnuloader` 后执行合并轮真机复核。

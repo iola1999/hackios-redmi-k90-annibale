@@ -20,7 +20,6 @@
 | sbmetal-experiment | Metal 设备注册（`sb_metal_registration_sequence.inc` 等） | 让进程拿到本项目 Metal 驱动的设备 | 供应商类替换 |
 | libannibale | `touch_lat=1` 时的主线程观察者 | 测量触摸到上屏的延迟，需要 `TOUCH_LAT=1` 打包 | 诊断 |
 | sb26 | `-[SBLockScreenManager unlockUIFromSource:withOptions:]` 与 `com.annibale.unlock` 通知 | 主机自动解锁 | 测试辅助 |
-| sb26 | `CHHapticEngine` 的能力查询与启停 | 报告无震动能力，启停直接返回 | 待评估：审查 §10.1 建议改为 HAL Actuator |
 | sb26 | `SBPowerDownViewController`、`SBRestartManager`、`FBSystemService` 的关机方法 | 关机改走本项目的关机路径 | 待评估：关机应由内核 reboot 路径对齐 |
 | sb26 | `-[SBLockdownManager _setupActivationState]` | 改写激活状态 | 待评估：改写系统状态 |
 | sb26 | `-[SBIconImageView shouldForceBitmapImages]` | 没有 Metal 设备时强制位图图标 | 待评估：渲染层的替代路径 |
