@@ -405,3 +405,145 @@ Core Image 的 `ci_affine_crop` 仍需单独实现 stitched compute。原生日�
 - iOS 26 Metal 的原生类元数据确认：纹理和采样器输入使用 `bindIndex`；buffer address 输入另有 `byteOffset`、`dereference`。这些类继承 `NSObject`，现有转换器只识别 `argumentIndex` 和函数节点引用，尚未覆盖这些输入。
 - `pipelineForFunction:descriptor:error:` 要求函数提供 `bitcodeData`，随后直接调用 `mesa.compute_create`；当前入口没有接收计算图或生成对应的计算参数反射。
 - 修复需同时保留资源绑定、条件提前返回、节点依赖与写纹理行为。现有日志深度未记录各输入的具体绑定索引和偏移，后续需结合原生调用与有界诊断补齐。静态记录位于本地 `codex-1112-ci-stitch/`。
+
+## 25. cospi 指令与相机景深管线
+
+用户态提交 `d3f0d9e` 实现 half／float 标量和向量的 `air.cospi`。计算先约简周期，再通过正弦求值；half 中间量使用 float，保留半整数处的零值与非有限输入的 NaN 分类，f64 明确拒绝。原版 `CCPortrait` 的 82 个模块全部通过 AIR → NIR → A830 IR3 编译，新增通过的三项为 `sparserendering_antialias_y`、`sparserendering_antialias_y_4chan` 和 `sparserendering_add_noise_only`。
+
+- 260 项 AIR 集成检查通过。数值检查覆盖全部 65,536 个 half 编码及 16,384 个 float 边界／随机输入，与独立 double `__cospi` 比较，最大误差分别为 0.500062／1.35295 ULP；检查限值分别为 1／4 ULP。
+- Apple GPU 对同一组 81,920 个输入的检查通过。它与宿主 NIR 结果的最大差异为 half 1 ULP、float 2 ULP；零值不检查符号，NaN 不检查 payload 和符号。
+- 旧实现拒绝 cospi；直接使用 half 乘以 π 的变体在输入 `0.203125` 超过 1 ULP，检查失败。
+- 独立构建比较 14,289 个输入文件，仅 `air_intrinsics.c` 与新增的 `air_math_private.h` 不同。完整 `check.sh` 因默认 `mesa-host` 构建缺失而未执行，上述检查使用隔离的宿主工具完成。
+
+候选 AIR SHA-256 为 `5779c260d79fdda1dc9a13feb55eeb360c21a295a6d14d1ab4914b763c3eca94`，UUID 为 `79A4E537-13FD-33EE-A0CB-2301DA3F4B36`。构建、原版模块与数值记录保存在本地 `codex-1112-cospi/`。
+
+首次 A830 数值探针在 179 ms 后退出 134，Metal 收到空 compute function 并断言；尚未执行数值比较和三条原版管线检查。该轮运行 89.622 秒，完成计划中的 7／19 项，最高 CPU 采样温度为 75.6°C。收尾确认新版 loader 空闲、常驻区为空及真实 LK 重试 7，已部署的 RG16 镜像保持不变。
+
+测试 metallib 的默认目标为 `air64_v29-apple-ios27.1.0`，高于设备 iOS 26.6.2。兼容探针显式使用 `air64_v25-apple-ios16.5.0`／Metal 3.0；提交 `435a0d7` 在创建管线前检查库与函数，失败输出具体阶段并返回 2。兼容探针已在 A830 完成加载和执行；原轮未保留库加载的 NSError。
+
+- 新测试库的 Apple GPU 81,920 项数值检查通过，生成的 A830 IR3 与旧测试库逐字节一致；无效库及缺少 `check` 入口分别返回 2。
+- v3 辅助盘相对 v2 仅更换 `/tests/cpi` 和 `/tests/cpi.metallib`，生产 AIR、Metal、内核和启动参数均相同。APFS 逐路径读回、完整镜像容器与 AVB 检查通过。
+- 原始记录为本地 `kernel-12377-codex-1112-cd14-cospi-air-v2/run/`、`codex-1112-cospi-probe-v3/` 和 `codex-1112-cospi-root-v3/`。
+
+v3 真机轮确认后端为 A830。数值探针在第 65,541 个下标处失败，即全部 half 输入与前五个 float 输入检查通过，第六个 float 超出 4 ULP 限制。管线和 GPU 命令已完成，数值结果尚未验收。
+
+| 首个失败输入与输出 | 值 |
+|---|---|
+| float 输入 | `-0x1.fbfffep+5`（`-63.499996185302734`） |
+| 宿主 NIR | `-0x1.921fb6p-17`，与 double 参考相差约 0.367 ULP |
+| A830 输出 | `-0x1.8ffffep-17`，与 double 参考相差约 69,595.633 ULP |
+| 返回值与执行范围 | 87 ms 后返回 1；探针内的三条原版管线检查尚未执行 |
+
+本轮相机自身已创建上述三条原版 cospi 管线；数值失败后的提前收尾没有观察到相机终止异常，也没有验证真实相机帧。该轮运行 90.184 秒，完成 7／19 项，最高 CPU 采样温度为 75.2°C；收尾确认新版 loader 空闲、常驻区为空与真实 LK 重试 7。已部署镜像仍为 RG16，后续独立功能测试使用已验收的 minmax AIR，cospi 继续检查 A830 三角函数指令与编译过程。记录位于本地 `kernel-12377-codex-1112-cd14-cospi-air-v3/run/`。
+
+冻结 Mesa 的 `ir3_nir_trig.py` 将正弦参数再次归一化；实际 IR3 使用非融合 `mad.f32`，两次舍入将上述角度量化为 `-0x1.9p-17`，硬件正弦输出与真机首错吻合。用户态提交 `a3a9261` 在 cospi 已约简的区间内使用 13 次奇多项式，保留逐次 float32 运算，原 half 1／float 4 ULP 限制不变。
+
+- 实际 IR3 不含正弦指令，六个系数与源码的 float32 值一致。按非融合运算检查全部 16,777,217 个非负约简格点及负值对称性，最大误差为 2.03712 ULP。
+- 原 81,920 个输入经过 IR3 三角函数转换后，half／float 最大误差分别为 0.499938／1.71412 ULP；旧实现在相同首错输入复现精度失败。260 项 AIR 集成检查与三条原版模块的 A830 编译通过。
+- 新探针最多打印八条数值错误，随后输出两种位宽的失败总数，再检查三条原版管线；总 deadline 仍为 30 秒。错误输出着色器触发全部预期失败，最终返回 1。
+- 新 AIR SHA-256 为 `154d0a130833a6ee31d36a2068ed5647962b3e583ca4d4169887e3fb23fc81f9`。相对首版 cospi 的冻结输入仅 `air_math_private.h` 不同；候选基于第 26 节已通过的 heap 辅助盘。完整记录位于本地 `codex-1112-cospi-precise/`。
+
+精度修复的 A830 RAM 轮完成全部 81,920 个输入比较，half／float 失败数均为零。相对 double `__cospi` 参考的最大误差分别为 0.000231537／1.71412 ULP；相对宿主 NIR 结果的最大差异分别为 0.499878／0 ULP。三条原版景深管线均创建成功，探针没有提交它们的实际资源执行。该探针在 175 ms 后返回 0。
+
+- 20 项设备命令按预期返回，另完成一次桌面截图步骤；RG16、SLM、NV12／P010 与 G2 正反对照保持预期结果。13 条运行库记录匹配冻结的 heap Metal 与新 AIR。
+- 最高 CPU 采样温度为 74.8°C；收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 实际查看完整图和原尺寸局部，应用与 Dock 图标、天气和日历组件内容均缺失，壁纸、标签、状态栏和时钟指针仍可见。三个启动后的截图均有该异常，数值检查通过后仍未通过视觉验收。
+- 相机仍在格式 25 导入后发生 MPS 空 source 断言，`ci_affine_crop` 图也仍被拒。当前保持已部署的 heap／minmax 镜像，cospi 候选继续排查桌面图标缺失。
+- 原始记录为本地 `kernel-12377-codex-1112-cd14-cospi-precise/run/`，该轮桌面稳定图接收于 03:08:01.980（UTC+8）。截图读取边界见第 27 节。
+
+## 26. 普通 Metal heap 的保护属性
+
+原生 MPSCore 会查询 heap 的 `protectionOptions` 并与请求值比较；iOS 26 的 `MTLIOAccelHeap` 将查询转发给资源，普通资源没有保护对象时返回 0。描述符初始化也将该属性清零。内核仓提交 `102637dc` 为普通 heap 返回 0；描述符请求非零保护选项则在分配前拒绝构造。
+
+- 完整生产 heap 文件的宿主检查使用原生 Metal 描述符，覆盖普通 heap／buffer／texture 的属性、资源归属及计数释放；四种非零保护请求均被拒绝。旧实现缺少 getter、删除拒绝分支的变体分别未通过检查。
+- 独立构建冻结 RG16 的 30 项输入，基线两份 Metal 产物均与已验收版本逐字节一致；候选只更换 `annibalemetal_heap.inc`，arm64e 构建与签名检查通过。
+- 宿主 fixture 替换了私有父类，并将资源分配交给原生 Metal。A830 上 MPSCore 的实际调用由下述真机轮检查。
+
+候选 dylib SHA-256 为 `f61f38edf80eab1c32876a107ce32ac1ea7e81bea63a118440aa5bad827024be`，UUID 为 `7CBC54BC-20E5-34D7-A54C-A4A0269595A8`；bundle executable SHA-256 为 `5cee1b4e353ea166bbca4c72e83eaae17c80729e8c394bcf332e40810d5902de`，UUID 为 `1978DE94-43C6-380F-A5D9-42153B8E9370`。原生反汇编与构建记录保存在本地 `codex-1112-heap/` 和 `codex-1112-heap-protection/`。
+
+heap 候选基于已验收的 RG16／minmax 辅助盘，只更换两份 Metal 库，并增加 G2 双附件探针。RAM 验证运行 196.699 秒，18 项回归和 G2 两项对照全部完成，最高 CPU 采样温度为 74.8°C。收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+- 相机不再抛出 `protectionOptions` 缺方法异常；后续创建 2 MiB heap，并执行 `MinFilter2Radius1`、`MaxFilter2Radius1` 管线。
+- 下一处失败前连续记录 Metal 格式 25 导入被拒，随后 `MPSImageAreaMin` 因空 source 断言。SDK 将 25 定义为 `R16Float`，CoreVideo 对应 `OneComponent16Half`（`L00h`），每像素 2 字节。原拒绝位置尚未读取实际 surface 的 FourCC 和尺寸。
+- G2 双附件正确组 8／8 通过，3,072 像素零错误，返回 0；错误 DATA1 对照的 8 组各检出 63 个错误，返回 1。实际后端为 A830，混合、其他格式与 TBDR 路径仍按[渲染专题 §9](2026-11-12-rendering-runtime.md#9-g2-双附件-framebuffer-fetch)的边界验收。
+- 辅助盘 SHA-256：`d2c0fb68d8798ecb2a8ead0fd6a08c878e23834cf3319b77e04ff60840589d16`。原始记录为本地 `kernel-12377-codex-1112-cd14-heap-metal/run/`。
+
+随后将 heap 完整镜像刷入 `boot_a` 并正常重启，最高 CPU 采样温度为 74.8°C。19 项设备命令均按预期返回，另一个视觉步骤因缺少场景确认而未完成；视觉结果见第 27 节。收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+- SpringBoard 与 backboardd 实际加载的 Metal bundle／AIR UUID 与本节 heap 库和第 23 节 minmax 库一致，实际后端为 A830。
+- 已刷完整镜像 SHA-256：`ff15ced4001981ebdded8e0401013fc10faed70291b5cd9ff341ee665906ec77`；XNUP SHA-256：`c579d516e320bf1143f0985ab54f9e404b06a23e2b2e88c353b3c9f70a85430e`。
+- 校验覆盖镜像输入、写入应答、正常启动和运行库身份；没有读取物理 `boot_a` 全分区校验哈希。原始记录为本地 `codex-device-1111/standalone-heap-deploy/flashed-boot/`。
+
+内核仓提交 `cd6555e0` 为格式 25 增加 `L00h`／2 字节映射，复用已有单平面导入与后端 `PIPE_FORMAT_R16_FLOAT`。R16 与 RG16 各 8 组完整生产文件的宿主布局、原生 Metal half 读写及拒绝检查通过，ASan／UBSan 未报告问题；旧实现保持 RG16 通过，在新增 R16 映射处失败。真机结果与实际相机 FourCC 的差异见第 28 节。
+
+## 27. heap 轮的实际界面检查
+
+本轮由两名 agent 实际查看完整 1156×2510 截图与原像素组件局部。桌面截图完成接收于 11 月 12 日 02:39:24.902（UTC+8）；该时刻对应主机观察，截图传输约 0.311 秒。
+
+- 天气组件为整块浅白圆角矩形，内部没有天气图形或文字。
+- 日历组件顶部与底部为浅白色块，中间矩形区域直接露出壁纸，内部没有日期内容。
+- 应用图标、Dock 图标及标签可见。控制中心下拉后的两张图确实显示控制中心；底部上滑后的两张图仍显示控制中心，未确认恢复桌面。
+- 本轮没有进入多任务场景，任务卡片的渲染状态尚未检查。
+
+截图来源是 loader 对 `SCREEN.base` 的分块传输，没有冻结副本；动态更新期间可能跨帧读取，本轮尚未确认是否发生，也未覆盖物理面板扫描。完整图、原尺寸局部、五张截图的实际接收时刻与触摸时间窗均保存在上述本地轮目录。视觉检查与后续性能对照的采样范围按[真机手册 §7.1](../plan/device-test-playbook.md#71-图像审阅与短暂异常)记录。
+
+heap 完整镜像正常启动后，再次实际查看完整图和原尺寸组件局部：
+
+- 02:54:11.810（UTC+8）的桌面图中，天气与日历均为上下浅白色块、中间露出壁纸，应用和 Dock 图标及标签可见。
+- 原视觉脚本等待桌面确认 25 秒后结束，记录 `complete=false`、`scene_confirmation_missing`，未发出后续手势。该步骤返回 0，原汇总计入了完成项，不能据此判定视觉通过。
+- 同一运行器随后串行点击设置。02:55:33.149 的稳定截图显示黑色背景、缩小且变暗的桌面图标与组件，底部有手势条，没有设置界面。两组件均为整块灰色，内容仍缺失。
+- 设置前台状态未确认，因此没有继续上滑、横滑或点击任务卡片；本轮仍未覆盖多任务渲染。后续按[前台切换诊断](../plan/2026-11-12-app-foreground.md)关联进程、scene 和实际画面。
+
+上述时刻均为主机接收记录。完整图、原尺寸局部和视觉状态保存在本地 `codex-device-1111/standalone-heap-deploy/flashed-boot/run/`。
+
+后续独立脚本将场景覆盖、可见异常与 loader 恢复分别汇总。缺少确认、拒绝确认、解码超时、缺失或损坏的结果、部分场景、图号不匹配和完整场景仍有异常的离线检查通过；视觉未通过后批次返回失败，同时保留设备恢复状态。旧轮重新判定为视觉未完成、设备可继续测试，修正结果已关联到该轮完成摘要，原始记录保留。
+
+## 28. R16Float 探针与相机实际 FourCC
+
+R16 独立候选基于 heap／minmax 辅助盘，只替换两份 Metal 库并加入探针。A830 的 8 组读取／采样全部通过，覆盖 128／256 字节行距和 0／128 字节偏移；像素错误与 prefix、padding、suffix 的意外变化均为零。探针在 266 ms 后返回 0。
+
+- 20 项设备命令按预期返回，另外完成前后两次桌面截图；RG16、SLM、NV12／P010 与 G2 正反对照保持预期结果。12 条运行库记录匹配 R16 Metal 与固定 minmax AIR。
+- 最高 CPU 采样温度为 73.3°C；收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 两张相隔 31.647 秒的截图中，应用和 Dock 图标均可见；天气仍为整块浅白，日历仍为上下浅白、中间露出壁纸。完整图与原尺寸组件局部均已实际查看。
+- 辅助盘 SHA-256：`bc8deac8c5f525bc15738b466d2f2d28cab38f55e33e4dd3c3a83a8179a65845`；RAM SHA-256：`d1ac3bb193795a316fb72d85b55a3a823524ad759f12b6c868287506792c4785`。原始记录为本地 `kernel-12377-codex-1112-cd14-r16-metal/run/`。
+
+相机仍因 `MPSImageAreaMin` 的空 source 断言退出。此次日志记录了实际 surface FourCC `1C0h`（`0x31433068`），导入器要求 `L00h`（`0x4c303068`），因此拒绝了 10 次导入。每像素均为 2 字节，三种几何如下；下一步核对 CoreImage 的原生格式转换及 `1C0h` 导入契约。
+
+| 尺寸 | 行距 | 偏移 | allocation |
+|---|---|---|---|
+| 380×380 | 768 字节 | 0 | 294,912 字节 |
+| 128×128 | 256 字节 | 0 | 32,768 字节 |
+| 256×380 | 512 字节 | 0 | 196,608 字节 |
+
+内核仓 `e09aed95` 仅为 Metal 25 接受 `1C0h` 别名，保留 canonical `L00h` 与所有布局检查。iOS 26 CoreImage 的正反转换确认 `kCIFormatRh`（`0x805`）对应 `1C0h`，纹理创建选择 Metal 25。完整生产导入器的 48 组检查、原生 GPU 的 22 组读取／采样通过，其中包含上表三种相机布局；旧实现与放宽 Metal 格式限制的变体均失败。独立库、探针和 RAM 已完成，真机后续路径待验证。
+
+## 29. Core Image stitched compute
+
+用户态 `086926d` 与内核仓 `02d9217f` 增加 GraphSPI 计算图创建路径，复用现有 compute 的生命周期与 NIR 完成处理。图转换保留资源绑定、buffer 偏移和解引用、grid 输入、条件提前返回及节点依赖；原有 visible function 图的结构布局保持一致。
+
+- 原版 `ci_affine_crop` 的五个函数、六个节点经原生 GPU 执行，128 个分量零错误，纹理索引为 1、采样器索引为 5。软件数值检查使用相同索引绑定纹理与采样器，受 softpipe 的 TGSI 表达限制；A830 IR3 编译单独验证 1／5 绑定。
+- 原生 GraphSPI 的 opaque constant buffer 反射为 `None`／size 0／alignment 4；12 个 pointer／value 类型用例与原版 CI 图均匹配。驱动只接受该空 constant buffer 形状，访问模式按 SDK 数值保留。
+- 去掉 EarlyReturn、忽略 byteOffset、交换访问模式、恢复旧 opaque 转换及使用错误 alignment 的变体均未通过对应检查。跨节点 API sampler 绑定预留于 constexpr sampler 分配之前，scratch 大小先以 64 位计算再检查边界。
+- 原始基线 AIR 和 heap Metal 两库重建逐字节一致。独立候选没有包含 cospi 或 R16；候选 AIR UUID 为 `28000AF1-1B24-3E65-98EE-B56E75DDF140`，Metal bundle UUID 为 `8B573294-9EDF-3A6D-B359-D96F575AC606`。
+- 隔离 Linux 的 18 阶段 AIR 检查退出码及关键计数与既有基线一致，没有新增失败；完整检查仍返回 1。已有失败包括 reader 的 304 处差异、旧 clang 的 FMA／argbuf 参考解析、部分 min／max／clamp 软件数值、blend 拒绝、lowering、旧 framebuffer fetch 规则及 phi 检查。最终 GraphSPI 反射修正另由宿主重编与原生对照验证，详细范围保存在 `legacy-check-review.json`。
+
+A830 的原版 CI 图探针在 160 ms 后返回 0，命令状态为 4，128 个分量零错误；纹理 1、采样器 5、六节点和五函数均与原生参考一致。实际查看前后完整桌面图与原尺寸组件局部，两张相隔 28.579 秒的图都缺少应用、Dock 图标与组件内容，壁纸、标签、状态栏和时钟指针仍可见，候选未通过视觉验收。
+
+- 20 项设备命令按预期返回，另完成前后两次桌面截图；19 条运行身份与冻结库匹配。最高 CPU 采样温度为 74.0°C；收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 相机已创建 `ci_affine_crop` 和 `ci_affine_swizzle_rgb1` stitched library，随后在 compute pipeline 创建前抛出 `NSProxy doesNotRecognizeSelector:setLabel:` 异常，共记录三次。该异常继续核对函数对象的 label 契约。
+
+cospi 和 CI 两轮使用不同的新 AIR，均出现图标缺失；R16 轮沿用 minmax AIR，图标可见。现有比较确认新 AIR UUID 引发着色器重新编译，尚未确定该差异是否导致图标缺失。继续对照缓存读写、运行期专化着色器与绘制状态；相机与桌面验收分别保留结果。
+
+候选构建记录在本地 `codex-1112-ci-stitch/`，真机记录在 `kernel-12377-codex-1112-cd14-ci-stitch/run/`。AIR SHA-256 为 `345ab358d36205ce673df1d86a50767f98117a454094717fb4a5efe0fc6f46b0`，辅助盘 SHA-256 为 `c987b2ef93de120a6480f9110c4e367cbfb818bdb4c56ac44c0dcd5bf2e7227b`。
+
+## 30. Iris 固件错误诊断
+
+原实现直接丢弃 debug ring 的已发布内容，仅在该队列非空时读取 SFR，session error 分支也未采集这两项。原厂 `__flush_debug_queue` 检查消息长度并从 `0x11` 偏移读取文本；原厂队列读取先复制完整消息，再发布 `read_idx`。
+
+内核仓 `609ec21b` 保留上述顺序，每次最多读取 16 条完整消息，检查长度、word 对齐、队列索引、环绕和已发布数据量。SFR 独立读取，长度受声明值与实际 allocation 双重约束；INIT／session error 均触发采集。文本按 240 字节分段输出，4 KiB scratch 由已有 `iris_lock` 保护，诊断函数栈占用为 176 字节。
+
+- 完整生产代码的 31 个 ASan／UBSan 场景与 14 个保护或顺序变体检查通过；旧实现的完整消息、空队列 SFR、session error 三项失败。既有 INIT 50 例、HFI／session 100 例和生命周期回归保持通过。
+- cd14 独立完整复链与已验收内核逐字节一致；候选主链接的 1,162 个对象仅 HFI 对象不同，193 份源文件也仅 HFI C 文件变化。RAM 保留 heap／minmax 辅助盘、启动参数和 resident，读回仅 kernel 条目变化。
+- 候选内核 SHA-256 为 `26f1283146b8fffa159d709a033df557327c3a163e41dbec5e2878d8c77ae520`，本地构建记录在 `codex-1112-iris-debug/`，真机尚未执行。
+
+该改动保留 HFI 命令与错误处理顺序，没有改变固件 debug mask；固件没有产生 debug 消息时，仍可能只能取得 SFR。硬解码首帧的 fatal 原因和出帧结果继续待查。

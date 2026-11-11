@@ -13,8 +13,8 @@
 | G4 | 其他 ir3／A8xx 正确性 | 候选；大缓冲 NUM_ELEMENTS、布尔 subgroup、fquantize2f16 有上游修复 | 先确认本仓调用会生成对应 NIR 或描述符，再按容量边界、部分活跃 lane、subnormal 构造验证 | [上游对照 §5](../analysis/2026-11-12-upstream-review.md#5-mesa) |
 | G5 | 启动图标与持续交互 | 此前完整镜像已显示应用及 Dock 图标，控制中心可收回；组件遮挡继续按 G1 跟进 | 记录解锁、图标出现、设置完整加载时刻；实际审阅主屏、控制中心、通知中心与大组件截图，短暂异常未捕获时保留覆盖限制 | [问题复核](../analysis/2026-11-08-issue-reassessment.md)、[多媒体验证 §23](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
 | G6 | 可清除纹理与内存回收 | 已复核当前入口仍返回固定状态；资源与 IOSurface、视图、在途命令共享生命周期 | 定义回收及重新使用语义，再验证内存压力下的释放和在途命令 | [渲染核查 §7](../analysis/2026-11-12-rendering-runtime.md#7-构建复杂度与后续验收)、[架构审查](../analysis/2026-11-08-architecture-review.md) |
-| G7 | AIR 未覆盖指令与验证语料 | minnum／maxnum 已修复，原生眼镜景深管线真机通过；CCPortrait 82 个模块中 79 个编译成功，余 3 个缺 air.cospi.f16，真机仍有 _antialiasY 初始化失败 | 按实际系统 shader 的输入和精度要求实现 cospi，分别验证编译与 GPU 数值；常规检查基础设施见工程待办 | [多媒体验证 §23](../analysis/2026-11-11-multimedia-validation.md)、[工程待办](engineering.md) |
-| G14 | 相机 MPS 输入与 Core Image stitching | RG16Float 导入、A830 8 组逐像素检查与部署通过，MPS 空输入断言消失；相机后续退出于 heap protectionOptions 缺失，ci_affine_crop 图仍被拒 | 补齐普通 heap 的保护属性契约；实现 GraphSPI 计算入口、资源绑定、条件提前返回和节点依赖；核对进程内存包装 surface 与未对齐行距的写回 | [多媒体验证 §24](../analysis/2026-11-11-multimedia-validation.md#24-rg16float-的-iosurface-导入) |
+| G7 | AIR 未覆盖指令与验证语料 | minnum／maxnum 真机通过；cospi 修复后 A830 的 81,920 个数值检查和三条原版管线创建通过，但该轮桌面应用与 Dock 图标缺失，候选未部署 | 对照冻结源码、运行库、着色器缓存与渲染日志定位图标缺失；保持 half 1／float 4 ULP 数值要求；常规检查基础设施见工程待办 | [多媒体验证 §23、§25](../analysis/2026-11-11-multimedia-validation.md)、[工程待办](engineering.md) |
+| G14 | 相机 MPS 输入与 Core Image stitching | heap 与 R16 探针真机通过，实际相机的 1C0h 别名修复待验；CI 计算图的 A830 128 分量通过，相机后续退出于函数 setLabel 缺失，CI 轮桌面图标缺失 | 验证 1C0h 导入并补齐函数 label 契约；定位新 AIR 的桌面图标缺失；核对进程内存包装 surface 与未对齐行距的写回 | [多媒体验证 §28、§29](../analysis/2026-11-11-multimedia-validation.md) |
 | G17 | 多任务卡片的可见渲染异常 | 2026-11-12 用户反馈前几天上滑进入多任务时，卡片内经常有渲染异常；近期巡检截图未覆盖多任务，当前是否仍复现待确认 | 在当前已验收基线上采集进入多任务、横滑卡片和返回应用的图像，实际检查卡片内容、遮挡、裁剪和残留；结合 S5 的 scene／应用身份定位首个异常阶段 | [图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常)、[系统待办 S5](system.md) |
 
 ## 2. 显示完成与性能
