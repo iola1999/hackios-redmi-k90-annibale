@@ -6,10 +6,10 @@
 
 | 编号 | 事项 | 当前边界 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
-| M1 | Iris 硬件解码出帧 | 进行中；初始 `0x03000124=4` 修正已提交，cd18 收到 input START ACK，原 COMV fatal 消失；随后命令读取停在 420，仍为零帧 | 单变量验证原厂 STAGE 设置，合并采集队列与故障状态，继续核对数量协商，再验实际解码像素和连续播放 | [多媒体验证 §30](../analysis/2026-11-11-multimedia-validation.md#30-iris-固件错误诊断)、[视频分析](../analysis/2026-11-05-video-decode.md) |
-| M2 | 真实相机流与 DMA | 进行中；R16 `1C0h`、CI label、CI 图数值与 MPS 数组 2,184 分量均通过真机检查；后续 read_write 读取签名和 process-owned IOSurface 仍有缺口，真实 CSI／IFE DMA 尚未实现 | 修复 MPS read_write 签名，验证 process-owned IOSurface 只读输入导入；按本机 CSID／IFE 契约实现 sensor streaming 与 DMA，再验首尾行真实像素 | [多媒体验证 §28、§31、§33、§34](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
+| M1 | Iris 硬件解码出帧 | 进行中；普通 DMA AP6 修正已提交，cd20 首次收到 PSC，随后 crop 的 U64 与 depth／coded／color 的 32_PACKED 被解析器拒绝，仍零帧 | 按原厂契约修正 PSC 类型并记录数值，再验 RAW 启动、解码像素和连续播放 | [多媒体验证 §30、§37、§41](../analysis/2026-11-11-multimedia-validation.md)、[视频分析](../analysis/2026-11-05-video-decode.md) |
+| M2 | 真实相机流与 DMA | 进行中；R16 `1C0h`、CI label、CI 图数值、MPS 数组、read_write level 0 与 process-owned IOSurface 只读输入均通过独立真机检查；CCI 首字节位置和 GPIO 错误传播存在缺口，传感器身份待确认，真实 CSI／IFE DMA 尚未实现 | 修正身份读取并匹配厂商配置；组合已通过的纹理读取与 IOSurface 修正；按本机 CSID／IFE 契约实现 sensor streaming 与 DMA，再验首尾行真实像素 | [多媒体验证 §28、§31、§33、§34、§36、§38、§39](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
 | M3 | 扬声器实际出声 | 待验证；AudioQueue、PCM 完成及双功放 operating 已有结果 | 先核对功放配置与软件保护；缺少 DSP 扬声器保护的首次出声按原调研使用低增益并由人在场确认。冷启动播放已知音频，结合路由、PCM 完成和听音验收左右声道与音量 | [多媒体验证 §2](../analysis/2026-11-11-multimedia-validation.md)、[音频分析](../analysis/2026-11-02-audio-and-volume.md) |
-| M4 | 冷启动播放器与 Safari 视频 | 进行中；AudioQueue 与本地零幅 AVPlayer 首次／重复播放及 DSP 排空通过，AVPlayer 首次 6.382 秒、重复 3.968 秒；本轮耗时差主要在 item 创建 | 拆分冷启动 item 创建，验证 HTTP／Safari 与带视频轨播放，核对输出设备 ID 的原生含义，软解与硬解分别标明 | [多媒体验证 §32、§35](../analysis/2026-11-11-multimedia-validation.md)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
+| M4 | 冷启动播放器与 Safari 视频 | 进行中；本地与 HTTP 零幅 AVPlayer 首次／重复播放均结束且全局 DSP 排空；HTTP 完整交付通过，首次 58.855 秒、重复 3.421 秒，请求前等待与 Wi-Fi／IPv4 启动重叠 | 定位网络请求等待条件，验证 Safari 与带视频轨播放，补齐目标 DSP 帧归属，核对输出设备 ID 的原生含义，软解与硬解分别标明 | [多媒体验证 §32、§35、§40](../analysis/2026-11-11-multimedia-validation.md)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
 
 NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查已经通过，原版 SLM 两条管线构造也已通过。这些结果作为后续回归基线。
 
@@ -25,5 +25,6 @@ NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查
 | M10 | 录像与多摄功能 | 后续候选，依赖真实采集与保存通过 | 录像、多摄、HDR／多帧、AON、硬件 ISP 各自评估依赖与范围，选定目标后再安排实现 | [相机路线 §4.3](../plan/camera-plan.md#43-分级路线) |
 | M11 | SLM 管线探针耗时 | 待拆分；slm_calc_eyes 探针总耗时 47,705 ms，同轮 IR3 等待 60.637 ms，探针仅创建管线与反射 | 分开计时设备初始化、库读取、AIR→NIR→IR3 管线编译、反射及销毁；实际 dispatch 需要另行测量 | [多媒体验证 §19](../analysis/2026-11-11-multimedia-validation.md#19-正常频率下的独立功能验证) |
 | M12 | 软件解码覆盖与线程开销 | 后续候选；已有 H.264／VP9 路径，AV1 和线程调整按实际需求评估 | 先确认格式、解码器选择和冷启动故障，比较吞吐、CPU、同步及播放结果 | [视频分析 §6](../analysis/2026-11-05-video-decode.md) |
+| M13 | IOSurface copy wrapper 别名读写 | 已复现；不同 usage 创建的 copy 资源在同一 command-buffer 内写后读得到旧值，跨已完成命令的读写通过 | 核对可共享的 usage／资源布局与原生顺序，验证同一 IOSurface 多 wrapper 的写后读；修复期间保留只读相机输入的验收范围 | [多媒体验证 §36](../analysis/2026-11-11-multimedia-validation.md#36-进程自有-iosurface-的相机输入) |
 
 当前按真实传感器、DMA、原生会话和用户可见结果分阶段验收，设备访问与恢复条件遵循[真机手册](../plan/device-test-playbook.md)。蓝牙音频的连接与传输前提见[外设待办](platform.md)。

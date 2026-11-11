@@ -14,7 +14,7 @@
 | cd1 | `12377-codex-1111-iris-diag` | 采样 474.8 秒，未捕获 panic；本地 H.264 播放与设置页打开通过，收尾恢复空闲及空的常驻区 |
 | cd2 | `12377-codex-1111-iris-log` | Iris 阶段日志可采集，首个失败为 GCC 视频 AHB 时钟等待超时；未捕获 panic，收尾恢复空闲及空的常驻区 |
 | cd3 | `12377-codex-1111-cmd-db` | 66 份采样未捕获 panic；相机 RPMh 请求返回成功，GCC 相机与 MCLK AHB 仍未通过；硬件 H.264 创建返回 `-12906`，收尾恢复空闲及空的常驻区 |
-| cd4 | `12377-codex-1111-fixed-ahb` | 固定 AHB 启用检查通过，前后传感器 ID 可读取；45.4 秒触发主机帧停滞判定，探针未完成；未捕获 panic，收尾恢复空闲及空的常驻区 |
+| cd4 | `12377-codex-1111-fixed-ahb` | 固定 AHB 启用检查通过，前后传感器读取路径返回数值，身份仍待确认，见第 39 节；45.4 秒触发主机帧停滞判定，探针未完成；未捕获 panic，收尾恢复空闲及空的常驻区 |
 | cd5 | `12377-codex-1111-gdsc-status` | 完成 420 秒采样与四条合并探针；Iris 电源与时钟通过，首失败为 SMMU 无可用 context bank；未捕获 panic，收尾恢复空闲及空的常驻区 |
 | cd6 | `12377-codex-1111-smmu-cb` | 完成 420 秒采样；SMMU 配置与 PAS9 认证通过，硬解创建仍失败；未捕获 panic，收尾恢复空闲及空的常驻区 |
 | cd7 | `12377-codex-1111-smmu-hfi` | 严格 HFI INIT 应答匹配通过，硬解仍失败；约 185 秒出现内核数据访问异常，软件收尾恢复空闲及空的常驻区，见第 8 节 |
@@ -30,7 +30,7 @@
 | 本地视频 | mm5 的 H.264／HEVC 各解码 30 帧，像素检查通过；cd1 的本地 H.264 播放 23 帧，首帧 739 ms，无像素错误或停顿 | 上述成功解码未要求硬件，Safari 等实际场景待验证 |
 | Iris 硬解 | 电源、时钟、SMMU、PAS9 与 HFI INIT 通过；H.264 硬件会话创建与失败回调完成 | 首帧仍收到固件 fatal，尚未输出帧；协议字段和错误回调修复见第 18 节 |
 | YUV 合成 | NV12 与 P010 的 BT.601／709／2020 有限域和全域共 12 组通过 | 覆盖测试输入的计算与片元采样，见第 19 节 |
-| 相机 | 枚举两台设备，可读取软件测试帧；cd4 固定 AHB 检查通过，后置 ID 为 `0x2121@0x10`、前置 ID 为 `0x5620@0x10` | 真实传感器流和 DMA 尚未验证；新反馈中的相机退出报缓冲区属性错误，旧 `_slmMinMax` 断言与新版辅助盘另行复核，见第 7 节 |
+| 相机 | 枚举两台设备，可读取软件测试帧；cd4 固定 AHB 检查通过，后置读值为 `0x2121@0x10`、前置为 `0x5620@0x10`，读取契约缺口见第 39 节 | 传感器身份、真实传感器流和 DMA 尚未验证；新反馈中的相机退出报缓冲区属性错误，旧 `_slmMinMax` 断言与新版辅助盘另行复核，见第 7 节 |
 | 界面巡检 | cd1 壁纸可见，设置页可打开；cd2 主屏壁纸和应用名称可见 | 大组件仍有白块／蓝块，cd2 的应用图标位置为空；控制中心和通知中心巡检未验收 |
 
 相机源码中的 `cam_hw_dma_verified` 和 `cam_sensor_streaming` 保持 `false`，读取测试帧只验证软件路径。后续相机验收必须同时取得传感器身份、出流状态和真实帧内容。
@@ -40,7 +40,7 @@ cd5 使用 `K90_FREEZE_OFF=1` 完成固定时长采样，保留主机帧观察�
 ## 3. 接续验证
 
 - Iris：严格 INIT 已通过，HFI 会话、缓冲区与应答修复已完成宿主检查。RAMFS 页生命周期、VPU 返回和 loader 资源保留修复将组成安全基线，继续验证硬件会话创建和出帧，见第 10、12、15 节。
-- 相机：传感器 ID 与原版 SLM 管线构造已通过，继续检查原生会话、CSI／DMA 和真实帧内容。
+- 相机：原版 SLM 管线构造已通过；传感器读取存在第 39 节所述缺口，继续检查身份、原生会话、CSI／DMA 和真实帧内容。
 - 音频与显示：合并音频提交、功放状态、本地播放、亮度和界面巡检，保留需要用户确认的声音与面板观察项。
 - 每批最多三轮，读完本批结果后调整测法或单一变量，再继续下一批。每轮收尾核验 `xnuloader / idle` 和空的启动卷常驻区。
 
@@ -658,7 +658,12 @@ A830 的五个用例全部完成，状态均为 4，2,184 个分量零错误，�
 - 原厂 WM 启动先设置 packer、可选 prefetch 与 context，再写 enable；`stop_wm` 清除 cfg 并复位软件状态，该函数内没有 DMA 完成轮询。资源释放仍需核对外围停止流程。
 - 当前 8 MiB 帧缓冲使用 `kmem_alloc`，调用没有物理连续约束；首地址加偏移的线性 DMA 方式尚未成立。
 - 本地 vendor／odm 镜像是按需填充的 sparse cache。本轮四条只读命令补取目录块，回复的 base64、连续偏移和末尾 next 均通过检查；只将所需范围写入新的本地 clone，旧 cache 保持原样。
-- 补取后已取得 vendor／odm 的 camera 目录 NID 和 `sensor_config.json` 条目，相关 inode 仍未填充，完整目录检查继续报错。下一步按这些 NID 补取 inode 与文件范围，不能据 sparse cache 的全零块判断文件不存在。
+- 后续三条只读命令补齐 camera 目录 inode，vendor／odm 目录的 8／50 条内联记录均通过独立结构检查。odm 目录包含 annibale 的 `ovx8000` 主摄、`ov20b40` 前摄及其他厂商模块；相关插件与 sensormodule 内容继续按 NID 补取。
+- `sensor_config.json` 的 761 字节已完整读回并通过 JSON 解析，其 O1／IMX06／JN5／IMX858／HP9 命名与上述模块目录不同。当前日志仍报告后摄 `chip_id=0x2121`、前摄 `0x5620`；实际型号继续以传感器寄存器与模块表的匹配结果确认。
+- 两份新 clone 保留每轮补取范围；旧 cache 与前一轮 clone 保持原样。`dump.erofs` 的目录显示仍因缺少父路径 inode 报错，单独验证的内联目录结果保存在本地 `codex-1112-camera-native/metadata-v2/`。
+- 第三批三条只读命令补齐 sensor／sensormodule inode 与一处父路径，回复格式和连续偏移通过检查，写入新的 `metadata-v3` clone。16 个文件的 extent 均覆盖完整逻辑长度；sensor 插件的压缩数据为 12～28 KiB，sensormodule 为 56～640 KiB，内容尚未取全。路径显示仍受另一处缺失 inode 影响，后续按 NID 与已验证的 extent 定点读取。
+- 第四批三条只读命令补齐两份 OVX8000、Sunny OV08F 与 Sunny OV20B40 插件数据，写入新的 `metadata-v4` clone。按 NID 提取的四个 ELF 长度分别为 68,184、68,184、51,736 和 51,672 字节，均与 inode 逻辑长度一致，退出码为 0 且 stderr 为空；前一份 clone 保持原样。厂商 sensormodule 配置仍待取全，插件文件名仅确认固件包含这些候选。
+- 四个插件的 `GetSensorLibraryAPIs` 只设置版本字段与曝光、温度、模式切换等算法回调，已核对入口反汇编及其写入的字段；这些入口未提供 ID 配置。具体身份、电源、初始化和出流表继续从 sensormodule 提取，分析记录见本地 `codex-1112-camera-identity/plugin-api-audit.json`。
 
 ## 35. 本地 AVPlayer 冷启动与重复播放
 
@@ -680,3 +685,94 @@ A830 的五个用例全部完成，状态均为 4，2,184 个分量零错误，�
 - 本轮 24 个步骤均按预期完成，包含两次桌面截图；最高 CPU 采样温度为 74.8°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
 - 两张相隔 23.664 秒的完整图已实际查看：应用与 Dock 图标可见，首张缺少应用／组件标签和 Wi-Fi 标记，第二张恢复；天气与日历内容持续缺失。该界面变化单独记录，播放验收以原生事件、最终位置和 DSP 排空为准。
 - 原始结果与冻结输入保存在本地 `kernel-12377-codex-1112-cd16-audio-player/` 和 `codex-1112-audio-player/`。本轮覆盖本地音频播放，实际听音、HTTP、Safari 和带视频轨播放仍需分别验证。
+
+## 36. 进程自有 IOSurface 的相机输入
+
+`AnnibaleGPUMemory.inc` 的 `surfaceBuffer` 在返回几何信息之前拒绝 `IOSurfaceAddress` 存储，错误为 `kIOReturnUnsupported`。原来对齐的行距与 offset 只尝试直接导入，导致相机原版 CI 图缺少纹理输入。
+
+内核仓 `018a9e06` 保留 describe 的精确返回值，仅在上述错误后选择已有 buffer／copy 路径。已有 plane 校验、cache、IOSurface 持有、提交前 refresh 与完成后 writeback 继续复用，没有新增缓存或同步状态；其他导入错误仍返回失败。
+
+- 29 项宿主检查通过；旧基线导入失败，恢复对齐拒绝、放宽全部错误、移除 refresh、移除 writeback 四个消融均失败。
+- A830 的两种布局为 row 128／offset 64 与 row 256／offset 128，覆盖 wrapper 创建后的 CPU 更新、调用方释放 IOSurface 后的 GPU 提交，以及每次命令完成后的后续读写。六个阶段的像素、保护区和 padding 差异均为 0，探针耗时 386 ms。
+- 原版 CI 五函数／六节点图从 process-owned RG16 输入读取纹理 1、采样器 5，128 个分量零错误、状态为 4，耗时 367 ms。
+- 两个相机进程均继续创建 `ci_affine_crop`、`ci_affine_swizzle_rgb1` 与后续 Min／MaxFilter。该单变量候选固定使用 CI-label 输入，随后仍由已有格式 25 拒绝触发 `MPSImageAreaMin` 的空 source 断言；R16 修正尚未与本候选组合上机。
+- 本轮 25 条命令按预期返回，另完成两张桌面截图。运行 Metal／AIR UUID 匹配，最高 CPU 采样温度为 74.0°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+不同 usage 的 wrapper 可能创建独立 copy 资源；同一 command-buffer 内先写入一个、再读取另一个会得到旧值，宿主已复现这一既有缺口。本轮只读相机输入与跨已完成命令的读写通过，通用别名读写仍待修复。
+
+完整桌面与原尺寸组件局部已实际查看，应用／Dock 图标及标签可见，两组件均为上下浅白、中间壁纸，内容仍缺失。原始结果在本地 `kernel-12377-codex-1112-cd14-wrapped-surface/run/`，功能、身份与相机阶段分别见 `functional-review.json`、`runtime-identities.json` 和 `camera-key-events.json`。
+
+## 37. Iris STAGE 与 SMMU 权限故障
+
+cd19 以 cd18 为基线，只增加原厂当前 320×192 progressive AVC 样本对应的 `STAGE=1` 属性。PIPE、COMV 8、初始输出 minimum 4 与等待时长保持一致；首个 collect timeout 合并读取三条 HFI 队列头及已有 SMMU context bank 的 FSR。固定 STAGE 值仅用于该样本的诊断。
+
+- OPEN、两次订阅与 input START 均收到应答；PSC、输入／输出 BUFFER 返回和解码帧数均为 0，回调仍为 `-12909`，单次探针耗时 1,300 ms。
+- 首次 input 后命令队列为 429／429，消息队列为 80／80，调试队列为 0／0。cd18 的对应命令位置为 420／420；9 个 DWORD 的差值与新增 STAGE 属性长度一致，处理进度尚无改善。
+- 后续 DRAIN／STOP 写位置依次为 445、461、477，读位置保持 429。三次 collect 与两次 STOP 超时，DMA 资源保留至复位。
+- SMMU CB 81 的 FSR 为 `0x408`，包含 AArch64 格式与权限故障位；translation fault、stalled status 和 multiple faults 位均为 0。本轮未采 input 前的 FSR、FAR 或访问属性，故障发生时点与缓冲归属仍待定位。
+- 本轮 19 条常规命令按预期返回，硬解请求失败，另完成两张桌面截图。最高 CPU 采样温度为 73.3°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+下一轮核对普通 DMA 页的访问权限，并合并记录初始化后、input 前和首次超时的故障状态、地址与映射归属。原始结果位于本地 `kernel-12377-codex-1112-cd19-iris-stage/run/iris-stage-review.json`，日志行号按 LF 分隔计算。
+
+## 38. MPS read_write 的 level 0 读取
+
+原版 `mps_stgf_applyCoefficients3_2d` 通过 builtin sampler 读取标记为 `air.read_write` 的目标纹理。AIR 前端此前遗漏该 metadata 的 read 位，并拒绝 image 的 builtin read 签名；本轮修正这两处，沿用已有 `image_load`，仅接受常量 level 0。非零或动态 LOD 继续返回明确错误，原有无 sampler 的 image 读取分支保持原样。
+
+- 宿主探针覆盖 2D／array、float／half、i16／i32 坐标的八种组合；4,032 个分量零错误。移除写入的消融产生 2,688 个差异，九种无效签名均被拒绝，原版 MPS apply 的 NIR／IR3 编译通过。
+- A830 八个用例均为完成状态 4，初始读取、同一 command-buffer 内后续独立读取和 CPU 回读均为零错误，合计 4,032 个分量，探针耗时 1,136 ms。原 MPS 数组探针的 2,184 个分量仍全部正确。
+- 相机进程已创建 applyCoefficients3／4 的 2D／array 及 Sampling 管线，随后继续创建 histogram、Downscale、CornerDetect、NccMatch 和 AffineSolver。日志仍记录 buffer wrapper 无可导入 handle 与 `output node(null)` 拒绝；该轮保持 MPSarray 的 Metal 基线，尚未组合 CI 图与第 36 节的 process-owned IOSurface 修正。记录期间未见 cameracaptured 的 userabort，实际相机图像与传感器输入仍待验证。
+- 本轮 27 个步骤按预期完成，包含两张桌面截图与三条相机 metadata 读取。最高 CPU 采样温度为 76.0°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+该 RAM 库基于冻结的 MPSarray runtime，仅改动两处 AIR 源文件。当前仓库完整 AIR 源码的独立组合构建也已通过，read_write 的 85 项检查、read-array、原版 apply／covariance 的 NIR／IR3 与反射检查均符合预期。
+
+冻结 runtime 的完整 18 阶段回归耗时 44 分 18 秒，各阶段退出码及规范化结果摘要均与 MPSarray 基线一致，既有失败仍为第 1、5、6、11、12、13、15 阶段，套件退出码为 1。第 18 阶段未提供设备 compute 日志，其通过范围仅为脚本正常退出；本节真机数值检查使用单独的八用例探针。生产修正与探针已提交到用户态仓 `753a0fb`。
+
+原始产物在本地 `codex-1112-mps-apply/`，组合检查见其 `current-integration/validation.json`；真机结果在 `kernel-12377-codex-1112-cd14-mps-rw-level0/run/`，相机后续阶段见 `camera-key-events.json`。
+
+## 39. 相机身份读取契约
+
+当前 `cci0_m1_read8()` 返回首个 `READ_DATA` word 的低 8 位。原厂 `camera.ko` 的 `cam_cci_read` 跳过首 word 的低字节，首个数据字节取 bits 15:8；低字节用于 SID 日志。后摄日志中的 `0x2121` 和 `rev=0x21` 与 slave7 `0x10` 的 read SID 一致，现有读值不足以确认传感器型号或 revision。
+
+- 原厂在 completion 和事务状态检查后要求 `READ_BUF_LEVEL == (num_byte >> 2) + 1`；当前实现仅等待 FIFO 非空，缺少完成 IRQ、错误 IRQ 和预期字数校验。
+- 前摄 GPIO 接收的每个数据位及 ACK 周期忽略 `od_i2c_scl_high()` 失败。日志未记录实际命中的 ID 寄存器，`0x5620` 保留为软件读值，尚未通过有效读取与厂商配置匹配。
+- 原厂 `cam_sensor_match_id` 使用配置中的寄存器、地址宽度、数据宽度、mask 和 expected ID。当前实现只排除 `0x0000`／`0xffff`，真实型号还需按本机配置匹配。
+
+静态定位基于本机提取的 `camera.ko`：首字节跳过和移位位于 `.text+0x15e734`／`0x15e81c`，FIFO 字数检查位于 `0x15e69c`～`0x15e6a8`，配置 ID 比较位于 `0x18d478`～`0x18d4e8`。相关源码与反汇编核对记录保存在本地 `codex-1112-camera-identity/`，后续独立候选将修正数据字节位置、完成检查和 GPIO 错误传播，再验证实际读值。
+
+独立行为候选与附加诊断候选各通过 34 个宿主场景，七项消融均检出相应问题；基线及两份候选的内核翻译单元编译成功，归一化路径与行号后的警告一致。错误或超时后停止后摄 CCI 及其 GPIO 探测，恢复重试需另行验证 master reset 完成。候选尚未上机，生产文件保持原样。
+
+## 40. HTTP AVPlayer 冷启动与重复播放
+
+本轮沿用第 35 节的内核、辅助盘、探针和零幅 WAV，只将输入改为 HTTP URL。首次及新进程重复播放均收到 ended，随后原始 CMTime 均为 `144000/48000`；各自 GET 的实际写入范围完整覆盖 WAV header 与 PCM，内容哈希一致且 `write_error` 为空。
+
+| 阶段 | 首次 | 新进程重复 |
+|---|---|---|
+| item 创建 | 3,500 ms | 46 ms |
+| player 创建 | 50 ms | 2 ms |
+| ready／playing，距探针开始 | 55,645 ms | 256 ms |
+| ended，距探针开始 | 58,781 ms | 3,398 ms |
+| 原生命令总耗时 | 58,855 ms | 3,421 ms |
+| 完整 WAV GET 写出耗时 | 54.3 ms | 43.9 ms |
+
+首次 `NSURLSessionDataTask` 在探针开始后约 3.55 秒已创建。后续日志记录 en0 在 17.612～18.615 秒出现、36.709～37.719 秒连接成功，IPv4 更新和网络路径评估出现在 53.798～55.487 秒。请求等待与网络启动重叠，日志尚未给出 URLSession 的 wait reason 或路径满足的精确时刻，具体阻塞条件继续核对。该时间范围由同一次探针的 elapsed 标记限定，未跨主机和设备时钟相减。
+
+- 两次播放器 session 的 `IsPlayingOutput` 起止均能按顺序关联 HAL playing／stopped，HAL 均记录 `0 frames not taken`。各自播放附近的全局 DSP sent／done 增量均为 290，独立结束窗口分别排空至 888／888 与 1178／1178，backlog、inflight 和 completion_error 均为 0。
+- 首次命令起点缺少 DSP 计数样本，等待期间还播放了系统音；目标开始输出前已观测到 598／598 排空。共享计数没有逐播放器帧归属，目标 144,000 帧的 DSP 完整传输仍待单独确认。
+- 本轮 27 个步骤按预期完成，包含两张桌面截图和三条相机 metadata 读取。最高 CPU 采样温度为 72.5°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7；HTTP 服务已退出。
+
+播放器终态、HTTP 完整交付、目标 session／HAL 顺序和全局排空分别通过。实际听音、Safari 与带视频轨播放继续独立验证。原始结果位于本地 `kernel-12377-codex-1112-cd16-audio-http/run/`，阶段与验收分别见 `http-startup-analysis.json`、`audio-review.json` 和 `root-functional-review.json`。
+
+## 41. Iris 普通 DMA 权限与 PSC 返回
+
+cd20 以第 37 节的 cd19 为基线，普通 NC／WB 数据页增加 AP_UNPRIV 位，PTE 分别由 `0xf03`／`0xf07` 改为 `0xf43`／`0xf47`。原厂映射路径从 attrs 决定 `IOMMU_PRIV`，普通数据 DMA 清除该标志并设置 AP_UNPRIV；Device 页与 PAS 固件装载路径保持原样。
+
+- 初始化后与 input 发布前的 CB 81 FSR 均为 `0x400`，两次采样的故障位为 0。本轮 input 后未触发 collect timeout，故障地址与页表诊断未执行，input 后 FSR 仍缺少采样。
+- OPEN、两次订阅和 input START 均收到应答，首次收到一个 SETTINGS_CHANGE 及九项 PSC 属性。输入／输出 BUFFER 返回、RAW 发布和解码帧数仍为 0，单次探针耗时 303 ms，回调为 `-12909`。
+- 首个解析错误为 crop 属性 `0x03000105` 的 payload type：固件返回 U64（3），当前解析器只接受 64_PACKED（13）。depth、coded frames、color 的实际类型均为 32_PACKED（10），当前分支只接受 U32／ENUM；这些差异均会返回 EIO。
+- 原厂 `handle_session_property` 按类型检查最短长度，再按属性读取数据；crop 读取两个 32 位值，depth／coded frames／color 各读取一个。下一候选修正对应类型并记录 PSC 数值，现有长度、port、flags 检查继续保留。
+
+普通 DMA 权限修正及既有测试扩展已提交到内核仓 `638ab9ec`，11 个权限／资源生命周期场景通过，八类错误版本均被检出。真机验证范围为当前 320×192 AVC 与 STAGE1 诊断配置；STAGE1 和临时诊断未合入生产，完整解码、像素及其他格式尚未通过。
+
+本轮最高 CPU 采样温度为 71.7°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。内核已完成 PAS shutdown，未确认完成的 DMA 资源保留至复位。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd20-iris-dma-permission/run/iris-dma-permission-review.json`，原厂映射核对与生产补丁检查位于 `codex-1112-iris-dma-permission/`。
