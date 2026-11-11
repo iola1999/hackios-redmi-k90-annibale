@@ -1,6 +1,6 @@
 # IOMobileFramebuffer 的 selector 名字与 iOS 26.6 完整表
 
-本文给出 IOMobileFramebuffer user client 的 selector 编号、名字和调用形状，供 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp` 的 selector enum 与各分支参考。项目 enum 现有 20 个名字，本文为其余 12 个在用的号定名，并核对 72、73、74：12 个都拿到调用形状，其中 11 个有 Apple 的 `kern_*` 符号名且各有两个以上独立公开来源，88 只有调用点与形状。72、73、74 的名字与项目 enum 一致，74 的实现有一处缺陷（第 5 节）。
+本文给出 IOMobileFramebuffer user client 的 selector 编号、名字和调用形状，供 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp` 的 selector enum 与各分支参考。项目 enum 现有 20 个名字，本文为其余 12 个在用的号定名，并核对 72、73、74：12 个都拿到调用形状，其中 11 个有 Apple 的 `kern_*` 符号名且各有两个以上独立公开来源，88 只有调用点与形状。72、73、74 的名字与项目 enum 一致，74 的输出初始化已于 11-12 修复（第 5 节）。
 
 后续接口核查与验收见[图形与显示待办](../backlog/graphics.md)。
 
@@ -113,8 +113,8 @@
 
 74 `kFBMethodSupportedFrameInfo`：内核符号是 `IOMobileFramebufferUserClient::s_supported_frame_info`（S4）。本地实现在 `0x2294bb384`、slot `0xbb0`，形式为 `IOConnectCallMethod(conn, 0x4a, &type, 1, NULL, 0, output, &outputCnt, outputStruct, &structSize)`，`outputCnt` 初值 2、`structSize` 初值 64；返回后 framework 直接取 `*a3 = output[0]`、`*a5 = output[1]`，不检查实际写回几个。
 
-- 项目的 `kFBMethodSupportedFrameInfo` 分支只写 `out[0] = 0` 并把 `scalarOutputCount` 设为 1，再清零 struct。第二个槽位保持调用方栈上的初值 `0xAAAAAAAAAAAAAAAA`，调用方拿到 `0xAAAAAAAA` 作为 selected index。
-- count 为 0 时正常路径不使用这个 index。enum 注释 `/* in: type; out: how many, and their tags: none */` 中的「their tags」在公开资料里没有对应，26.6 的实际输出是 2 个 scalar（count 与 selected index）加 64 字节 struct。
+- 项目的 `kFBMethodSupportedFrameInfo` 分支现在按调用方容量初始化至多两个零值，并清零 struct。旧版仅写第一个槽位，selected index 会保持调用方初值；11-12 的 40 个宿主场景和目标编译已通过，见[修复与验证](2026-11-12-rendering-runtime.md#3-selector-74-的输出)。
+- count 为 0 时正常路径不使用 selected index。26.6 的实际输出是 2 个 scalar（count 与 selected index）加 64 字节 struct，代码注释已按这两个字段更新。
 - S4 的 iOS 14 表行是 1 scalar in、1 scalar out、`0x40` struct out，18.2 起是 2 scalar out，输出个数不能写死。
 
 ## 6. 78 的分块协议与实际调用
