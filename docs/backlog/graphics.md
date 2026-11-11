@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | S6 | XR 与格式 94 精度 | 15 项入口检查复现五处问题；原生 Metal 三路共 24 个像素字一致，局部修复会新增管线／附件不一致 | 完整实现格式 94 的创建、导入、IOSurface 元数据及显示转换；XR 布局单独核对 | [渲染核查 §6](../analysis/2026-11-12-rendering-runtime.md#6-格式-94-的完整路径) |
 | G1 | 大组件黑底、白块或蓝块 | 待验证；已有实际 draw／shader 关联与单变量候选，当前画面仍需复核 | 获取实际完整 AIR，检查输入与目标附件，验证修复后的组件冷启动及解锁转场 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md) |
-| G2 | framebuffer fetch 与多附件 | 待验证；单 BGRA8 dest_0 pass-through 已通过 | 增加 DATA1、多附件、混合、其他格式和 TBDR 场景，与原生 Metal 像素对照 | [fbfetch 结果](../progress/2026-11-08-fbfetch-validation.md)、[架构审查](../analysis/2026-11-08-architecture-review.md) |
+| G2 | framebuffer fetch 与多附件 | 独立双附件探针完成原生 8 组／3,072 像素对照及 iOS 编译；此前 A830 单附件已通过 | 执行 A830 双附件、交换读取及同 encoder 先写后读；混合、其他格式和 TBDR 路径另行验证 | [双附件参考 §9](../analysis/2026-11-12-rendering-runtime.md#9-g2-双附件-framebuffer-fetch)、[既有设备结果](../progress/2026-11-08-fbfetch-validation.md) |
 | G3 | Mesa alias.rt 与 fsat | 维护补丁已完成；旧版 3／16 失败，修复后 16／16 成功，隔离 iOS 库链接通过 | 验证 A830 像素、16 位 shader 与实际 UI；完整 AIR 语料待恢复宿主工具后运行 | [渲染核查 §2](../analysis/2026-11-12-rendering-runtime.md#2-mesa-aliasrt-与-fsat) |
 | G4 | 其他 ir3／A8xx 正确性 | 候选；大缓冲 NUM_ELEMENTS、布尔 subgroup、fquantize2f16 有上游修复 | 先确认本仓调用会生成对应 NIR 或描述符，再按容量边界、部分活跃 lane、subnormal 构造验证 | [上游对照 §5](../analysis/2026-11-12-upstream-review.md#5-mesa) |
 | G5 | 启动图标与持续交互 | 待当前镜像复测；旧轮出现图标延迟和短暂空位 | 记录解锁、图标出现、设置完整加载时刻，连续巡检主屏、控制中心、通知中心与大组件 | [问题复核](../analysis/2026-11-08-issue-reassessment.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md) |
