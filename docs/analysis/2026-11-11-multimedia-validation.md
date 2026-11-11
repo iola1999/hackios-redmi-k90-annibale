@@ -739,7 +739,7 @@ cd19 以 cd18 为基线，只增加原厂当前 320×192 progressive AVC 样本�
 
 静态定位基于本机提取的 `camera.ko`：首字节跳过和移位位于 `.text+0x15e734`／`0x15e81c`，FIFO 字数检查位于 `0x15e69c`～`0x15e6a8`，配置 ID 比较位于 `0x18d478`～`0x18d4e8`。相关源码与反汇编核对记录保存在本地 `codex-1112-camera-identity/`，后续独立候选将修正数据字节位置、完成检查和 GPIO 错误传播，再验证实际读值。
 
-独立行为候选与附加诊断候选各通过 34 个宿主场景，七项消融均检出相应问题；基线及两份候选的内核翻译单元编译成功，归一化路径与行号后的警告一致。错误或超时后停止后摄 CCI 及其 GPIO 探测，恢复重试需另行验证 master reset 完成。候选尚未上机，生产文件保持原样。
+独立行为候选与附加诊断候选各通过 34 个宿主场景，七项消融均检出相应问题；基线及两份候选的内核翻译单元编译成功，归一化路径与行号后的警告一致。错误或超时后停止后摄 CCI 及其 GPIO 探测，恢复重试需另行验证 master reset 完成。cd22 真机结果见第 44 节，生产文件保持原样。
 
 ## 40. HTTP AVPlayer 冷启动与重复播放
 
@@ -769,10 +769,57 @@ cd20 以第 37 节的 cd19 为基线，普通 NC／WB 数据页增加 AP_UNPRIV 
 - 初始化后与 input 发布前的 CB 81 FSR 均为 `0x400`，两次采样的故障位为 0。本轮 input 后未触发 collect timeout，故障地址与页表诊断未执行，input 后 FSR 仍缺少采样。
 - OPEN、两次订阅和 input START 均收到应答，首次收到一个 SETTINGS_CHANGE 及九项 PSC 属性。输入／输出 BUFFER 返回、RAW 发布和解码帧数仍为 0，单次探针耗时 303 ms，回调为 `-12909`。
 - 首个解析错误为 crop 属性 `0x03000105` 的 payload type：固件返回 U64（3），当前解析器只接受 64_PACKED（13）。depth、coded frames、color 的实际类型均为 32_PACKED（10），当前分支只接受 U32／ENUM；这些差异均会返回 EIO。
-- 原厂 `handle_session_property` 按类型检查最短长度，再按属性读取数据；crop 读取两个 32 位值，depth／coded frames／color 各读取一个。下一候选修正对应类型并记录 PSC 数值，现有长度、port、flags 检查继续保留。
+- 原厂 `handle_session_property` 按类型检查最短长度，再按属性读取数据；crop 读取两个 32 位值，depth／coded frames／color 各读取一个。类型修正及真机解析结果见第 43 节，现有长度、port、flags 检查继续保留。
 
 普通 DMA 权限修正及既有测试扩展已提交到内核仓 `638ab9ec`，11 个权限／资源生命周期场景通过，八类错误版本均被检出。真机验证范围为当前 320×192 AVC 与 STAGE1 诊断配置；STAGE1 和临时诊断未合入生产，完整解码、像素及其他格式尚未通过。
 
 本轮最高 CPU 采样温度为 71.7°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。内核已完成 PAS shutdown，未确认完成的 DMA 资源保留至复位。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd20-iris-dma-permission/run/iris-dma-permission-review.json`，原厂映射核对与生产补丁检查位于 `codex-1112-iris-dma-permission/`。
+
+## 42. Safari 原生打开接口返回失败
+
+使用第 40 节的同一 HTTP 音频页面，原生打开接口约 10,084 ms 后返回 false。辅助程序将 BOOL 为 0 统一打印为 `it REFUSES`；现有返回值不足以确认失败来自 SpringBoard、URL handler、权限检查或等待超时。
+
+- `SBSOpenSensitiveURLAndUnlock` 使用 `LSApplicationWorkspace` 的 `openSensitiveURL:withOptions:`，options 只有 `__UnlockDevice:@YES`。该方法转到带 `NSError **` 的变体，现有调用传入 NULL，具体错误未被采集。
+- 请求前日志记录 `deviceIsLocked=YES`；后续路径通过 `_LSDOpenService` 的同步代理发送 `openURL:fileHandle:options:completionHandler:`。约十秒耗时的来源仍需定位。
+- 服务端仅收到主机健康检查，设备 GET、page-ready、点击和播放均为 0。后置回归与相机 metadata 读取未执行，Safari 播放尚未进入验收阶段。
+- HTTP 服务与控制进程均已退出，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。短轮没有 CPU 即时温度报告，周期采样覆盖不足。
+
+下一探针保持同一原生 LS 入口及 options，单次采集 NSError 的 domain、code、userInfo、锁定状态与阶段耗时。原始结果位于本地 `kernel-12377-codex-1112-cd16-audio-safari/run/safari-review.json`。
+
+## 43. Iris PSC 类型修正与输出缓冲数量
+
+cd21 保持第 41 节的 DMA 权限及诊断配置，crop 新增接受 U64，depth／coded frames／color 新增接受 32_PACKED；已有类型与长度、port、flags 检查保留。真机九项 PSC 全部解析，`seen=required=0x5fb`。
+
+| 属性 | 返回值 |
+|---|---|
+| resolution | `0x14000c0`，320×192 |
+| crop 左上／右下 | `0`／`0` |
+| profile／level | `2`／`3` |
+| depth | `0x80008` |
+| coded frames | `1` |
+| minimum output count | `6` |
+| POC | `0` |
+| color | `0x21202` |
+
+当前 RAW pool 容量为 4，PSC 要求 6 个输出缓冲，`iris_start_output()` 因容量检查返回 EOPNOTSUPP（102）。RAW 配置、RESUME 与 output START 尚未发送，BUFFER 返回与解码帧数均为 0；单次探针耗时 460 ms，回调仍为 `-12909`。下一步按原厂的输出／DPB 分配规则修正资源数量，再验证实际输出。
+
+生产修正已提交到内核仓 `e1f85a98`，不包含 STAGE1 或临时属性日志。实际应用后的源码通过 124 项 ASan／UBSan 场景，49 类消融均被检出；单文件均未超过 1,200 行。
+
+本轮完成 19 条常规命令、一次硬解请求与两张桌面截图。最高 CPU 采样温度为 73.3°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。原始结果位于本地 `kernel-12377-codex-1112-cd21-iris-psc-types/`，宿主检查位于 `codex-1112-iris-psc-types/production-applied-check/`。
+
+## 44. 相机读取有效性与 V5 模块提取
+
+cd22 以第 40 节的内核和辅助盘为基线，只修正第 39 节的 CCI 数据字节位置、事务完成检查与 GPIO 时钟错误传播，并增加 ID 读取日志。VFE 版本寄存器 offset 仍为 `0xa00`，CCI 时钟仍为 19.2 MHz，未加入 sensor streaming。
+
+- 后摄首次读取 slave `0x10`、寄存器 `0x300a`，IRQ 为 `0x01011000`；RD_DONE 与 Q0_REPORT 均置位，error mask 未命中。实际读取的 `READ_BUF_LEVEL` 为 0，因此拒绝此次事务并停用后续后摄探测，汇总 ID 为 `0x0000`。
+- 日志的 `raw=0`／`payload=0` 是初始化值；本次没有读取 FIFO 数据，不能据此解释传感器 payload。
+- 前摄 GPIO 读取 `0x300a=0x56`、`0x300b=0x20`，数据位与 ACK 时钟检查均通过。这两个寄存器的读值仍需与厂商指定的 ID 地址、数据宽度、mask 和 expected ID 对应，型号尚未验收。
+- VFE 版本仍返回 0，`hw_dma=0`，本轮没有真实相机像素或 CSI／IFE DMA 结果。
+
+三条 metadata 读取各返回 28,704 字节／598 行，起始 offset、连续性、base64、终止状态和 next 均通过检查；各取所需的 28,672 字节写入新副本，原 metadata-v4 保持原样。前两段已提取完整 Sunny OV20B40 front_i 模块，长度为 156,424 字节，四个 section 连续且均在文件范围内，尾部 CRC32 与前部文件内容匹配。
+
+该模块使用 `Parameter Parser V5.2.1 (2408261003)`，现有 `camsensor.py` 只接受 V3.0.1。现阶段确认文件完整性，V5 的 sensorDriverData 字段布局继续核对；AAC wide_i 仅取得首段压缩数据，完整后摄模块尚未提取。
+
+本轮 24 个步骤按预期完成，包含两张桌面截图和上述三条读取。最高 CPU 采样温度为 73.3°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。原始日志见本地 `kernel-12377-codex-1112-cd22-camera-read/run/camera-read-events.json`，模块边界与 CRC32 检查见 `codex-1112-camera-native/metadata-v5/v5-container-review.json`。
