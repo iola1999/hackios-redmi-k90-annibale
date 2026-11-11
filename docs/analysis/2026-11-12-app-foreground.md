@@ -1,6 +1,6 @@
 # 后台应用前台切换核查（2026-11-12）
 
-本批按[执行计划](../plan/2026-11-12-app-foreground.md)核查 S5。当前仅确认历史记录中的后台进程复用与重新启动结果不同，尚未获得同一开机的完整 assertion／scene 对照，应用前台切换根因待确认。
+本批按[执行计划](../plan/2026-11-12-app-foreground.md)核查 S5。历史记录中的后台进程复用与重新启动结果不同；最新设置打开现场已出现进程启动和前台状态发布，截图仍未显示设置内容。同一开机的完整 assertion／scene 对照尚缺，根因待确认。
 
 ## 1. 已有结果与当前边界
 
@@ -89,7 +89,9 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 
 ### 4.3 原生日志
 
-先复用已有日志入口。在诊断候选中使用 `applog=1 applog_name=SpringBoard,runningboardd,<可执行文件名>`，按文件名前缀启用 `OS_ACTIVITY_DT_MODE`、`ACTIVITY_LOG_STDERR` 和 `CFLOG_FORCE_STDERR`。构建清单保留原有参数并记录本轮新增项，日志开启后的性能数据只用于该诊断配置。
+诊断候选使用 `applog=1 applog_name=SpringBoard,runningboardd,Preferences`。`applog_name` 按文件名前缀限制额外注入的 `OS_ACTIVITY_DT_MODE`、`ACTIVITY_LOG_STDERR` 和 `CFLOG_FORCE_STDERR`。
+
+`applog=1` 还会将所有程序 spawn OPEN 动作中 fd 1／2 的 `/dev/null` 改为 `/dev/console`，这项重定向不受名称过滤。相关实现为 `exec_applog_path` 与 `exec_applog_oslog`，位于 `hackios-xnu-kernel/xnu26/patches/09-bsd%kern%kern_exec.c.patch`。构建清单保留原有参数并记录新增项，性能读数仅描述该诊断配置。
 
 `xpcwatch` 只统计连接与服务查找，无法给出 assertion 或 scene 消息内容。原生日志仍缺某阶段的请求／回应时，再为缺失阶段增加有限诊断；当前没有修改原生生命周期或 scene 方法。
 
@@ -106,7 +108,7 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 | LS／FBS identity | 7 项实际探针宿主检查及 12 项 ABI／异常辅助检查成功；缺失应用和错误指针 ABI 的消融检查均失败；arm64e 链接与签名检查成功 | iOS 查询权限、注册状态与进程身份对照 |
 | S5 行为 | 失败阶段与判据已整理 | 同一应用连续前后台切换的设备验收 |
 
-实现复核保留现有 annsh、rsh 和层树入口，进程信息没有在 LS 工具中重复查询。scene 与 SDF 共用 getter ABI 校验；尚缺的请求／完成记录先通过原生日志采集。三个目标产物独立构建，完整设备候选仍由唯一 device 所属任务按当轮基线装配。
+实现复核保留现有 annsh、rsh 和层树入口，进程信息没有在 LS 工具中重复查询。scene 与 SDF 共用 getter ABI 校验；尚缺的请求／完成记录先通过原生日志采集。三个目标产物独立构建，完整诊断候选已按 heap 基线装配，产物检查见 §8。
 
 ## 6. 设备对照与剩余问题
 
@@ -126,3 +128,67 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 | `shot-01231.raw` | `2026-11-11T18:39:41.364650+00:00` | 仍显示控制中心及底部手势条 | 未覆盖多任务卡片、目标应用 scene 或激活后的完整界面 |
 
 时间来自主机发现截图文件的记录。`cc-close` 命令完成记录为 `18:39:36.543819+00:00`，第二张关闭后截图约晚 4.82 秒；该时间间隔无法给出设备准确采帧时刻。已有图未显示退出控制中心，后续先确认实际进入多任务，再判断卡片内容和激活结果。
+
+### 7.1 正常重启后打开设置
+
+后续 `standalone-heap-deploy/flashed-boot` 轮的 `desktop-full.png` 和 `foreground-full.png` 已实际打开查看。桌面图中天气、日历两个组件均为上下浅色条、中间露出壁纸；点击设置后的第二张图为黑色背景，桌面缩小并变暗，底部手势条可见，未见设置内容。该轮未执行多任务，任务卡片仍未覆盖。
+
+该轮文件位于 `docs/progress/evidence/k90auto/codex-device-1111/standalone-heap-deploy/flashed-boot/run/`。以下时间为 `2026-11-11` UTC；原生系统日志使用次日 `+0800`：
+
+| 时间 | 已记录状态 | 来源 |
+|---|---|---|
+| `18:55:27.125027` | 请求点击设置，坐标 `0.616, 0.715` | `tour-actions.jsonl` |
+| `18:55:27.419` | FrontBoard 发布 `com.apple.Preferences-default` 前台布局；随后出现 Preferences PID 404 初始化 | `returned-held.log` |
+| `18:55:29.807173` | 点击命令返回 0 | `tour-actions.jsonl` |
+| `18:55:30.488819` | backboardd 收到 Preferences context `F1F1C120` 的 `unspecified -> foreground` | `returned-held.log` |
+| `18:55:30.615929` | 第一张点击后截图仍显示桌面 | `tour.json` 的 `shot-01884.raw` |
+| `18:55:31.628` | Preferences scene 获得 `hasKeyboardFocus` | `returned-held.log` |
+| `18:55:32.039466` | bluetoothd 的状态监视器报告 PID 404、`foreground-running`、`isAlive: true` | `returned-held.log` |
+| `18:55:33.149760` | 第二张图为黑底、缩小且变暗的桌面，未显示设置内容 | `tour.json` 的 `shot-01909.raw`，已查看 `foreground-full.png` |
+
+日志已确认进程启动与前台状态发布。scene 内容是否完成提交、进入合成以及最终显示仍缺信息。第二张截图是单个采样，无法据此判定异常持续时间。
+
+同一窗口中，backboardd 多次拒绝 FourCC `0x5f524234`、2 planes 的 IOSurface，`0x12`／`0x10` 创建 MTLTexture 失败；scene 进入前台后的相关日志为 `18:55:30.624988`／`18:55:30.625256`，后续出现在 `18:55:31.442847` 和 `18:55:31.706971`。该格式在点击前的 `18:54:59.990` 已被拒绝，WidgetRenderer 也报告相同失败。格式映射与原生布局见[渲染核查 §10](2026-11-12-rendering-runtime.md#10-_rb4-双平面-rgb-导入)。当前未找到这些 surface 与 Preferences scene 的明确对应，格式失败与本次黑底的因果关系待查。
+
+`probe-after-processes.txt` 实际采样于 `18:54:37.839–40.635`，线程查询于 `18:54:40.636–42.427`，均早于点击。点击后约 406 ms 的自动线程样本仅覆盖 SpringBoard、backboardd 和 input26-service，早于后续 scene 前台更新；它无法描述第二张截图阶段的 Preferences 线程状态。
+
+下一轮在异常画面窗口采集本批 scene 字段、Preferences 的 `process PID`／`threads PID` 和实际截图，分别判断内容尚未准备与已有内容但合成失败。采集顺序在起轮前固定，基线和点击后的有界采样不再等待聊天回复。
+
+### 7.2 历史后台复用场景的前提
+
+历史记录只有显示名 Kumone 和主程序名 KumoneIOS，未记录 Bundle ID、后台启动请求或原始轮次。当前 heap RAM 轮的两份进程采样均未见 KumoneIOS。默认启动脚本和 watcher 没有明确启动该应用的命令，通用后台调度服务仍在运行。
+
+后续复现历史后台场景前，先从实际安装的 Info.plist 读取 Bundle ID／主程序名，再查询 LS/FBS 身份，并在点击前记录后台实例的 PID 与启动时间。点击前未出现后台实例就记录「历史后台启动前提未覆盖」，冷启动及设置打开结果分别归档。
+
+## 8. 独立诊断候选与固定采集
+
+### 8.1 镜像检查
+
+候选保存在 Git 忽略的 `hackios-xnu-kernel/out/s5-foreground-1112/`，使用已验证 heap 辅助盘为基线。独立构建只替换 `/bin/annsh`、`/lib/libannibale-sb26.dylib` 并新增 `/bin/app-identity`；逐路径比较为 719 → 720 项，目录 `/bin` 的 nlink 从 48 改为 49，其余目录及文件内容保持一致。
+
+| 产物 | 字节 | SHA256 |
+|---|---:|---|
+| `root.apfs` | 21,524,480 | `f2fb21ee8835b6be26072a322c72dd5a7842642e9c968167dfbc15ccb8bba43e` |
+| `candidate.bin` | 42,074,232 | `9389df359a8497e0fd2a4e8cd66e6a1f08057a1a3f215af53c9dcb5d7dbaf6c7` |
+| `manifest.json` | 120,652 | `6b8615901a641bea060c1f4387d9e3f55e46598dc3b560586415416e2a680ff5` |
+
+源产物与 APFS 回读文件均通过严格签名检查。XNUP 的 kernel、memsize、identity 与基线逐字节相同；AIR、CPU／GPU 参数和常驻启动卷保持基线内容，命令行只追加 §4.3 的两个日志参数。完整比较保存在同目录的 `payload-check.json` 和 `delivery.json`。当前未生成独立部署入口，也未执行设备命令。
+
+### 8.2 一次设置打开的采集范围
+
+`docs/analysis/local/s5-foreground-1112/s5-visual.py` 复用既有 runner、rsh、ios-state、AX 和截图接口，21 项宿主检查成功，设备工具调用均由 mock 替代。测试另用真实本机子进程验证超时清理，包括父进程先退出、孙进程忽略 SIGTERM 的情况。
+
+8 份来源文件已逐字复制到同目录的 `frozen/`，保留来源相对目录结构；冻结副本在工作区之外再次通过 21 项测试，所有项目脚本依赖指向冻结目录。`frozen/manifest.json` 保存推荐命令、逐文件 SHA256 及外部 Python 3.14.6／NumPy 2.5.4 信息，清单 SHA256 为 `4169fd9b96d4671178ded901b0e40e0f7635f658cdb636da3d73fb3d7b1dd3bf`。
+
+固定顺序如下：
+
+1. 获取基线原始截图、SpringBoard 和可选 Preferences PID、进程／线程状态，查询一次 `app-identity com.apple.Preferences`，采集 AX 和 layers。
+2. AX 必须包含唯一的 SpringBoard「设置」图标、类名包含 `SBIconView`，预定坐标必须落在图标 frame 内；缺少前提就保留基线并结束。
+3. 只点击一次设置。以点击命令返回为起点，在 +0.5、+3、+10 秒调用截图，中间不插入完整状态查询。
+4. 最后再采一次进程／线程、AX 和 layers，结束采集。原图逐张审阅后再安排多任务批次。
+
+请求总时限为 150 秒，单次 rsh、截图、状态和 AX 上限分别为 18、20、45、25 秒。传输退出 2／3、嵌套 fetch 传输失败或超时会停止追加请求，并向原 runner 写 `stop-request`；恢复仍由原 device 执行。完整执行有 14 个直接子进程，AX 之外至多 28 条 annsh 命令；AX 的分片数量取决于实际文件，受时间上限约束。
+
+截图目标时刻指宿主调用 `tour.take_shot()` 的时刻，设备采帧与面板呈现时间未测得。调用晚于计划 0.5 秒或错过时点会单独记录。`capture_complete` 仅表示计划截图及其调用窗口满足要求；`foreground_visibility` 保持 `unknown`，多任务保持 `not_covered`，画面结论由原图审阅补充。
+
+该入口只查询 SpringBoard 已安装的 layers 诊断。输出中的 window context 属于其本地窗口，Preferences 的 context 未必出现；无 hosted scene 的进程仍需原生日志与 `process PID`。基线缺少后台 Preferences 时，本轮覆盖设置冷启动尝试，进程是否创建由 after PID 与日志确认；历史后台复用场景继续待验。

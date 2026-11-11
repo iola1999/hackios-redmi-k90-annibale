@@ -1,6 +1,6 @@
 # 渲染、文件身份与元数据打包核查（2026-11-12）
 
-本批按照[执行计划](../plan/2026-11-12-rendering-runtime.md)处理 G3、G8、S9、S10，并完成 S6 的入口复现与原生参考。设备继续由多媒体任务统一操作，本批结果来自源码、iOS 26 共享缓存、宿主测试和目标编译。
+本批按照[执行计划](../plan/2026-11-12-rendering-runtime.md)处理 G3、G8、S9、S10，并完成 S6 的入口复现与原生参考。设备继续由多媒体任务统一操作；源码、iOS 26 共享缓存、宿主测试与目标编译结果分别记录，G2 的 A830 像素验收见 §9。
 
 内核与驱动测试提交为 `a75b0016`，Mesa 补丁与测试提交为 `0c0f37f`。两笔提交均未部署到设备。
 
@@ -148,4 +148,48 @@ Apple GPU 上 8 个场景共 3,072 个像素逐字节一致。将 DATA1 故意�
 
 iOS shader 按 `air64-apple-ios16.5.0`、Metal 3.0 独立编译；可执行文件为 arm64e、最低 iOS 26.0、SDK 27.1，签名与严格校验通过。现有宿主 `air2nir` 实际解码五个函数，并检查 pass／swap 的 DATA0、DATA1 coherent 读取与各自输出；人工核对了两者保留／交换的 SSA 写入关系。现有 `air-ir3-host` 仅接受 compute 入口，未用于证明这些 vertex／fragment 的 A830 编译结果。
 
-源码、构建方法与设备短命令见[探针说明](../../hackios-xnu-userland/tools/air/fbfetch-mrt.md)。产物、原生像素和命令清单保存在忽略目录 `hackios-xnu-userland/out/g2-fbfetch-mrt-delivery/`。A830 尚未运行；其他格式、fixed blending、MSAA、memoryless 附件、TBDR 路径选择及实际系统 shader 仍需独立检查。
+源码、构建方法与设备短命令见[探针说明](../../hackios-xnu-userland/tools/air/fbfetch-mrt.md)。产物、原生像素和命令清单保存在忽略目录 `hackios-xnu-userland/out/g2-fbfetch-mrt-delivery/`。
+
+`kernel-12377-codex-1112-cd14-heap-metal` 轮已在 A830 完成两次执行。正确组返回 `0`、耗时 `138 ms`，8 项合计检查 3,072 像素，失配为 0；错误 DATA1 对照返回 `1`、耗时 `94 ms`，8 项各检测到 63 个像素失配。两次均报告 `backend=Adreno (TM) 830`、`class=AnnibaleMetalDevice`。
+
+本批直接解析该轮 `root.apfs`，确认 `/tests/fbf`、`fbf.metallib` 与最终交付逐字节相同，payload 内 ramdisk 与该辅助盘也逐字节相同。额外入口 `fbfc` 只将标准输出／错误写到 `/dev/console`，设置库和驱动路径后执行原始探针。原始记录为该轮 `run/probe-results.jsonl`、`run/s020.log` 和 `run/s021.log`。
+
+本次验收覆盖双 BGRA8 附件、反序绑定、pass／swap、同 encoder 先写后读及 scissor 内外。其他格式、fixed blending、MSAA、memoryless 附件、TBDR 路径选择及实际系统 shader 仍需独立检查；桌面组件和前台切换的画面问题分别验收。
+
+## 10. `_RB4` 双平面 RGB 导入
+
+### 10.1 23G90 格式与布局
+
+设置打开现场多次出现 `0x5f524234`、2 planes 的 IOSurface 导入失败，该 FourCC 为 `_RB4`。23G90 QuartzCore 的 `0x183efa560–578` 在 flags bit 0 置位的路径返回 Metal 格式 542；RenderBox 的 `0x196a75840 → 0x196a762c8` 在 flags bit 1 置位的路径也返回 542。Metal 的名称分支 `0x1860e0a2c` 使用字符串 `0x1862df446`，内容为 `MTLPixelFormatRGB8_444_2P`。
+
+RenderBox 的 `0x196a39c30` 两次调用平面布局 helper `0x196a9d5a4`：两个 plane 均为完整宽高，bytes per element 分别为 1、2；row bytes 和 plane size 经 `IOSurfaceAlignProperty` 对齐，plane 1 的 offset 为 plane 0 size。MiniIOSurface 已接受显式 `IOSurfacePlaneInfo`；本轮现场尚缺创建者和原始 plane 属性。
+
+当前 `hackios-xnu-kernel/tools/userland-driver/annibaledrawable.m` 只接纳 NV12／P010 双平面，其他多平面输入返回失败；`annibalemetal_texture.inc` 的组合纹理分支只覆盖 500／505，尚未支持 542。该拒绝发生在 Mesa 纹理分配之前。相关导入与采样文件已有多媒体工作，本批保留原修改归属。
+
+### 10.2 宿主原生生产者的通道输出
+
+macOS 27.0／26A428、Apple M5 Ultra／AGXG17DDevice 上，按上述布局创建 `32×16` `_RB4` IOSurface。plane 0 为 row 128、bpe 1、offset 0；plane 1 为 row 128、bpe 2、offset 2048；总分配 4096 字节。
+
+原生 `newTextureWithDescriptor:iosurface:plane:0` 成功返回格式 542 纹理，逐平面的 R8／RG8 纹理也创建成功。普通、不关联 IOSurface 的 542 纹理创建返回 nil，该结果只覆盖普通创建入口。
+
+使用原生 render pass 的 `loadActionClear` 写入七组颜色，再锁定 IOSurface 读取两平面；每次 command 完成、lock／unlock 成功，512 个像素均匀。CPU 没有按预设通道写入输入。
+
+| 原生清屏 RGBA | plane 0 字节 | plane 1 两字节 |
+|---|---|---|
+| `(1, 0, 0, 1)` | `00` | `00 ff` |
+| `(0, 1, 0, 1)` | `ff` | `00 00` |
+| `(0, 0, 1, 1)` | `00` | `ff 00` |
+| `(0, 0, 0, 1)` | `00` | `00 00` |
+| `(1, 1, 1, 1)` | `ff` | `ff ff` |
+| `(0.25, 0.5, 0.75, 1)` | `80` | `bf 40` |
+| `(0.25, 0.5, 0.75, 0)` | `80` | `bf 40` |
+
+该宿主的实际存储为 plane 0 = G、plane 1 = B／R。组合纹理的 nearest normalized sample 与 integer read 各检查七组，14 个 RGBA 返回值均符合 `(R/255, G/255, B/255, 1)`，允许误差为 0.0005；清屏 alpha 为 0 的一组也返回 alpha 1。
+
+23G90 的同尺寸 1＋2 字节布局已静态确认，iOS 同通道排列尚未取得独立结果。本次宿主样本未覆盖线性过滤、空间变化、不同 stride／offset、shader 写入、fragment 输出、混合及多 pass 同步，A830 读写仍待验证。原始源码、编译记录、输出和静态地址保存在 Git 忽略的 `docs/analysis/local/s5-foreground-1112/rb4-host/`、`rb4-static/` 与 `rb4-g2-review.md`。
+
+### 10.3 现场关联与下一步
+
+`_RB4` 失败早于设置点击，WidgetRenderer 也出现同一格式拒绝。当前未建立 surface `0x10`／`0x12` 与 Preferences scene 的对应关系，具体时间和画面见[前台切换核查 §7.1](2026-11-12-app-foreground.md#71-正常重启后打开设置)。
+
+后续先记录失败导入的 Metal 格式、usage、surface ID、宽高、plane offset／stride 和关联 scene／context，再按原生结果实现导入及通道组合。现有 YUV 路径使用半尺寸第二平面与矩阵转换，542 需要完整尺寸和 RGB 通道重组；宿主的 render clear 已成功，仅实现读取仍缺写入覆盖。像素测试需要覆盖布局、绑定、资源生命周期和跨 pass 可见性；系统画面单独验收。本批没有修改生产驱动，也没有在设备上运行 `_RB4` 探针。
