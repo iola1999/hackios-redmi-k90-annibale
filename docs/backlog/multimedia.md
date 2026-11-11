@@ -6,10 +6,10 @@
 
 | 编号 | 事项 | 当前边界 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
-| M1 | Iris 硬件解码出帧 | 进行中；hardware=1 会话已创建，首帧仍为固件 fatal；错误回调与 drain 已通过 | 对照 HFI 会话、缓冲类型、布局与响应，要求实际硬件解码帧、像素内容和连续播放通过 | [多媒体验证 §18](../analysis/2026-11-11-multimedia-validation.md)、[视频分析](../analysis/2026-11-05-video-decode.md) |
-| M2 | 真实相机流与 DMA | 进行中；前后传感器 ID、设备枚举、SLM 与眼镜景深管线通过，RG16 导入修复后 MPS 滤波已执行；相机后续仍退出 | 先验证 R16Float 导入与 Core Image stitching，cospi 候选的桌面异常见[图形待办 G7／G14](graphics.md)；同轮核对 sensor streaming、CSI／CSID 帧边界、IFE stride、DMA 地址与 ready 顺序、首尾行真实像素 | [多媒体验证 §7、§19、§24](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
+| M1 | Iris 硬件解码出帧 | 进行中；cd16 首条 fatal 明确为 COMV 数量 `host 8 < fw 18`，仍为零帧；原厂输入端口初始最小数量属性缺失 | 单变量验证输入订阅后的 `0x03000124=4`，保持 COMV 8，继续核对数量协商，再验实际解码像素和连续播放 | [多媒体验证 §30](../analysis/2026-11-11-multimedia-validation.md#30-iris-固件错误诊断)、[视频分析](../analysis/2026-11-05-video-decode.md) |
+| M2 | 真实相机流与 DMA | 进行中；R16 `1C0h` 导入、CI label 与原版 CI 图数值通过；MPS 数组签名和 process-owned IOSurface 仍有缺口，真实 CSI／IFE DMA 尚未实现 | 验证 MPS 二维数组读取，修复 process-owned IOSurface 导入；按本机 CSID／IFE 契约实现 sensor streaming 与 DMA，再验首尾行真实像素 | [多媒体验证 §28、§31、§33、§34](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
 | M3 | 扬声器实际出声 | 待验证；AudioQueue、PCM 完成及双功放 operating 已有结果 | 先核对功放配置与软件保护；缺少 DSP 扬声器保护的首次出声按原调研使用低增益并由人在场确认。冷启动播放已知音频，结合路由、PCM 完成和听音验收左右声道与音量 | [多媒体验证 §2](../analysis/2026-11-11-multimedia-validation.md)、[音频分析](../analysis/2026-11-02-audio-and-volume.md) |
-| M4 | 冷启动播放器与 Safari 视频 | 待验证；预热后本地播放已有结果，冷启动等待与 CoreMedia XPC 超时未完成验收 | 先在未预热的当前基线分阶段检查 HAL、路由与零幅 PCM，同轮重复作初始化后对照，核对耗时、服务状态及排空后 sent == done；随后对照冷启动／预热的会话、缓冲及进程状态，验收本地完整播放和网页播放，软解与硬解分别标明 | [音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md) |
+| M4 | 冷启动播放器与 Safari 视频 | 进行中；冷启动及重复的零幅 AudioQueue／DSP 排空通过，首次 9.239 秒、重复 3.968 秒；路由名称乱码来自 console 的 7 位字符处理 | 分阶段对照 AVPlayer／Safari 冷启动，核对输出设备 ID 的原生含义，软解与硬解分别标明；本地完整播放与网页播放待验 | [多媒体验证 §32](../analysis/2026-11-11-multimedia-validation.md#32-冷启动音频的阶段与排空诊断)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
 
 NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查已经通过，原版 SLM 两条管线构造也已通过。这些结果作为后续回归基线。
 

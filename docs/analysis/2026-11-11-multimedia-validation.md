@@ -515,7 +515,15 @@ R16 独立候选基于 heap／minmax 辅助盘，只替换两份 Metal 库并加
 | 128×128 | 256 字节 | 0 | 32,768 字节 |
 | 256×380 | 512 字节 | 0 | 196,608 字节 |
 
-内核仓 `e09aed95` 仅为 Metal 25 接受 `1C0h` 别名，保留 canonical `L00h` 与所有布局检查。iOS 26 CoreImage 的正反转换确认 `kCIFormatRh`（`0x805`）对应 `1C0h`，纹理创建选择 Metal 25。完整生产导入器的 48 组检查、原生 GPU 的 22 组读取／采样通过，其中包含上表三种相机布局；旧实现与放宽 Metal 格式限制的变体均失败。独立库、探针和 RAM 已完成，真机后续路径待验证。
+内核仓 `e09aed95` 仅为 Metal 25 接受 `1C0h` 别名，保留 canonical `L00h` 与所有布局检查。iOS 26 CoreImage 的正反转换确认 `kCIFormatRh`（`0x805`）对应 `1C0h`，纹理创建选择 Metal 25。完整生产导入器的 48 组检查、原生 GPU 的 22 组读取／采样通过，其中包含上表三种相机布局；旧实现与放宽 Metal 格式限制的变体均失败。
+
+A830 RAM 轮的 22 组读取／采样全部通过，其中 `L00h` 8 组、`1C0h` 14 组，像素与 prefix、padding、suffix 的意外变化均为零；探针在 247 ms 后返回 0。
+
+- 20 项设备命令按预期返回，另完成前后两次截图。RG16 8／8、SLM 2／2、NV12／P010 各 6／6 和 G2 正反对照保持预期结果，16 个进程实例的 Metal／AIR UUID 匹配候选。
+- 相机实际 `1C0h` 的 380×380、256×380、256×256、128×128 导入成功，FourCC mismatch 与 `MPSImageAreaMin` 空 source 断言均未出现。相机随后在 `mps_stgf_computeInvertedGuideCovarianceMatrix3` 编译处因二维数组 builtin read sampler 签名被拒而退出，修复见第 33 节。
+- 仍有两次 process-owned memory 的 surface 描述失败，以及两个进程的 CI affine crop 错误；这些调用分别继续定位。
+- 实际查看完整桌面图和原尺寸局部，图标可见，天气仍为整块浅白，日历仍为上下浅白、中间露出壁纸。
+- 最高 CPU 采样温度为 75.2°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。原始记录为本地 `kernel-12377-codex-1112-cd14-r16-alias/run/`。
 
 ## 29. Core Image stitched compute
 
@@ -532,7 +540,9 @@ A830 的原版 CI 图探针在 160 ms 后返回 0，命令状态为 4，128 个�
 - 20 项设备命令按预期返回，另完成前后两次桌面截图；19 条运行身份与冻结库匹配。最高 CPU 采样温度为 74.0°C；收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
 - 相机已创建 `ci_affine_crop` 和 `ci_affine_swizzle_rgb1` stitched library，随后在 compute pipeline 创建前抛出 `NSProxy doesNotRecognizeSelector:setLabel:` 异常，共记录三次。该异常继续核对函数对象的 label 契约。
 
-cospi 和 CI 两轮使用不同的新 AIR，均出现图标缺失；R16 轮沿用 minmax AIR，图标可见。现有比较确认新 AIR UUID 引发着色器重新编译，尚未确定该差异是否导致图标缺失。继续对照缓存读写、运行期专化着色器与绘制状态；相机与桌面验收分别保留结果。
+保持上述 CI payload、辅助盘和 AIR 完全一致的暖缓存对照中，应用与 Dock 图标恢复可见，组件异常保留。原版 CI 图的 128 个分量再次通过，19 条运行 UUID 匹配；相机仍记录两条 `setLabel:` 异常。20 项设备命令按预期返回，另完成两张截图，最高 CPU 采样温度为 72.9°C，loader 空闲、常驻区为空和真实 LK 重试 7 均通过。
+
+暖缓存对照确认同一 CI 产物在后续启动中可以显示图标，初次缺失的原因仍需检查。完整图与原尺寸局部均已实际查看，缓存计数及图形分析由[图标专题](2026-11-12-air-icon-regression.md)维护，本地原始记录为 `kernel-12377-codex-1112-cd14-ci-warm/`。相机函数对象的 label 修复见第 31 节。
 
 候选构建记录在本地 `codex-1112-ci-stitch/`，真机记录在 `kernel-12377-codex-1112-cd14-ci-stitch/run/`。AIR SHA-256 为 `345ab358d36205ce673df1d86a50767f98117a454094717fb4a5efe0fc6f46b0`，辅助盘 SHA-256 为 `c987b2ef93de120a6480f9110c4e367cbfb818bdb4c56ac44c0dcd5bf2e7227b`。
 
@@ -544,6 +554,92 @@ cospi 和 CI 两轮使用不同的新 AIR，均出现图标缺失；R16 轮沿�
 
 - 完整生产代码的 31 个 ASan／UBSan 场景与 14 个保护或顺序变体检查通过；旧实现的完整消息、空队列 SFR、session error 三项失败。既有 INIT 50 例、HFI／session 100 例和生命周期回归保持通过。
 - cd14 独立完整复链与已验收内核逐字节一致；候选主链接的 1,162 个对象仅 HFI 对象不同，193 份源文件也仅 HFI C 文件变化。RAM 保留 heap／minmax 辅助盘、启动参数和 resident，读回仅 kernel 条目变化。
-- 候选内核 SHA-256 为 `26f1283146b8fffa159d709a033df557327c3a163e41dbec5e2878d8c77ae520`，本地构建记录在 `codex-1112-iris-debug/`，真机尚未执行。
+- 候选内核 SHA-256 为 `26f1283146b8fffa159d709a033df557327c3a163e41dbec5e2878d8c77ae520`，本地构建记录在 `codex-1112-iris-debug/`。
 
-该改动保留 HFI 命令与错误处理顺序，没有改变固件 debug mask；固件没有产生 debug 消息时，仍可能只能取得 SFR。硬解码首帧的 fatal 原因和出帧结果继续待查。
+cd15 真机单次 H.264 请求提交 4,909 字节后仍收到 `0x4000003` session error，回调为 `-12909`，submitted／callback 各 1、frames 为 0，探针在 417 ms 后返回 1。SFR 只有 `Init SFR msg, NOT an error`，没有 debug 消息正文；STOP 后 PAS 9 关闭，DMA 资源继续保留至复位。
+
+- 本轮 22 个步骤包含 19 条预期退出命令、1 条硬解失败命令和 2 次截图；功能失败由该硬解请求触发。
+- 最高 CPU 采样温度为 72.9°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。原始记录为本地 `kernel-12377-codex-1112-cd15-iris-debug/run/`。
+- cd16 独立诊断候选在 OPEN 前按原厂设置 `DEBUG_CONFIG=0` 与 `DEBUG_LOG_LEVEL=0x18`，其余 HFI 行为保持 cd15。100 个 HFI／session ASan／UBSan 用例通过，旧版、错误 mask 和错误 payload 变体均失败。
+
+cd16 真机取得首条具体 fatal：`h264DecCalcBufReq(1944): num of col buffer not enough. host 8 < fw 18`，随后记录 `HFI_ERROR_FATAL - vfw_h264_main.c:1948`。submitted／callback 各 1，回调为 `-12909`、frames 为 0；错误发生于 START ACK／PSC 之前。原始记录为本地 `kernel-12377-codex-1112-cd16-iris-fw-log/run/returned-held.log`。
+
+本轮 19 条命令按预期退出，另有一次硬解失败和两次截图。最高 CPU 采样温度为 76.8°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+原厂以输出 buffer 的 `min_count` 同时计算 COMV 字节数并发送 HFI `0x03000193`，当前实现两处固定为 8。进一步反汇编确认原厂首次输入 PSC 订阅后发送 `0x03000124`，其值取自输出 `min_count`；AVC／HEVC 初值为 4，HFI 端口为 bitstream、载荷为 U32。当前实现遗漏了这条初始属性。
+
+cd18 单变量候选只补输入订阅后的 `0x03000124=4`，COMV 仍为 8，其他初始属性、STAGE／PIPE 和后续 PSC 行为保持原样。100 项 ASan／UBSan 检查通过，缺包、错误端口、错误载荷类型与错误数量四个变体均被拒绝；cd16 独立重链逐字节一致，候选仅 HFI 对象变化。原厂 setter 表、指令字节与交付保存在本地 `codex-1112-iris-input-min/`，属性遗漏与固件要求 18 的因果关系待真机验证。
+
+原厂的 320×192 H.264 初次启动还会发送 PIPE 4、STAGE 1；当前实现尚未设置，两项与 fatal 的因果关系仍待确认。该属性差异与 COMV 容量分别验证，硬解码首帧与实际像素继续待验。
+
+## 31. Stitched function 的 label 契约
+
+原生 CoreImage 在 `newFunction` 后调用 `setLabel:`；`AnnibaleMetalStitchedFunction` 继承 `NSProxy`，缺少该方法会在 compute pipeline 创建前终止相机进程。内核仓 `28af965e` 增加 nullable／copy／atomic 的 label 存储、释放与 `respondsToSelector:`，用户态 `973056e` 为原版 CI 图探针加入对应检查。
+
+- 原生 Metal 的 copy、nil、自赋值、重复设置与 getter 对照通过；完整生产类的 ASan／UBSan 检查通过，旧实现和破坏 copy／释放语义的变体均失败。
+- 原生 GPU 的 CI 图 128 个分量保持正确。隔离候选只更换两份 Metal 库与探针，AIR 仍为第 29 节的 `345ab358`，内核、resident 和启动参数保持一致。
+- 辅助盘 SHA-256 为 `64416a0d5b7fe442f1b85b5b50a9ae3d3ffe1a2cea6470f0cd70cced79fddee2`，RAM SHA-256 为 `99ce22c6ae81ea9906ccb8fe72c518958b7cbce868d189f79b91d6f33e47894f`。本地交付位于 `codex-1112-ci-label-root/`。
+
+A830 真机的 copy／自赋值／重复设置／nil 检查与原版 CI 图 128 个分量全部通过，探针在 179 ms 后返回 0。20 条设备命令按预期返回，另完成两次截图，19 条运行库 UUID 匹配。最高 CPU 采样温度为 73.6°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+- 两个相机进程均创建 `ci_affine_crop` 与 `ci_affine_swizzle_rgb1` 管线，`setLabel:` 异常消失。随后格式 65 的 process-owned IOSurface describe 返回 `0xe00002c7`，CI dispatch 报纹理 1 缺失，继续核对该内存类型的导入。
+- 该候选固定使用 heap／RG16 输入，未包含第 28 节 R16 修复；两个相机进程最后均因格式 25 导入失败，触发 MPS 空 source 断言。
+- 两张相隔 25.126 秒的完整图与原尺寸组件局部已实际查看：应用和 Dock 图标可见，天气为整块浅白，日历为上下浅白、中间露出壁纸，组件内容仍缺失。
+- 原始记录为本地 `kernel-12377-codex-1112-cd14-ci-label/run/`，相机调用、运行身份和实际图像检查分别保存在 `camera-ci-analysis.json`、`runtime-identities.json` 和 `root-visual-review.json`。
+
+## 32. 冷启动音频的阶段与排空诊断
+
+用户态 `57cb751` 为 `sound_test` 增加可选前置 `--deadline`、单调时间分段、成功 Enqueue 计数、异步 Stop 后的 `IsRunning` 检查与 Dispose 返回检查，原 STEP 语法保持可用。内核仓 `fef4ad25` 使用已有 feeder 状态输出排空摘要，功放配置、发送、保护与增益保持原实现。
+
+- 生产测试函数的 15 项检查、生产 feeder 的 4 项检查及原 transport／intents 回归通过；旧源码未通过新增检查。
+- 冻结候选在同次冷启动内运行两个新进程，每次执行 `activate route level 0 tone 3`，每个进程内复用同一 AVAudioSession。每次生成 144,000 帧 48 kHz／s16／stereo 零幅 PCM，随后观察 8 秒排空，音频之前只采集进程状态。
+- 验收分别检查 Speaker 路由、全部 Enqueue 成功、accepted／wanted 均为 144,000、Stop／Dispose 成功、`IsRunning=0`，以及 DSP 的 `sent == done`、backlog／inflight／completion_error 为零。DSP 计数为共享累积 period，不能据此推算探针独占的帧数。
+- 本地交付位于 `codex-1112-audio-cold/`，真机结果保存在 `kernel-12377-codex-1112-cd16-audio-cold/run/` 的 `audio-review.json` 与 `audio-attempt-timing.json`。
+
+冷启动与同启动的新进程重复均通过零幅 PCM 传输检查，各 36 次 Enqueue 成功并接受 144,000 帧，Stop／Dispose 成功、`IsRunning=0`。两次结束后的独立排空窗口分别记录 sent／done 为 290／290、888／888，backlog、inflight、completion_error 均为零。
+
+| 阶段 | 冷启动首次 | 新进程重复 |
+|---|---|---|
+| 命令总耗时 | 9,239 ms | 3,968 ms |
+| activate 总耗时 | 3,613.854 ms | 593.712 ms |
+| category 调用前 | 3,555.742 ms | 587.646 ms |
+| AudioQueue 创建 | 2,089.717 ms | 231.421 ms |
+| Stop 至观察到停止 | 257.246 ms | 258.802 ms |
+
+category 之前的区间包含 `sharedInstance` 和符号／API 查找，当前采样尚不能进一步归属。该 AudioQueue 探针没有复现此前 AVPlayer／Safari 的 CoreMedia XPC 超时，后续继续独立检查播放器冷启动。
+
+- HAL 在首条音频命令前已打开设备；`audiomxd` 在前、中、后三份快照保持 PID 70，已审日志未见音频服务崩溃、PCM 错误或 XPC 超时。`airplayd` 未出现在这些快照中，直接 MachServices 运行注册记录缺失；包内配置与实际会话响应分别记录。
+- 两次 route type／UID 均为 Speaker。friendly name 的输出逐字节等于「扬声器」UTF-8 清除最高位后的结果；XNU `bsd/dev/arm/km.c` 的 `kmoutput` 执行 `& 0x7f`，与控制字节来源一致。getter ABI 与探针字符串使用已核对，AVOutputDevice ID 为 nil 的原生属性含义继续待核。
+- 本轮 22 条命令按预期返回，另完成两次截图，8 份运行 Metal／AIR UUID 匹配冻结库；HAL 与探针自身仅完成包内 UUID 核对。最高 CPU 采样温度为 74.8°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 实际听音、左右声道、真实录音、本地完整播放和网页播放继续分别待验。
+
+## 33. MPS 二维纹理数组读取
+
+原版 `mps_stgf_computeInvertedGuideCovarianceMatrix3` 使用 builtin read sampler 读取二维数组，guideStack 的 access 为 0，mean 的 access 为 1。AIR 前端原来只接受普通二维纹理的七操作数签名；数组形式增加 layer 操作数，导致第 28 节相机编译失败。
+
+候选扩展已有 read sampler 分支，按数组形式调整 offset、lod 与 access 的位置，检查 layer 为 i16 或 i32，并复用 `tex_coord_and_layer` 与 txf。原生 i16 重载同时使用 i16 坐标、layer 和 lod；非零 offset、非法 access、layer 类型及原有 image／depth／MS 限制继续检查。
+
+- 原版 MPS 函数及五个 fixture 均通过 NIR 与 A830 IR3 编译。fixture 覆盖 float read32／sample32／read16、half read32 和普通二维回归，使用三层、三个 mip 及动态坐标、layer、lod。
+- Apple GPU 的 2,184 个分量全部正确；强制 layer 0 的变体产生 672 个错误。旧前端拒绝四个数组 fixture，普通二维用例仍通过，三种坏签名在预期检查处拒绝；共 36 项检查通过。
+- arm64e 基线重建与已验收 minmax AIR 逐字节一致，候选源文件只改变 `air_texture.inc`。新 AIR SHA-256 为 `024d7857b39dc62b9160e3c1fbc85b30b73746900ba4522048c111b5689bd316`，UUID 为 `8473C785-B244-3DB1-999C-EAF072473612`。
+- RAM 基于已验 R16 alias 辅助盘，仅替换 AIR 并增加数组探针，Metal、内核、resident 和启动参数固定。宿主记录在 `codex-1112-mps-read/`，交付在 `codex-1112-mps-array-root/`；完整 AIR 回归正在运行，A830 数值与相机后续行为待真机验证。
+
+## 34. 本机 CSID 与 VFE 寄存器核对
+
+本机原厂 `camera.ko` 保留 lite980／lite98x 寄存器表，可与 [SM8750 相机源码的固定版本](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750/tree/d50b305f7da9e14715a25120a4ac7b1a4b8b97c3/vendor/qcom/opensource/camera-kernel/drivers/cam_isp/isp_hw_mgr/isp_hw)逐项比较。原始表、函数反汇编和来源哈希保存在本地 `codex-1112-camera-native/`。
+
+| 寄存器 | 相对 `0x0ad6d000` 的偏移 |
+|---|---|
+| CSID HW version | `0x0000` |
+| VFE top HW version | `0x1000` |
+| VFE bus HW version | `0x1200` |
+| CSI2 CFG0／CFG1 | `0x0200`／`0x0204` |
+| RDI0 CFG0／CFG1／CTRL | `0x0500`／`0x0504`／`0x0508` |
+| VFE RDI0 image_addr／frame_incr | `0x1704`／`0x1708` |
+
+内核仓 `8b3ad685` 将 `annibale_camera_hw.inc` 的 VFE 版本读取偏移由 `0x0a00` 修正为 `0x1000`。相机翻译单元独立编译通过，诊断与修改前一致；实际版本值待真机回读。该改动只修正版本读取，sensor streaming 与 CSI／IFE DMA 仍未实现。
+
+- 原厂 expanded-memory 分支将 DMA 地址右移 8 位写入 `image_addr`，低 8 位写入 `addr_cfg`，`frame_incr` 同样右移 8 位。该分支由内存模式状态选择，当前 SMMU bypass 配置尚未确认对应的硬件地址模式。
+- 原厂 WM 启动先设置 packer、可选 prefetch 与 context，再写 enable；`stop_wm` 清除 cfg 并复位软件状态，该函数内没有 DMA 完成轮询。资源释放仍需核对外围停止流程。
+- 当前 8 MiB 帧缓冲使用 `kmem_alloc`，调用没有物理连续约束；首地址加偏移的线性 DMA 方式尚未成立。
+- 本地 vendor／odm 镜像是按需填充的 sparse cache，缺失目录块需要只读补取，不能据全零块判断传感器模式文件不存在。
