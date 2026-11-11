@@ -1,6 +1,6 @@
 # AGENTS.md — hackios-redmi-k90-annibale 工作区约定
 
-HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，计划见 `docs/plan/`。
+HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，文档入口见 [docs/README.md](docs/README.md)，未完成事项与候选方向见[待办目录](docs/backlog/README.md)。
 
 ## 1. 文档写作约定（必须遵守）
 
@@ -14,7 +14,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 8. **禁止巨型段落与堆砌长句**。一个段落只说一件事，控制在 3～5 句以内；正文单段超过约 500 字符即视为需要拆分。一段里有两个以上独立事实点（判据、时刻、哈希、计数、归属、待办）时，必须拆成列表、表格或子小节，一项一行。不要用逗号、分号、破折号把多个独立事实串成一个长句。理由：巨型单行段落无法扫读、无法定位、无法按点引用，diff 审阅也读不出改了什么。
 9. **事实分层存放**。哈希链、mtime、grep 计数、命令原文这类取证细节写进所属小节或专门的实测数据小节，正文只留结论加指针（文档路径或提交哈希）。同一事实只在一份文档展开，其余位置引用，不重复抄写。
 10. **过程记录即时清理**。已撤销的结论、已被取代的排期、已结案的待核，删除其过程叙述，只留一行结果与出处。「谁在何时说了什么、后来发现不对」这类日记式往来不入库；确有留存价值的教训提炼成规则写进对应手册，原始往来留在提交说明或不入库的本地记录里。
-11. **文档按用途分类，不混装**。plan 放前瞻计划与常设规则，analysis 放结论与实测数据，progress 放一轮一事的记录。progress 文档不得膨胀成跨轮取证档案；跨轮共用的判据、身份规则与校验记录写进 analysis 或归档文档，progress 只留本轮结果与指针。
+11. **文档按用途分类，不混装**。backlog 集中未完成事项、候选方向与验收条件，plan 放已选批次的执行安排、架构决策与常设规则，analysis 放结论与实测数据，progress 放一轮一事的记录。progress 文档不得膨胀成跨轮取证档案；跨轮共用的判据、身份规则与校验记录写进 analysis 或归档文档，progress 只留本轮结果与指针。
 
 ## 2. 代码行数约定（必须遵守）
 
@@ -62,7 +62,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 ## 7. 其他
 
-- 过程记录写 `docs/progress/`（按日期命名），规划写 `docs/plan/`，调研/实测数据写 `docs/analysis/`。
+- 未完成事项集中写[待办目录](docs/backlog/README.md)，已选批次的安排与常设手册写 `docs/plan/`，调研／实测数据写 `docs/analysis/`，过程记录写 `docs/progress/`（按日期命名）。原分析与实测保留，来源文档链接到对应待办主题。
 - `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
 - 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 的陷阱。
 - 从源码构建与出 Release 见[开发指南](docs/development.md)；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
@@ -79,5 +79,5 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - 经验文档优先记录排查方法、底层原理、判断依据和验收边界；已由代码或工具链解决的问题简短提及，具体命令集中在当前操作手册。
 - 从会话整理经验的可复用指令见 [经验整理 Prompt](docs/plan/experience-review-prompt.md)，整理方式调整后同步更新该文档。
 - 原始日志、截图、转储和本轮产物清单保存在 `.gitignore` 覆盖的本地调试目录，文字结论与必要的日志摘录写进 Markdown；提交前检查父仓库及各子模块的变更归属。
-- 进度与队列的唯一入口是 [进度表](docs/plan/2026-10-23-tracking.md)：保持简练（一项一行），细节写进各条目链接的专门文档，不要把展开内容堆回进度表。
+- 项目状态与已完成里程碑集中在[进度表](docs/plan/2026-10-23-tracking.md)，选任务与未完成事项集中在[待办目录](docs/backlog/README.md)。进度表保持简练，待办按主题记录下一步与验收，技术分析和实测只在专题文档展开。上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)。
 - **禁止一切目录递归的 shell 检索。** 仓库内不用 `grep -r`／`grep -R`／`rg` 对目录做检索，`docs/`、`out/`、`.git` 与任何含二进制的目录都在禁止范围内。做法只有三种：用检索工具（它按文件读、结果有界）；指名具体文件（`grep -n <模式> <文件>`，一次一个或几个明确文件）；需要跨文件时先 `git ls-files` 拿到白名单再逐文件读，或用 python 逐文件扫描。理由：`docs/progress/evidence/` 有 65 GB，单个文件可达数百 MB 且几乎没有换行，递归一次就能把整份文件当一行读进内存。`| head -N` 不构成保护：匹配数不足时 grep 拿不到 SIGPIPE。

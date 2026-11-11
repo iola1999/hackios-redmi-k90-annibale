@@ -37,15 +37,15 @@
 
 实际回复远低于原 250 毫秒期限，本轮不能证明 5 秒期限消除了旧偶发超时，也不能把 AudioQueue 成功单独归因于期限变化。可以确认的是，本次 DSP 初始化成功后，旧 `-66681` 没有复现。
 
-现有 PCM 计数只在完整校验 `OP_WRITE_DONE` 的周期地址、map handle 和状态字后递增。下一轮增加低频完成摘要，要求 sent/done 相等、done 覆盖至少 150 个音频周期且没有 `PCM completion failed`；实际听感仍留人工验收。
+现有 PCM 计数只在完整校验 `OP_WRITE_DONE` 的周期地址、map handle 和状态字后递增。后续完成摘要与播放结果见[音频与组件诊断](2026-11-08-audio-widget-diagnostics.md#2-pcm-完成与原生-bunny-播放)，实际听感验收见[多媒体待办](../backlog/multimedia.md)。
 
 ## 4. 下一轮测法调整
 
-`rwsh dump audiomxd` 后远程命令队列发生阻塞，后续请求没有完成。本轮已停止该入口，下一轮使用 `usertrap=1 applog=1` 获取异常 PC、寄存器和返回地址，并优先读取 ReportCrash 原始报告。
+`rwsh dump audiomxd` 后远程命令队列发生阻塞，后续请求没有完成。本轮已停止该入口；后续异常定位结果见[音频与组件诊断](2026-11-08-audio-widget-diagnostics.md#3-safari-的-coremedia-xpc-超时)。
 
-组件静态复核发现，上一轮热加载后仍停锁屏，退出码 0 的触摸脚本不能证明解锁成功。下一轮改用冷启动采集，以 `locked_after=0` 或 `sb26: boot unlock done` 加主屏截图作为前置条件，再比较首个组件命中帧的输入、pre/out 和附件。
+组件静态复核发现，上一轮热加载后仍停锁屏，退出码 0 的触摸脚本不能证明解锁成功。后续冷启动采集见[Calendar 首个黑底 draw](2026-11-08-audio-widget-diagnostics.md#4-calendar-首个黑底-draw)，剩余定位与验收见[图形待办](../backlog/graphics.md)。
 
-长帧分析确定先补硬件刷新时刻与逐 draw GPU 时间线，再决定 shader、command buffer 或写回路径的修改。FairPlay 诊断先观察非空 iterator 后的真实 Open 和 selector，未还原的操作返回实际不支持，不生成签名结果。
+长帧测量见[图形待办](../backlog/graphics.md)，播放与媒体服务的剩余验收见[多媒体待办](../backlog/multimedia.md)。
 
 ## 5. 设备与交接状态
 

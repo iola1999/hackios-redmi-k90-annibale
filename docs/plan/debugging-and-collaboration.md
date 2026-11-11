@@ -2,7 +2,7 @@
 
 本文记录 REDMI K90（SM8750，`annibale`）移植中可复用的排查方法、判断依据、存储安全和协作约束，回答三个问题：下一步检查什么、这个检查能区分哪些原因、结果支持多大范围的结论。更新日期 2026-11-08。
 
-当前命令见[真机调试手册](device-test-playbook.md)，真机轮的计数口径、收尾和重试见[真机轮运行规则](k90auto-run-protocol.md)，阶段安排见[进度表](2026-10-23-tracking.md)，案例见[桌面交互案例](../analysis/2026-10-24-interactive-runtime.md)和[A830 命令执行案例](../analysis/2026-10-24-a830-command-startup.md)。
+当前命令见[真机调试手册](device-test-playbook.md)，真机轮的计数口径、收尾和重试见[真机轮运行规则](k90auto-run-protocol.md)，项目状态见[进度表](2026-10-23-tracking.md)，任务选择见[待办目录](../backlog/README.md)，案例见[桌面交互案例](../analysis/2026-10-24-interactive-runtime.md)和[A830 命令执行案例](../analysis/2026-10-24-a830-command-startup.md)。
 
 ## 1. 先定义问题和完成条件
 

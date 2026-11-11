@@ -2,6 +2,8 @@
 
 本篇回答两件事：现有收尾路径是否需要人按键，哪些状态人必须到场。判断依据同时给出源码位置和实测数据，源码行号固定于 `hackios-xnu-kernel` 提交 `da3d02c`（内核侧 `xnu/files/osfmk/arm64/loader_return.c`、`xnu/files/bsd/dev/adreno8.c`，loader 侧 `xnuloader/`）。命令与日志读取顺序见[真机手册](../plan/device-test-playbook.md)，USB 层面的恢复规则见[USB 恢复经验](2026-10-25-usb-recovery-lessons.md)。
 
+设备停机与资源回收的后续事项见[外设与电源待办](../backlog/platform.md)。
+
 下文的 A／B 槽按本项目脚本的槽位假设书写：Android 在 B 槽、loader 写在 A 槽的 boot 分区，`cycle.py`、`reboot-lk.py`、`recover-loader.py` 固定执行 `set_active a`。Android 在 A 槽的设备需要对调 A／B 并修改这些脚本，见[引导目标切换 SOP](../plan/device-boot-target-sop.md)开头。
 
 ## 1. 结论
@@ -62,8 +64,4 @@
 
 ## 6. 缩短 50 秒的三条路
 
-三条都没有实施，`SILENCE_SECONDS` 仍为 50，在一轮 420 秒的实验里占 12%。三条都要重新验收。
-
-1. 内核在 park 之前把状态写进 `kernel_live` 的一个字段，loader 在观察循环里读到就结束本轮等待。预期 1～2 秒，要同时改内核与 loader。
-2. loader 在日志环里看到 `GPU probe requires host cold reset` 或 host-stop banner 就判 held。同样 1～2 秒，只改 loader，代价是要解析新增日志字节。
-3. 只调小 `SILENCE_SECONDS`。改动最小，代价是真正卡住但仍在运行的短时停顿会被误判成 hung。
+当前 `loader_return()` 调用 GPU／Iris 的 `return_quiesce` 后通过 `loader_jump` 返回，Iris 资源仍需保留时使用 reason 3。返回与复位实测见[多媒体验证结果](2026-11-11-multimedia-validation.md)第 12、18 节；完整停机与资源回收见[外设与电源待办](../backlog/platform.md)。

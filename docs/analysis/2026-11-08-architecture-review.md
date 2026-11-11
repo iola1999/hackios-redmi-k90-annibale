@@ -1,6 +1,8 @@
 # 方案架构审查与全面建议（2026-11-08）
 
-本文是一次离线的架构审查与建议汇总：没有操作设备，没有构建，只读顶层仓库文档、两个子模块在进度跟踪记录的提交（内核 `4d8d9b9`、用户态 `5a7ac77`）以及上游与同类项目的公开提交历史。标注「推断」的内容没有直接读数或源码出处，执行前需要核实。文中建议都是候选项，由用户决定后再排进[进度跟踪](../plan/2026-10-23-tracking.md)。
+本文是一次离线的架构审查与建议汇总：没有操作设备，没有构建，只读顶层仓库文档、两个子模块在进度跟踪记录的提交（内核 `4d8d9b9`、用户态 `5a7ac77`）以及上游与同类项目的公开提交历史。标注「推断」的内容没有直接读数或源码出处，执行前需要核实。用户决定保留在 §21，后续任务与验收按[待办目录](../backlog/README.md)维护。
+
+后续事项按[系统](../backlog/system.md)、[图形](../backlog/graphics.md)、[多媒体](../backlog/multimedia.md)、[外设与电源](../backlog/platform.md)、[工程](../backlog/engineering.md)分别维护。
 
 全文分四部分：§1～§3 是宏观判断与分层架构；§4～§9 是图形、显示、GPU、着色器、输入与正确性的逐层建议；§10～§15 是外设、启动、电源、存储、网络等其他子系统；§16～§20 是工程流程、文档、风险、上游与待决事项。
 
@@ -329,32 +331,17 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 
 ## 19. 建议的执行顺序与验收判据
 
-| 优先级 | 工作项 | 出处 | 判据 | 状态（2026-11-10） |
-|---|---|---|---|---|
-| P0 | 脏区重绘残留根因，关掉整帧重画 | §4.4 | `DIRTY_REGIONS=1` 连续截图无残留；静置整屏 pass 接近 0；控制中心下拉帧率不降 | 未完成：`fb_flip` 晚于最初的残留记录，§4.4 的双缓冲假设不成立；当前构建打开 `DIRTY_REGIONS=1` 后 backboardd 开机不久就不再渲染，原因未查，默认继续整帧重画，见 [11-09 交接 §3](../progress/2026-11-09-handoff.md#3-架构审查各项的处理) |
-| P0 | 材质着色器回归样本，核对 XR 格式替换、fb fetch、0009／0010、混合映射 | §8 | 搜索栏、顶栏、状态栏与宿主参考图像素差在阈值内 | 未开始 |
-| P0 | 验证管线与 AIR 缓存跨开机生效 | §7.1 | 第二次开机 backboardd 建管线次数接近 0 | 已实测，判据未达到：ir3 磁盘缓存打开后第二次开机全黑，继续关闭，见 [ir3 磁盘缓存跨开机实测](2026-11-09-ir3-disk-cache.md) |
-| P0 | 未验收子系统默认关闭、11-06 清单精简拆分 | §16、§17 | `boot_a` 镜像只带已验收项；待复核单表 | 前半项按 §21 第 4 项不另立规则；11-06 清单已完成精简 |
-| P1 | 上屏零拷贝或先实现 `SwapWait`；真实 vsync | §5.2 | 驱动内每帧 CPU 时间降到 1 ms 以下，无撕裂与闪烁 | 按 §21 第 2 项立项验证，未开始 |
-| P1 | HAL Actuator 与扬声器合并为「HAL 插件对齐」 | §10.1、§11.1 | `AudioQueueStart` 返回 0；故障寄存器 0；震感与听感由用户确认 | 已完成代码与宿主单测（`test-audio-plugin.py` 通过）：补齐 `audio_plugin.c` 的 `'aunt'`、`0x70636d64`、`'bchn'` 与 `mSampleSize=2`，并在 `init26.c` 增配 `com.apple.audio.AVHapticServer` XPC 服务，待真机复核，见 [11-10 架构审查执行记录 §3](../progress/2026-11-10-arch-review-execution.md#3-架构审查其他问题静态核查与处理) |
-| P1 | SpringBoard 主线程慢帧栈采样与触摸轮询改动上机 | §9 | 起手卡顿有栈；真手指拖图标跨页不断触 | 未开始 |
-| P1 | 开机三时刻读数与息屏功耗路径 | §13、§5.2 | 首帧、图标齐全、首次响应时刻入日志；息屏电流有读数 | 开机三时刻（`first_frame`、`icons_ready`、`first_touch_response`）已上机验证通过，见 [11-10 交接记录](../progress/2026-11-10-handoff.md)；息屏电流待测 |
-| P2 | 多任务手势下 `cpus=4` 对 7 的对照；提交派发延迟；UBWC 评估 | §6、§14 | 各自一轮对照读数 | 未开始 |
-| P2 | Mesa 26.3.x 评估；同 SoC 项目的 A830 时钟表、USB 设备模式阅读 | §18 | 评估文档，不直接合代码 | 未开始；按 §21 第 8 项改为评估升级可行性，有提升就升级 |
-| P2 | iOS 侧 USB 设备模式 | §11.4 | `usbmuxd` 能列出设备并取日志 | 未开始 |
-| P2 | 相机按 L1a 分级重启 | §10.3 | Camera.app 出 TPG 彩条 | 已完成 iOS 26 `BWMultiStreamCameraSourceNode` 四阶段契约对齐与宿主单测（`test-camera-device-ios26.py` 通过），待真机复核，见 [11-10 架构审查执行记录 §1](../progress/2026-11-10-arch-review-execution.md#1-相机适配排障与-ios-26-bwmultistreamcamerasourcenode-契约对齐) |
-| P2 | 架构总览文档、启动参数目录生成、钩子清单 | §3.3、§17 | 文档与脚本入库 | 已完成：[架构总览](../plan/architecture.md)、[启动参数目录](boot-args.md) 与 `tools/bootargs.py`、[注入钩子清单](2026-11-09-injection-hooks.md) |
-| P3 | 传感器经 ADSP QMI、蓝牙音频、硬解 HFI、CLPC 复刻 | §11.3、§11.2、§12.2、§14 | 各自路线文档先行 | 未开始 |
-| 不做 | Turnip 加 metal2vulkan、默认 sysmem、继续堆 GPU 频率、App Store | §1、§6、§12.6 | — | §21 第 7 项确认 App Store 不做 |
+后续事项与验收判据分别见[系统与持久化](../backlog/system.md)、[图形与显示](../backlog/graphics.md)、[多媒体](../backlog/multimedia.md)、[外设与电源](../backlog/platform.md)及[工程待办](../backlog/engineering.md)。
 
-表外已完成的项：
+已完成记录：
 
+- 架构总览、启动参数目录与钩子清单已完成，见[架构总览](../plan/architecture.md)、[启动参数目录](boot-args.md)及[注入钩子清单](2026-11-09-injection-hooks.md)。
 - §13 崩溃报告跨开机保留，见[用户态崩溃报告](2026-11-09-crash-reports.md)。
 - §13 页大小：真机 `hw.pagesize` 与 `vm.pagesize` 都是 16384。
 - §16 合入前检查写进[排查与协作手册 §10](../plan/debugging-and-collaboration.md#10-合入前检查)。
 - 删除四个表象绕过钩子（含 `CHHapticEngine` 钩子），见[注入钩子清单 §3](2026-11-09-injection-hooks.md#3-结论)。
-- §16 产物自报 UUID：已修复 `init26.c` 早期 stderr 重定向与 `dladdr` `LC_UUID` 提取，真机 `verify1..4.log` 已输出各守护进程与驱动的 `LC_UUID`，见 [11-10 交接记录](../progress/2026-11-10-handoff.md)。
-- 状态栏 Wi-Fi 图标灰显（`SCNetworkReachability` 无默认路由）与控制中心亮度滑块不同步：已完成根因修复与宿主单测，见 [11-10 架构审查执行记录 §2](../progress/2026-11-10-arch-review-execution.md#2-状态栏-wi-fi-图标灰显与控制中心亮度滑块不同步修复)。
+- §16 产物自报 UUID：已修复 `init26.c` 早期 stderr 重定向与 `dladdr` `LC_UUID` 提取，真机 `verify1..4.log` 已输出各守护进程与驱动的 `LC_UUID`，见 [11-10 架构审查跟进 §2](../progress/2026-11-10-arch-review-execution.md#2-开机三里程碑时间戳与注入库-lc_uuid-自报已完成)。
+- 状态栏 Wi-Fi 图标灰显（`SCNetworkReachability` 无默认路由）与控制中心亮度滑块不同步：已完成根因修复与宿主单测，见 [11-10 架构审查跟进 §4、§6](../progress/2026-11-10-arch-review-execution.md)。
 
 ## 20. 风险清单
 

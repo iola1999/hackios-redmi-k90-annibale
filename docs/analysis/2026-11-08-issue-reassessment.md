@@ -1,6 +1,8 @@
 # 历次反馈与验收状态复核
 
-本次复核读取了用户指定的 Anti Gravity 会话中的 32 条用户消息，并对照 [11-06 问题清单](../plan/2026-11-06-issues-and-followup.md)、当前源码和保留的运行日志。原始消息和日志保存在 Git 忽略的本地目录。本文定义复核范围和验收条件，任务进度统一维护在[进度跟踪](../plan/2026-10-23-tracking.md)。
+本次复核读取了用户指定的 Anti Gravity 会话中的 32 条用户消息，并对照 [11-06 问题清单](../plan/2026-11-06-issues-and-followup.md)、当前源码和保留的运行日志。原始消息和日志保存在 Git 忽略的本地目录。本文保留该次用户反馈、分析与验收条件，后续事项统一维护在[待办入口](../backlog/README.md)。
+
+具体事项按[系统](../backlog/system.md)、[图形](../backlog/graphics.md)、[多媒体](../backlog/multimedia.md)、[外设与电源](../backlog/platform.md)及[工程](../backlog/engineering.md)分类；下表状态对应原分析轮次，当前批次结果由各主题链接维护。
 
 ## 1. 目标与完成条件
 
@@ -46,13 +48,13 @@
 
 数据卷卸载原来忽略最后一次元数据同步错误，仍释放缓冲区和挂载引用。修复沿原调用路径返回错误，保留重试所需资源；卸载先在锁内摘除回调，再解锁并等待，使用原生 `THREAD_CALL_OPTIONS_ONCE` 处理运行中再次排队的情况。映射页的 `ubc_msync()` 错误也传回 `setattr`、`read`、`write`、`fsync` 和 full/barrier sync。
 
-生产函数的 ASan/UBSan 测试、真实线程的 ThreadSanitizer 检查及 11 项消融通过，XNU 增量编译和链接成功。修复已随 `01cf6f5b` 所含内核刷入 `boot_a`。普通 stop 完成卸载与 UFS 排空；真实重启后，完整 boot 物理读回摘要和 110 字节测试文件均一致。异常复位恢复仍待验证。
+生产函数的 ASan/UBSan 测试、真实线程的 ThreadSanitizer 检查及 11 项消融通过，XNU 增量编译和链接成功。修复已随 `01cf6f5b` 所含内核刷入 `boot_a`。普通 stop 完成卸载与 UFS 排空；真实重启后，完整 boot 物理读回摘要和 110 字节测试文件均一致。异常复位恢复的后续验证见[系统待办](../backlog/system.md)。
 
 ### 3.2 清屏与附件
 
 Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurface、尺寸或附件数改写不透明黑色的 Alpha。AIR 又将清屏与 draw 绑定，没有 draw 的 pass 和零顶点 draw 可能丢失清屏。修复逐附件传递颜色，并通过既有工作队列执行独立清屏。
 
-离线测试直接调用生产清屏入口，检查附件颜色、Load 保留、Alpha、空绘制和参数边界；恢复共用首附件颜色后测试失败。本轮新镜像的主屏和控制中心往返截图仍复现 Weather/Calendar 大组件黑底，图标、壁纸、Dock 与控制中心玻璃可见。清屏修复尚未解决组件画面，继续检查实际 GPU 输出。
+离线测试直接调用生产清屏入口，检查附件颜色、Load 保留、Alpha、空绘制和参数边界；恢复共用首附件颜色后测试失败。本轮新镜像的主屏和控制中心往返截图仍复现 Weather/Calendar 大组件黑底，图标、壁纸、Dock 与控制中心玻璃可见。该轮清屏修复尚未解决组件画面，后续 GPU 输出核查见[图形待办](../backlog/graphics.md)。
 
 后续像素探针确认五种格式的清屏、原生 `CARenderer`、`CASDFLayer` 填色，以及四附件和 blit 均通过。另有两处可复现的接口差异：
 
@@ -63,7 +65,7 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 
 - A 轮仅更新 AIR：越界 viewport 通过，IOSurface 身份检查仍失败。
 - B 轮再更新 Metal：两项均通过，清屏、多附件、blit、IOSurface 像素与释放检查也通过。
-- B 轮 Home→控制中心→Home 往返正常，两个组件仍为黑底；另记录过日历图标短暂空白和一次设置页上半部黑屏，继续检查。
+- B 轮 Home→控制中心→Home 往返正常，两个组件仍为黑底；另记录过日历图标短暂空白和一次设置页上半部黑屏，后续验收见[图形待办](../backlog/graphics.md)。
 
 后续发现 texture view 的写入未更新原纹理的 buffer 写回记录。修复让各级 view 直接引用原纹理，共用已有写回记录并保留其生命周期；写入标记无需遍历全局纹理。
 
@@ -71,25 +73,25 @@ Metal 驱动原来只传递首个颜色附件的清屏颜色，并根据 IOSurfa
 - 真机 B 的 buffer 写回检查有 136 个像素错误，GPU 模式的非对齐行距 IOSurface 也有 136 个错误；C 轮仅更新 AIR 后，软件与 GPU 模式各项错误均降为 0。
 - C 轮软件视频解码的 12 帧摘要仍与 ffmpeg 一致；Home→控制中心→Home 往返后，两个大组件仍为黑底。
 
-SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，下一步检查其 draw 输入、输出与远程 surface。A/B 结果与画面在本地忽略目录 `storage-boot-device-1108/phase5/`，C 结果在 `phase6/`，写回探针与候选在 `out/widget-render-1108/view-writeback/`。
+SpringBoard 的显式图层诊断增加了有界 SDF 参数读取；两个组件由 `WidgetRenderer_Default` 的远程图层提供内容，draw 输入、输出与远程 surface 的后续核查见[图形待办](../backlog/graphics.md)。A/B 结果与画面在本地忽略目录 `storage-boot-device-1108/phase5/`，C 结果在 `phase6/`，写回探针与候选在 `out/widget-render-1108/view-writeback/`。
 
 实际组件渲染发生在 backboardd。首批 `glass_background_sdf` 像素采样覆盖 Dock 区域，纹理槽位 3 的壁纸输入和输出均有正确颜色；该批没有覆盖顶部组件。后续 scissor 过滤增加最小宽高，并在两轮已有 draw 上通过回放；热加载轮最终停在锁屏，未取得顶部组件缩略图。
 
 冷启动采集已确认主屏，并覆盖 `commit 863` 的 112 张缩略图；Calendar 在 work 65 从壁纸变为 RGB 234，work 70 的 `pre0` 仍为 234，`out0` 首次变为 RGB 0。RGB 234 被写成不透明黑排除了纯 coverage 或 discard；独立 `dest_0` pass-through 已通过。后续 dense 轮保留了完整正常到黑底切换，并将同次黑化 draw 关联到 `TmuaBscnA2Xhfsn_IsrcN3Oc3mtc4nlnlnl_Isqr`，目标 AIR 候选已构建待验，见[解锁转场密集采集](../progress/2026-11-08-widget-dense-transition.md)。
 
-原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。该项进入完整系统回归，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
+原提取规则遗漏了 CoreImage 的五个较大 metallib 和多份 `.scube` 文件。完整系统部署包含这些资源，当前运行记录尚未确认两个组件使用了哪些缺失文件。后续验收见[图形待办](../backlog/graphics.md)，原始探针、截图与对照日志保存在本地忽略目录 `out/widget-render-1108/` 和 `storage-boot-device-1108/phase2/`。
 
-完整原版卷首次启动早期，应用图标和两个组件内容透明，文字、壁纸、时钟指针与 Dock 可见；原生应用启动及 Home→控制中心→Home 交互后，应用图标恢复，两个组件仍为黑底。该轮保持原 Metal/AIR 输入，尚未使用两项候选修复。图标首次显示延迟和组件黑底继续分别检查。
+完整原版卷首次启动早期，应用图标和两个组件内容透明，文字、壁纸、时钟指针与 Dock 可见；原生应用启动及 Home→控制中心→Home 交互后，应用图标恢复，两个组件仍为黑底。该轮保持原 Metal/AIR 输入，尚未使用两项候选修复。图标首次显示延迟和组件黑底的后续事项见[图形待办](../backlog/graphics.md)。
 
 生产 APFS 读取工具读取了 14 个图标资源与字体文件，共 194,500,130 字节，长度及 SHA-256 均与完整提取结果一致。该检查覆盖多个 `Assets.car`、图标遮罩和四个字体文件，未覆盖压缩文件及设备 UFS/UBC/pagein 路径。原始结果在本地忽略目录 `out/persistence-audit-1108/`。
 
 ### 3.3 音频与网络
 
-ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也可使用固定句柄继续执行。播放完成计数因此缺少真实 DSP 完成通知。本轮按 GPR/AudioReach 协议检查回复、数据包和失败传播，实际扬声器播放仍待验证。
+ADSP 请求失败后原实现可产生模拟成功响应，共享内存映射也可使用固定句柄继续执行。播放完成计数因此缺少真实 DSP 完成通知。本轮按 GPR/AudioReach 协议检查回复、数据包和失败传播；实际扬声器播放验收见[多媒体待办](../backlog/multimedia.md)。
 
-后续修正 GLINK 写指针的锁内读取、完整的 14 字段 READ_DONE 响应和采集有效长度；电源、图启动或 DMA 失败向调用方返回错误。生产函数测试通过，11 个回归变体被拒绝，完整 XNU 构建成功。背光处理保留既有 400 毫秒滑块窗口，接受窗口内分开发送的 nits/framebuffer 更新，实际滑块范围待真机复核。
+后续修正 GLINK 写指针的锁内读取、完整的 14 字段 READ_DONE 响应和采集有效长度；电源、图启动或 DMA 失败向调用方返回错误。生产函数测试通过，11 个回归变体被拒绝，完整 XNU 构建成功。背光处理保留既有 400 毫秒滑块窗口，接受窗口内分开发送的 nits/framebuffer 更新，滑块范围的后续验收见[外设与电源待办](../backlog/platform.md)。
 
-完整系统日志确认两颗功放可读取 revision `0x9866`；DSP 状态查询和内存映射完成后，Speaker 图创建失败并停止播放。当前日志尚未证明原生音频客户端的 PCM 已到达功放，继续核对 OPEN 包和 DSP 回复。
+完整系统日志确认两颗功放可读取 revision `0x9866`；DSP 状态查询和内存映射完成后，Speaker 图创建失败并停止播放。该轮日志尚未确认原生音频客户端的 PCM 已到达功放，后续 OPEN 包和 DSP 回复结果见下文。
 
 GLINK 的 `DONE_REUSE` 原来把远端公布的缓冲区容量改成固定 2048 字节，并可能覆盖仍在传输的记录。修复保留原容量，`RX_DONE` 释放记录；发送队列写入失败会归还该次传输占用的 intent。接收游标和 intent 分配分别加锁，避免 PMIC 与 GPR 并发修改同一状态。
 
@@ -97,7 +99,7 @@ GLINK 的 `DONE_REUSE` 原来把远端公布的缓冲区容量改成固定 2048 
 
 另以 `990b6fcc` 重建得到与真机 B 完全相同的内核，再只加入本组三个音频源文件。真机状态查询和内存映射成功，扬声器 OPEN 因缺少可用 intent 失败：固件公布 116 项，驱动固定数组只保存前 16 项；这些项容量均为 128 字节，无法发送 296 字节的 OPEN 请求。
 
-修复改为按公告分配记录，保留容量和传输归属，收到 `RX_DONE` 后释放。19 项生产函数 ASan/UBSan 检查通过，包括真实的 116 项公告顺序、不同长度请求和分配失败恢复；旧实现无法取得 296 字节请求所需的记录。真机已收到状态查询、内存映射、Speaker/Play OPEN、I2S/PCM 配置及两组 PREPARE/START 的成功回复。一次启动曾在首条状态查询的 250 毫秒期限内未收到回复，后续集成内核启动完成上述全部操作；该次超时原因仍需定位。
+修复改为按公告分配记录，保留容量和传输归属，收到 `RX_DONE` 后释放。19 项生产函数 ASan/UBSan 检查通过，包括真实的 116 项公告顺序、不同长度请求和分配失败恢复；旧实现无法取得 296 字节请求所需的记录。真机已收到状态查询、内存映射、Speaker/Play OPEN、I2S/PCM 配置及两组 PREPARE/START 的成功回复。一次启动曾在首条状态查询的 250 毫秒期限内未收到回复，后续集成内核启动完成上述全部操作；该次超时原因尚未确定。
 
 当前常用镜像的 `AudioQueueStart` 返回 `-66681`（`kAudioQueueErr_CannotStart`）。直接写入 144000 帧 PCM 完成并记录两颗功放上电；现有日志没有逐包 PCM 完成计数，真实输出与听感尚未通过验收。原始结果在本地忽略目录 `storage-boot-device-1108/phase8/`。
 
@@ -107,27 +109,27 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 后续真机候选中首次查询实际在 255 微秒内回复，独立 AudioQueue 已启动并提交 144000 帧；该轮不能证明期限变化与成功的因果关系。Bunny 原生 AVPlayer 在 117 帧正确视频后遇到 `audiomxd` SIGTRAP 和媒体服务复位，见[候选真机验证](../progress/2026-11-08-candidate-validation.md)。
 
-新一轮在完整 `OP_WRITE_DONE` 校验后记录完成摘要，所有读数均为 sent/done 相等，最后达到 4100/4100，未出现完成校验失败。原生 Bunny 带 AAC 音轨已完整播放到结束，可见的 320 帧均为 640×360、`pixel_error=0`；rwsh 截断后续逐帧日志，因此不统计总帧数。本轮在原生播放前先执行了 AudioQueue 和直接 PCM 写入，冷启动后直接运行 AVPlayer 的顺序仍需单独复核。实际听感仍需人工验收，见[音频与组件冷启动诊断](../progress/2026-11-08-audio-widget-diagnostics.md)。
+新一轮在完整 `OP_WRITE_DONE` 校验后记录完成摘要，所有读数均为 sent/done 相等，最后达到 4100/4100，未出现完成校验失败。原生 Bunny 带 AAC 音轨已完整播放到结束，可见的 320 帧均为 640×360、`pixel_error=0`；rwsh 截断后续逐帧日志，因此不统计总帧数。本轮在原生播放前先执行了 AudioQueue 和直接 PCM 写入，冷启动直接运行 AVPlayer 与实际听感的验收见[多媒体待办](../backlog/multimedia.md)。相关诊断见[音频与组件冷启动诊断](../progress/2026-11-08-audio-widget-diagnostics.md)。
 
-取消预热的冷启动对照中，首个 HTTP 请求延迟约 31 秒，随后输出 184 帧可见的正确像素；播放时钟到约 18.5 秒后进入 waiting，80 秒总期限到期。该轮 `audiomxd` 未崩溃，PCM 完成达到 3000/3000。预热后的完整播放不能覆盖冷启动场景，下一探针记录等待原因、缓冲状态和 stall，并延长总期限。
+取消预热的冷启动对照中，首个 HTTP 请求延迟约 31 秒，随后输出 184 帧可见的正确像素；播放时钟到约 18.5 秒后进入 waiting，80 秒总期限到期。该轮 `audiomxd` 未崩溃，PCM 完成达到 3000/3000。冷启动播放的独立验收、等待原因、缓冲状态和 stall 核查见[多媒体待办](../backlog/multimedia.md)。
 
-网络审查发现应用注入库强改路径可达性与 DNS 状态；内核的容器路径查询存在实现，原生设置接口却直接返回成功且不保存路径。本轮按系统库反汇编确认容器接口和生命周期，补上 setter、凭据引用与 exec 属性处理。打包器已移除固定应用 UUID、固定应用环境变量和 Weather/Maps 专用目录，保留通用容器父目录；应用数据目录由 MobileContainerManager 根据 bundle identifier 创建。Weather/Maps 的具体请求失败原因仍需取得实际错误记录。
+网络审查发现应用注入库强改路径可达性与 DNS 状态；内核的容器路径查询存在实现，原生设置接口却直接返回成功且不保存路径。本轮按系统库反汇编确认容器接口和生命周期，补上 setter、凭据引用与 exec 属性处理。打包器已移除固定应用 UUID、固定应用环境变量和 Weather/Maps 专用目录，保留通用容器父目录；应用数据目录由 MobileContainerManager 根据 bundle identifier 创建。Weather/Maps 请求失败的后续核查见[系统待办](../backlog/system.md)。
 
-`net_test` 增加整次调用期限，超时返回 124；DNS、TCP、HTTP 与地址检查失败返回 1，HTTP 成功要求 2xx。完整生产源码的 9 项主机行为测试和 arm64e 严格编译通过，原生应用内容请求仍待验证。
+`net_test` 增加整次调用期限，超时返回 124；DNS、TCP、HTTP 与地址检查失败返回 1，HTTP 成功要求 2xx。完整生产源码的 9 项主机行为测试和 arm64e 严格编译通过，原生应用内容请求的后续验收见[系统待办](../backlog/system.md)。
 
 应用请求日志改为记录 host/path 摘要、HTTP 状态和错误 domain/code，保留原方法调用与 `errno`，限制输出长度。`ANNIBALE_NET_TRACE=1` 可观察 23G90 两个任务完成入口，安装前检查实时方法签名；原生 Foundation 对象测试及六项故障变体检查通过，诊断库已上机。`geod` 的完成日志包含 HTTP 200/304 与实际接收字节数，早期两条请求返回 `NSURLErrorDomain=-1009`；`nsurlsessiond` 也完成一次 HTTP 200 请求。Weather 的目标请求只记录 resume，采样期内未找到对应完成记录。
 
-本轮截图中 Weather 温度仍显示「--」，Maps 停在打开定位服务的提示框。提示框关闭后的瓦片加载尚未检查，现有成功请求的具体用途需继续关联；记录位于本地忽略目录 `storage-boot-device-1108/phase9/`。
+本轮截图中 Weather 温度仍显示「--」，Maps 停在打开定位服务的提示框。提示框关闭后的瓦片加载尚未检查，该轮成功请求的具体用途尚未关联；记录位于本地忽略目录 `storage-boot-device-1108/phase9/`。
 
 本轮持久启动的网络结果如下，原始日志保存在 `storage-boot-device-1108/phase2/` 本地忽略目录：
 
 - Global DNS、IPv4、IPv6 与 Proxies 键已读取；Apple 测试页完成 DNS 和 HTTPS 请求，返回 200。
 - GeoServices 裸配置 URL 返回 HTTP 400，WeatherKit 基址返回 HTTP 200；这些请求确认传输已完成，尚未覆盖地图瓦片或天气鉴权内容。
-- 原生 Weather 显示温度「--」，Maps 地图区空白。Weather/weatherd 查找 `fairplayd`、`locationd` 相关 Mach 服务失败，Weather/Maps 还记录 `kvsd` 查找失败；下一步核对实际 job cache、系统文件和服务启动结果。
+- 原生 Weather 显示温度「--」，Maps 地图区空白。Weather/weatherd 查找 `fairplayd`、`locationd` 相关 Mach 服务失败，Weather/Maps 还记录 `kvsd` 查找失败；后续系统文件与服务启动结果见下文，剩余事项见[系统待办](../backlog/system.md)。
 
-设备与旧主机输入均确认缺少 `/usr/libexec/locationd` 和 `/usr/sbin/fairplayd.H2`，helper 的 job cache 因实际文件缺失而未登记这些服务。完整原版系统启动后，两文件均可读取，`locationd` 和 `geod` 已运行；`fairplayd.H2` 可被实际启动，但随后以 `exit(0)` 退出，launchd 延后重试。`syncdefaultsd` 仍受现有任务排除规则限制，服务与内容请求继续按[完整原版部署](rootfs-strategy.md#7-完整原版系统卷部署)验收。
+设备与旧主机输入均确认缺少 `/usr/libexec/locationd` 和 `/usr/sbin/fairplayd.H2`，helper 的 job cache 因实际文件缺失而未登记这些服务。完整原版系统启动后，两文件均可读取，`locationd` 和 `geod` 已运行；`fairplayd.H2` 可被实际启动，但随后以 `exit(0)` 退出，launchd 延后重试。`syncdefaultsd` 仍受现有任务排除规则限制，服务与内容请求的后续验收见[系统待办](../backlog/system.md)。
 
-`syncdefaultsd` 的排除依据来自 iOS 16.5 的 nil 路径异常。23G90 的 `changeTokenURLForStoreConfiguration:xpcConnection:error:` 先通过 `sandbox_container_path_for_audit_token` 查询客户端容器，失败后查询 MobileContainerManager 的 `com.apple.kvs` 容器，并处理空结果；需要在当前系统验证实际返回值。隔离候选保留原始服务 plist 的 mobile 身份与两个 Mach service，只比完整系统基线增加该项任务，缓存从 553 项变为 554 项；现有打包器的两个过滤层需同时处理，候选尚未部署。
+`syncdefaultsd` 的排除依据来自 iOS 16.5 的 nil 路径异常。23G90 的 `changeTokenURLForStoreConfiguration:xpcConnection:error:` 先通过 `sandbox_container_path_for_audit_token` 查询客户端容器，失败后查询 MobileContainerManager 的 `com.apple.kvs` 容器，并处理空结果；本次尚未取得实际返回值，后续核查见[系统待办](../backlog/system.md)。隔离候选保留原始服务 plist 的 mobile 身份与两个 Mach service，只比完整系统基线增加该项任务，缓存从 553 项变为 554 项；这项任务受打包器的两个过滤层限制，候选尚未部署。
 
 23G90 `fairplayd.H2` 导入 `IOConnectCallStructMethod`、`IORegistryEntryFromPath` 和 `IORegistryEntryCreateCFProperty`。可选诊断库记录 selector、长度、返回值、属性类型及主程序内的调用偏移；只观察程序自身的调用，保留参数、CF 所有权、iterator 状态、`errno` 和 `dlerror()`。认证内容、属性值、路径文本和启动参数内容均不输出。
 
@@ -141,13 +143,13 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 ### 3.4 时间来源
 
-当前实现位于 `annibale_ufs_rw.inc` 的 `annibale_ufs_sync_rtc()`：从 PMK8550 读取秒计数，从 Android `persist` 分区读取 `/time/ats_2` 或 `/time/ats_1` 偏移，再调用 `PESetUTCTimeOfDay()` 与 `clock_initialize_calendar()`。本轮保留日志中有 RTC 同步成功记录；网络校时及跨重启精度仍待验证。
+当前实现位于 `annibale_ufs_rw.inc` 的 `annibale_ufs_sync_rtc()`：从 PMK8550 读取秒计数，从 Android `persist` 分区读取 `/time/ats_2` 或 `/time/ats_1` 偏移，再调用 `PESetUTCTimeOfDay()` 与 `clock_initialize_calendar()`。本轮保留日志中有 RTC 同步成功记录；网络校时及跨重启精度的后续验证见[外设与电源待办](../backlog/platform.md)。
 
 ### 3.5 Iris 硬解接口
 
 静态分析确认原路径提交自造的 8-word 解码包、固定返回 session、忽略完成状态，并在 VideoToolbox 侧声明未注册的 callback 和不匹配的 Emit ABI。该路径会让上层看到注册或解码调用成功，无法证明硬件产生了帧。
 
-本轮内核 Iris OPEN、DECODE、CLOSE ioctl 均返回 `EOPNOTSUPP`，用户态创建 decoder 返回 `kVTVideoDecoderMalfunctionErr` 并清空实例；未完成的 HFI 会话不会进入打包路径。后续 `352e8a32` 同时使设备 open 返回 `EOPNOTSUPP`，删除错误的上电、PAS、队列和 IRQ 路径，避免打开设备就写入固件区；整份驱动测试、5 个错误变体和完整 XNU 构建通过，该修改已随集成内核刷入当前 `boot_a`。真实 HFI gen2 INIT、OPEN、BUFFER、完成队列、VideoToolbox 私有 ABI 和硬件帧输出仍需独立实现与真机验收。
+本轮内核 Iris OPEN、DECODE、CLOSE ioctl 均返回 `EOPNOTSUPP`，用户态创建 decoder 返回 `kVTVideoDecoderMalfunctionErr` 并清空实例；未完成的 HFI 会话不会进入打包路径。后续 `352e8a32` 同时使设备 open 返回 `EOPNOTSUPP`，删除错误的上电、PAS、队列和 IRQ 路径，避免打开设备就写入固件区；整份驱动测试、5 个错误变体和完整 XNU 构建通过，该修改已随集成内核刷入当前 `boot_a`。真实 HFI gen2 INIT、OPEN、BUFFER、完成队列、VideoToolbox 私有 ABI 和硬件帧输出未在该轮通过验收；后续实现与实测见[多媒体验证结果](2026-11-11-multimedia-validation.md)，剩余事项见[多媒体待办](../backlog/multimedia.md)。
 
 同笔提交修正 DSC v5 认证指针的 34 位偏移解析，并让虚表入口传入指针所在映射地址。8 项布局与入口测试、3 个实际指针反汇编检查通过，后续原生 ABI 分析使用该工具版本。
 
@@ -177,13 +179,13 @@ NV12 修复前，Y、UV plane 在真机均导入失败。实际打包的 Metal �
 
 后续定位到 YUV 转换新增的 UV 槽位未进入 `textures_used`，IR3 因此少计片元纹理；另修正 Metal texture 未持有 device 的生命周期。`bc376ea`、`1bd05897` 已提交，生产 NIR 及释放方法检查通过。真机四组 compute 与 fragment 颜色逐项一致，探针正常退出；Safari 仍报媒体错误 3，Bunny 原生 AVPlayer 在正确视频输出后遇到 `audiomxd` SIGTRAP，见[候选真机验证](../progress/2026-11-08-candidate-validation.md)。
 
-后续同候选对照中，原生 Bunny 已完整播放，Safari 仍在约 31 秒后出现媒体错误 3。`audiomxd` 的真实异常 PC 去除 shared cache slide 后位于 CoreMedia `_FigUserCrashWithMessage`，调用方使用 `Self-terminating due to XPC timeout` 格式化字符串。下一步恢复 Server、Client 参数及 WebKit 触发请求，当前不能将该超时直接等同于底层根因，见[音频与组件冷启动诊断](../progress/2026-11-08-audio-widget-diagnostics.md)。
+后续同候选对照中，原生 Bunny 已完整播放，Safari 仍在约 31 秒后出现媒体错误 3。`audiomxd` 的真实异常 PC 去除 shared cache slide 后位于 CoreMedia `_FigUserCrashWithMessage`，调用方使用 `Self-terminating due to XPC timeout` 格式化字符串。该超时的底层原因尚未确认，相关调用分析见[音频与组件冷启动诊断](../progress/2026-11-08-audio-widget-diagnostics.md)。Server、Client 参数及 WebKit 触发请求的后续核查见[多媒体待办](../backlog/multimedia.md)。
 
 ### 3.6 天气签名与 UnfairPlay 参考范围
 
 23G90 的 `WDSJWTAuthenticatorService.generateToken(for:endpoint:)` 构造含 `bundleId` 的 JSON。`WDSJWTMescalSigner.sign(data:bundleIdentifier:)` 对其计算 SHA-1，经 `AMSMescal` 调用 `AMSMescalFairplaySession` 签名。结果经过 Base64 编码，写入 `X-Apple-ActionSignature`，随 `POST …/token` 请求申请 JWT。
 
-原生工厂也有按配置选择 HMAC 的分支。当前运行请求选择了哪个分支、FairPlay IPC 方法及 IOKit selector、签名和服务端响应是否成功，仍需真机检查。GeoServices、MapKit 的直接依赖、本镜像字符串和符号未发现 FairPlay/Mescal 调用标识；该检查未覆盖 Maps 全部间接组件。
+原生工厂也有按配置选择 HMAC 的分支。本次未确认运行请求选择的分支、FairPlay IPC 方法及 IOKit selector，也未验证签名和服务端响应。GeoServices、MapKit 的直接依赖、本镜像字符串和符号未发现 FairPlay/Mescal 调用标识；该检查未覆盖 Maps 全部间接组件。
 
 函数入口与请求构造地址分别为 `0x1b85627cc`、`0x1b857b70c`、`0x1b8563634`，`AMSMescalSession` 创建 FairPlay session 的 initializer 为 `0x193398b10`。定向反汇编、六框架审计脚本与结果在本地忽略目录 `out/apple-services-audit-1108/weather-fairplay/`。
 
@@ -191,8 +193,8 @@ NV12 修复前，Y、UV plane 在真机均导入失败。实际打包的 Metal �
 
 ## 4. 验证边界
 
-设备已通过正常 stop 返回 loader，再经 prepare 载荷进入 LK；本轮最终镜像临时启动成功，随后写入 `boot_a` 并完成重启复核。系统卷切根与更新后的数据检查点恢复均成功。运行日志中出现 BackgroundShortc 用户进程 abort，继续按实际调用栈排查。
+设备已通过正常 stop 返回 loader，再经 prepare 载荷进入 LK；本轮最终镜像临时启动成功，随后写入 `boot_a` 并完成重启复核。系统卷切根与更新后的数据检查点恢复均成功。运行日志中出现 BackgroundShortc 用户进程 abort，服务崩溃的后续核查见[系统待办](../backlog/system.md)。
 
 主机运行器只对已支持的结束状态执行复位，未知状态、非零错误字段或格式异常均保存日志并停止队列；复位命令失败也记录为失败。已有 hung 状态恢复流程保留。30 项主机行为检查通过，最终仍需重新读取 loader 身份、idle 和空启动卷状态，才能开始下一轮。
 
-后续真机验证使用本轮最终产物和对应哈希。先验证 UFS 切根、数据盘和设备返回状态，再按一个变量一轮组织图形、网络及媒体检查。画面检查同时使用连续截图、渲染日志和进程状态；图像差异结果需要结合内容判断。离线测试未覆盖的硬件效果保留为待验收项。
+当前批次的验证安排与产物记录见[系统](../backlog/system.md)、[图形](../backlog/graphics.md)、[多媒体](../backlog/multimedia.md)及[外设与电源](../backlog/platform.md)待办中的专题链接。画面检查同时使用连续截图、渲染日志和进程状态；图像差异结果需要结合内容判断。离线测试未覆盖的硬件效果保留为待验收项。

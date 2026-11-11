@@ -83,8 +83,9 @@ VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f61
 
 ## 8. 剩余工作
 
-- 补丁栈整理：删除 ir3-shift-split；freedreno-darwin 按功能拆成 drm-meson、bo-iosurface、batch-fb_read、osmesa-target；OSMesa 恢复单独成片；ir3-ssbo-subdword 的 hunk 上下文刷新为严格匹配。
-- 26.x 的 a8xx 编译器对 demote 发出自己的 `ir3_DEMOTE`，a6xx 编码器把 DEMOTE 映射为 KILL；7c+ Gen 3 实际使用哪一种，要用 `discardcheck.py` 的 `--emit`／`--check` 在设备上确认（10.3）。
+补丁整理、OSMesa 拆分与设备指令验证见[工程待办](../backlog/engineering.md)。补丁差异保留在第 2、3 节，测试脚本与离线编译入口的限制见第 10 节。
+
+26.x 的 a8xx 编译器对 demote 发出自己的 `ir3_DEMOTE`，a6xx 编码器把 DEMOTE 映射为 KILL；本次分析尚未确认 7c+ Gen 3 实际使用的指令。
 
 ## 9. iOS 交叉构建
 

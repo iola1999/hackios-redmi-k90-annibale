@@ -4,16 +4,18 @@
 
 引用写法：`P:行号` 是 dada 的 `kernel/xnu-12377.121.6-dada.patch`；`dada:` 开头是该仓库里的路径；`DTS:行号` 是解压后的 `docs/analysis/data/annibale.dts.gz`。
 
+本文的源码状态与推断对应 11-02 调研，后续硬件与 iOS 扫描实测见第 8 节。配对、重连与蓝牙音频的剩余验收见[平台待办](../backlog/platform.md)。
+
 ## 1. 需要用户决定的事
 
-1. 系统盘带上 `bluetoothd`。它有 12,151,072 字节，超过 `hackios-xnu-kernel/ios165/select-system.py` 里 `BIG_PROGRAM`（10 MB）的上限，现在不在系统盘上。放进去要重做 `system26.apfs` 和 Android DSU 里那份，系统盘的哈希会变。2026-11-05 用户要求支持蓝牙，这一项按放进系统盘执行，排期见[后续工作](../plan/2026-11-05-next-work.md) §1。
-2. 蓝牙与 Wi-Fi 共用电源轨和 BT_EN。蓝牙轮次要在 Wi-Fi 上电之后进行，并且 Wi-Fi 在线时不能拉低 BT_EN；两者同时在线的情况 dada 没有验证过（它的蓝牙验证轮把 Wi-Fi 设成只读模式）。
-3. 第一阶段按 115200 波特跑，只够 BLE 扫描和 HID 一类低速设备，蓝牙音频要等提速到 3 Mbaud 之后再看。
+`bluetoothd` 已加入系统盘，UART、固件下载与 iOS 接入已完成真机扫描验证，见第 8 节；3 Mbaud 提速已落地，见[11-06 至 11-07 推进记录](../plan/2026-11-06-issues-and-followup.md)。后续验收见[平台待办](../backlog/platform.md)。
+
+蓝牙与 Wi-Fi 共用电源轨和 BT_EN。蓝牙须在 Wi-Fi 上电之后启动，Wi-Fi 在线时不能拉低 BT_EN。
 
 ## 2. 结论
 
 - 能做。iOS 26 一侧的接法 dada 已经走通到「蓝牙已打开、BLE 能扫描」：`dada:base/tools/dada-ios.sh:19` 记的是 `verified w94z3: PoweredOn, LE scan`。仓库里没有配对、经典蓝牙或蓝牙音频的记录。
-- K90 的蓝牙芯片与 Wi-Fi 是同一颗 WCN7850（kiwi），蓝牙走 SE14 的 UART，电源轨大部分已经由现有 Wi-Fi 代码投票打开。剩下的工作是四块：SE14 UART 驱动与高通固件下载、给 `bluetoothd` 的 Skywalk 通道、BlueTool 替身、系统盘与启动任务的改动。估计 1200 行左右内核与用户态代码，各文件按 AGENTS.md §2 控制在 1200 行以内。
+- K90 的蓝牙芯片与 Wi-Fi 是同一颗 WCN7850（kiwi），蓝牙走 SE14 的 UART，电源轨大部分由 Wi-Fi 代码投票打开。实现涉及 SE14 UART 驱动与高通固件下载、给 `bluetoothd` 的 Skywalk 通道、BlueTool 替身，以及系统盘与启动任务的改动，后续实测见第 8 节。
 - 12377 内核带 Skywalk：`hackios-xnu-kernel/xnu26/files/config/MASTER.arm64.bcm2837` 的 `DEVELOPMENT` 带 `SKYWALK_DEV`，`out/xnu12377-rate7.bin` 里有 `nx_kpipe_*` 与 `kern_nexus_register_domain_provider`。
 
 ## 3. dada 的做法
@@ -55,30 +57,21 @@
 
 ## 6. 实施顺序
 
-| 步 | 内容 | 成功判据 | 设备 |
-|---|---|---|---|
-| 0 | 离线：固件按 `BT_FW=1` 打进 RAM 盘 `fw/`（约 0.9 MB）；新文件 `annibale_bt_uart.c`（取 P:12488-12974、13651-13745，改用我们的 `pmic_gpio`、SPMI 锁和 `annibale_image_file`）、`annibale_bt_ios.c`（P:13043-13649）、`annibale_btsk.c`（P:3689-3965）、`AnnibaleBT.cpp`；BlueTool 替身 | 能编译，Skywalk 符号能链接 | 否 |
-| 1 | 只起硬件：`bt=3`，叠在 `pcie=10 pcie_power=1 pcie_bt_en=1` 之上 | SE14 协议寄存器读出 2（UART）；ROM 版本 0x20；板号对应到现有的 `hmtnv20.b*`；补丁下发后版本串与 `hmtbtfw20.ver` 一致；Reset 成功；厂商号 0x1d；内核自己的 LE 扫描看到至少一台设备 | 是 |
-| 2 | 接上 iOS：`bt=4`；`ALLOW=bluetooth`；`bluetoothd` 任务带 KeepAlive 和两个环境变量；BlueTool 指向替身；关掉低功耗扫描的偏好设置；开机时用 loader 的 MAC 设 `local-mac-address`，同一 MAC 写进 NVM tag 2 | 日志出现 `connected to com.apple.uart.sk.bluetooth`、`btsk: channel is connected`、`iOS sends (channel): 01 03 0c 00`；`bluetoothd` 不退出；设置里蓝牙开关为开（截图）。日志里的 `chip refuses 0x…` 行补进下一轮的代答表 | 是，最多 3 轮一批 |
-| 3 | 配对一台 BLE 设备（如 HID 键盘）；提速到 3 Mbaud（0xFC48 加 GENI 时钟），收端改中断（GIC SPI 0x1cd） | 配对成功，按键进 iOS | 是 |
-| 4 | 蓝牙音频 | 待第 3 步之后再评估 | 是 |
-
-第 2 步与我们的架构有一处不同：我们没有 dada 的 exec 环境注入和可执行文件替换。先改系统盘里任务 plist 的环境变量；如果 launchd 不认（dada 在 w81n1 遇到过），再移植那两个钩子，约 150 行。
+UART、固件下载与 iOS 接入的实现文件、调用参数和真机结果见第 8 节；3 Mbaud 提速见[11-06 至 11-07 推进记录](../plan/2026-11-06-issues-and-followup.md)。配对、重连、地址一致性与蓝牙音频验收见[平台待办](../backlog/platform.md)。
 
 ## 7. 风险与未知
 
-- SE14 可能没有 UART 固件：协议寄存器读出的值不为 2 时，要先做 QUP 固件加载，工作量大。
 - HAMILTON 与 ganges 不同：芯片拒绝的命令、需要代答的命令、厂商命令的行为大概率不一样。
-- 与在线 Wi-Fi 共存没有验证：切 BT_EN 可能让 WLAN 固件出错（推断）。
-- `bluetoothd` 第一次启动前地址要准备好：dada 靠 launchd 每 10 秒左右重启 `bluetoothd`（P:81621-81622），我们的 REST 任务没有 KeepAlive。
+- 切 BT_EN 可能让 WLAN 固件出错（推断）；第 8 节的 BLE 扫描已与在线 Wi-Fi 同时运行。
+- `bluetoothd` 首次启动前需要准备好地址。dada 的任务由 launchd 每 10 秒左右重启（P:81621-81622），本仓后续通过任务 `KeepAlive` 保持服务运行，见第 8 节。
 - 内核替芯片回答 Broadcom 的 Write_BD_ADDR，这条命令不到芯片，iOS 报的地址可能和芯片实际地址不同，配对时可能出问题（推断）。
 - dada 用的 `bluetoothd` 偏移来自 iPhone18,1 的 23G90，我们的 iPhone18,3 二进制还没有抽出来核对。
 
-最有用的第一个真机实验是第 1 步：不改 iOS，一轮就能确定 SE14 是否为蓝牙链路、UART 固件在不在、ROM 版本、该用哪个 NVM、补丁是否被接受、射频能否收到广播。
+剩余验证见[平台待办](../backlog/platform.md)。
 
 ## 8. 实测（2026-11-05）
 
-第 0～2 步已在 K90 真机走通。实现文件包括内核侧 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`（`AnnibaleBT` IOService），用户态 `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`（补入 `usr/sbin/bluetoothd` 并更新 DSU 系统盘），以及打包脚本 `tools/k90auto/package.py` 与 `tools/k90auto/cycle.py`（默认带 `bt=4`）。
+固件打包、硬件启动与 iOS 接入已在 K90 真机通过。实现文件包括内核侧 `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_bt_uart.c`、`annibale_bt_ios.c`、`annibale_btsk.c`、`annibale_bt_private.h`、`iokit/KernelConfigTables.cpp`（`AnnibaleBT` IOService），用户态 `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`（补入 `usr/sbin/bluetoothd` 并更新 DSU 系统盘），以及打包脚本 `tools/k90auto/package.py` 与 `tools/k90auto/cycle.py`（默认带 `bt=4`）。
 
 ### 8.1 第 1 步硬件起机（`kernel-12377-st2-r1`）
 

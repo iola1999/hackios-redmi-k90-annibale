@@ -9,16 +9,16 @@
 | 桌面与系统应用 | 开机进入简体中文锁屏与主屏；壁纸、图标、控制中心、通知中心可用；设置、Safari、短信、计算器、备忘录、提醒事项等系统应用能打开，「关于本机」原生显示 128 GB 容量；Safari 下载的文件直接存进「文件」App 的「我的 iPhone > 下载」；大尺寸小组件冷启动黑底与开机早期图标短暂透明正在修复 |
 | 双系统与磁盘持久化 | 从机身 UFS 划出 16 GiB 系统盘（`darwin`，直挂原版未裁剪三容器镜像）与可写数据盘（`darwin_var`，内核 `ANNFS001` 块级实时落盘）；开机菜单选择进入 iOS 26 或 Android，不需要连电脑；系统设置、主屏布局、已安装应用、用户数据与崩溃报告（`DiagnosticReports/`）跨重启保留 |
 | 图形与显示 | Metal 驱动经 Mesa freedreno 在 Adreno 830 上绘制；按 iPhone 17 的 1206×2622 分辨率渲染并适配 120 Hz 屏幕 |
-| 屏幕亮度 | 控制中心与「设置 → 显示与亮度」的滑块直接调节屏幕背光；重启后沿用上次亮度待接入 |
+| 屏幕亮度 | 控制中心与「设置 → 显示与亮度」的滑块直接调节屏幕背光；亮度持久化已接入，低亮度跨重启与面板闪烁仍待复核 |
 | 触摸与按键 | 触摸、电源键、音量键可用；音量键和控制中心的滑块能调音量，还没有声音 |
 | Wi-Fi 与蓝牙 | 在「设置 → Wi-Fi」中加入网络后可用 Safari 上网，已存网络跨重启保留；蓝牙支持扫描与发现外设 |
 | 安装应用 | 预装 `TrollStore`（`TrollStore.app` 与 `trollstorehelper`），支持通过文件选择器、URL Scheme 或分享从「我的 iPhone > 下载」安装已解密的 `.ipa`／`.tipa` 应用，支持打开、开启 JIT、刷图标缓存与彻底卸载，安装的应用跨重启保留 |
 | 电池与温控 | 显示电量与充电状态；处理器和 GPU 按负载调频，过热时逐档降频 |
-| 进行中与未完成 | 当前优先收敛桌面渲染与流畅度（大组件黑底、脏区局部重绘、DPU 硬件缩放、开机亮度保持、Mesa 26.3.x 升级评估）；声音输出、蓝牙音频、网页视频播放、摄像头、蜂窝网络及 iOS 26 下的手电与振动尚未完成；FairPlay 与 App Store 不作为项目目标 |
+| 进行中与未完成 | 当前系统与多媒体批次继续处理持久化契约、应用行为、桌面渲染、相机与硬解；其他候选和验收条件见[待办目录](docs/backlog/README.md)。FairPlay 与 App Store 不作为项目目标 |
 
 性能：在 120 Hz 屏上，主屏翻页约 90～100 帧／秒，控制中心下拉约 90～94 帧／秒；GPU 最高 1100 MHz，测试期间 GPU 温度最高约 57 °C。
 
-最新状态和实测数据以[进度表](docs/plan/2026-10-23-tracking.md)为准，架构分层见[架构总览](docs/plan/architecture.md)，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
+最新状态和实测数据以[进度表](docs/plan/2026-10-23-tracking.md)为准，未完成事项与候选方向见[待办目录](docs/backlog/README.md)，架构分层见[架构总览](docs/plan/architecture.md)，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
 
 ## 2. 体验
 
@@ -34,7 +34,7 @@
 
 从源码构建内核、用户态和引导镜像需要 Mac（Xcode）和 Docker，步骤见[开发指南](docs/development.md)，出 Release 的流程也在其中。排查前先读[排查与协作手册](docs/plan/debugging-and-collaboration.md)和[真机调试手册](docs/plan/device-test-playbook.md)。
 
-- `docs/plan/`：操作手册与计划；`docs/analysis/`：调研与分析；`docs/progress/`：真机运行记录。
+- [文档入口](docs/README.md)：[待办与候选](docs/backlog/README.md)、操作手册与执行计划（`docs/plan/`）、调研与实测（`docs/analysis/`）、运行记录（`docs/progress/`）。
 - `tools/`：主机脚本，无人值守测试见 [k90auto 说明](tools/k90auto/README.md)，出 Release 与本地合成见 `tools/release/`。
 
 ## 4. 仓库

@@ -4,11 +4,11 @@
 
 引用写法：`P:行号` 是 dada 的 `kernel/xnu-12377.121.6-dada.patch`；`dada:` 开头是该仓库里的路径；`DTS:行号` 是解压后的 `docs/analysis/data/annibale.dts.gz`。
 
+本文的源码状态与推断对应 11-02 调研。后续实现与实测见[多媒体验证结果](2026-11-11-multimedia-validation.md)，未完成事项见[多媒体待办](../backlog/multimedia.md)。
+
 ## 1. 需要用户决定的事
 
-1. 放行 audiomxd。现在的 DENY 词 `audio` 挡住了所有音频任务；第一步用 `REST_ALLOW=audio` 只在试验轮放行，确认 CPU 占用正常后再决定是否改成默认。
-2. 扬声器功放的增益。没有 DSP 扬声器保护时，第一次出声用固定的低增益，由人在旁边确认音量；功放型号还不确定（§5）。
-3. 从 Android 读取功放型号和 ADSP 固件，需要手机回到 Android，只做只读读取。
+音频服务、ADSP 与功放实现已落地，相关代码与产物见[多媒体进展](../progress/2026-11-11-multimedia-bringup.md)。扬声器实际出声、保护与麦克风验收见[多媒体待办](../backlog/multimedia.md)。
 
 ## 2. 结论
 
@@ -38,36 +38,27 @@
 
 ## 5. K90 的硬件
 
-- 功放在 hub_i2c0（0x980000，SDA GPIO64、SCL GPIO65）（DTS:25697-25760、41942-41966）。设备树和 dtbo 里两组芯片都标为 `ok`，是双供应商设计，装的是哪一种还不知道：
+- 功放在 hub_i2c0（0x980000，SDA GPIO64、SCL GPIO65）（DTS:25697-25760、41942-41966）。设备树和 dtbo 里两组芯片都标为 `ok`，是双供应商设计：
   - `tfa98xx_1@0x36`（复位 GPIO108，中断 GPIO66，听筒／扬声器切换 GPIO67）与 `tfa98xx_2@0x34`（复位 GPIO107，中断 GPIO84）。TFA98xx 是 NXP（现归汇顶）的芯片。
   - SIA9197x，地址 0x6e／0x6c，复位与切换脚相同。
 - 复位、中断、切换和总线引脚与 dada 相同。
 - I2S（`sec_tdm_pinctrl`）：GPIO121 时钟、123 帧、122 数据入、124 数据出，功能 `i2s1_*`（DTS:30905-30913、7176-7280），与 dada 相同。
 - 编解码：WCD9395，加上 LPASS 的 wsa／wsa2／rx／tx／va 宏；`qcom,wsa-max-devs = 0`，没有 WSA 功放。
 - ADSP 内存 0x9ee00000、dtb 区 0x9ed80000，与 dada 相同；LPASS 的 SMMU 流号 0x1000～0x13ff（[硬件地图](annibale-hw-map.md)）。
-- 未知：装的是哪种功放；TFA 芯片没有 `tfa98xx.cnt` 容器文件能不能出声；K90 上 GPIO67 哪个电平选扬声器；安全的增益；ADSP 固件在 `modem_a` 备份里，还没有取出来；功放配置文件在 vendor／super 分区，没有备份。
+- 后续已按 TFA9865／TFA9866 实现功放驱动，ADSP 与功放读数见[多媒体验证结果](2026-11-11-multimedia-validation.md)。实际出声与保护验收见[多媒体待办](../backlog/multimedia.md)。
 
 ## 6. 实施顺序
 
-| 步 | 内容 | 成功判据 | 设备 |
-|---|---|---|---|
-| 1 | 打开 audiomxd：`AnnibaleAudio.driver` 和 `sound_test` 按 arm64e 编（`package.py` 的 `build()`，`-bundle`）；`REST_ALLOW=audio`（所有音频任务按需启动）；加 `rec_sound=30` | 按音量键后截图里有音量提示框；内核每段的响度行随音量档位下降；`oem sound` 加 `tools/sound.py` 取到 WAV。若 iOS 26 改用硬件音量，每次调节内核会打印 `annibale-audio: the volume:` | 是，不写硬件 |
-| 2 | 在 Android 上只读：确认装的功放型号（I2C 设备名或内核日志），取出 `adsp*.mdt`／`bNN`、`adsp_dtb.mdt` 和功放文件 | 型号与文件到手 | 是，Android |
-| 3 | ADSP 起来：在 K90 开关下移植 dada 的 SM8750 改动；RPMh 锁要与 `adreno8.c` 共用 | SPF 状态读出就绪；附带得到充电通道 `PMIC_RTR_ADSP_APPS` | 是 |
-| 4 | SMMU 与低地址缓冲：先只读列出 SMR／S2CR 和 context bank 的占用，再让流 0x1001 直通，loader 加 `lowdma=` | 寄存器读回一致，DSP 确认缓冲映射 | 是 |
-| 5 | 功放保持复位，建图、放测试音 | 每个周期都有写完成 | 是 |
-| 6 | 按实际型号写功放驱动：模拟 I2C 从 `annibale_battery.c` 里拆出来复用，接上 `annibale_guard.c`，固定低增益 | 读到芯片 ID、PLL 锁定，人工确认听到很小的测试音 | 是，需要人在旁边 |
-| 7 | 麦克风：参考 dada 的 WCD9395 代码 | 录到声音 | 是 |
+音频服务、固件加载、AudioReach 图、DMA 缓冲和功放的实现与验证见[多媒体进展](../progress/2026-11-11-multimedia-bringup.md)及[多媒体验证结果](2026-11-11-multimedia-validation.md)。剩余定位与验收统一见[多媒体待办](../backlog/multimedia.md)。
 
-与我们的树不同的地方：`hakios_dada_audio.c` 有 1760 行，dada 的 `annibale_adsp.c` 有 4794 行，移植时都要拆分，符合 AGENTS.md §2；dada 的 CS35L43 驱动不适用于 K90 的功放。
+参考代码的文件规模：`hakios_dada_audio.c` 有 1760 行，dada 的 `annibale_adsp.c` 有 4794 行，移植文件须遵守 AGENTS.md §2；dada 的 CS35L43 驱动不适用于 K90 的功放。
 
 ## 7. 风险与未知
 
-- audiomxd 可能反复查询蓝牙服务：我们的系统盘没有 `bluetoothd`（见[蓝牙接入调研](2026-11-02-bluetooth-bringup.md) §1），dada 的解法用不上。第 1 步要看 CPU 占用。
 - iPhone18,3 的音频路由可能与 16.5（iPhone X 的表）和 dada（iPhone18,1）不同。
 - TFA 芯片可能需要容器文件才能出声。
 - 没有 DSP 扬声器保护，只有软件保护。
 - 固件体积会影响载荷的装载方式。
-- 同类项目在 Qualcomm 平台上出声时遇到的几处问题（主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下、传输类型）列在 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 8 项，移植第 3～5 步时逐项核对。
+- 同类项目在 Qualcomm 平台上出声时遇到的几处问题（主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下、传输类型）列在 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 8 项。
 
-最有用的第一个真机实验是第 1 步：不写任何硬件，就能回答音量键、提示框和音量值能不能工作，同时验证后面真正出声要依赖的整个 iOS 一侧。
+当前验收范围与剩余工作见[多媒体待办](../backlog/multimedia.md)。

@@ -20,15 +20,15 @@
 - 原生播放及后续检查期间，完成摘要持续增长，最后记录为 4100/4100。
 - 这证明 DSP 已返回真实 PCM 周期完成通知；扬声器实际听感仍需人工验收。
 
-原生 AVPlayer 随后播放含 AAC 音轨的 60 秒 Bunny，进程退出码为 0。探针源码的返回 0 条件包括 ready 和 playing 成立，播放时钟必须前进并收到结束通知，同时要求有效视频帧非零且像素错误为零，因此本轮完整播放通过。日志前 600 行保留了 320 帧 NV12，全部为 640×360、`pixel_error=0`；后续输出达到 rwsh 行数上限，本轮不据此声称总帧数。本轮在原生播放前先执行了 AudioQueue 和直接 PCM 写入，冷启动后直接运行 AVPlayer 的顺序仍需单独复核。
+原生 AVPlayer 随后播放含 AAC 音轨的 60 秒 Bunny，进程退出码为 0。探针源码的返回 0 条件包括 ready 和 playing 成立，播放时钟必须前进并收到结束通知，同时要求有效视频帧非零且像素错误为零，因此本轮完整播放通过。日志前 600 行保留了 320 帧 NV12，全部为 640×360、`pixel_error=0`；后续输出达到 rwsh 行数上限，本轮不据此声称总帧数。本轮在原生播放前先执行了 AudioQueue 和直接 PCM 写入。
 
 第三轮使用同一候选，冷启动后不执行 AudioQueue 或 PCM 预热，直接运行原生 AVPlayer。首个 HTTP 请求比进程启动晚约 31 秒，随后 ready 和 playing 成立，可见的 184 帧均为 `pixel_error=0`。播放时钟到约 18.5 秒后 `timeControlStatus` 从 playing 变为 waiting，最终在 84292 毫秒后以 124 退出。该轮 `audiomxd` 未崩溃，PCM 完成摘要达到 3000/3000。
 
-两轮对照确认预热后的完整播放可重复验收项仅限于该初始化顺序；冷启动延迟和播放中等待仍未解决。下一批降低逐帧日志量，记录等待原因、缓冲状态和 stall，并用 150 秒总期限覆盖冷启动与 60 秒媒体。
+两轮对照确认预热后的完整播放可重复验收项仅限于该初始化顺序；冷启动延迟和播放中等待在本轮仍未解决。后续定位与验收见[多媒体待办](../backlog/multimedia.md)。
 
 ## 3. Safari 的 CoreMedia XPC 超时
 
-同一候选和同一 Bunny URL 在 Safari 中仍于约 31 秒后出现媒体错误 3，播放时间停在 0，只取得一个回调帧。原生 AVPlayer 的完整播放与 Safari 失败构成同候选对照；当前还需分别检查 WebKit 的媒体服务交互与 format 500 呈现路径。
+同一候选和同一 Bunny URL 在 Safari 中仍于约 31 秒后出现媒体错误 3，播放时间停在 0，只取得一个回调帧。原生 AVPlayer 的完整播放与 Safari 失败构成同候选对照。
 
 `audiomxd` 在 Safari 失败时发生 SIGTRAP，`usertrap` 记录了真实异常地址：
 
@@ -37,7 +37,7 @@
 - 调用方地址为 `0x197dcc65c`，对应格式化字符串 `****** Self-terminating due to XPC timeout Server %s Client %@ (%d) %s`。
 - 其余已记录返回地址位于 libdispatch 和 libsystem_pthread。
 
-当前根因范围已收敛到 CoreMedia 的 XPC 超时。下一步恢复 Server、Client 参数及触发请求，检查 Safari 与原生 AVPlayer 的会话差异；不能通过屏蔽断言或伪造媒体服务成功来通过验收。
+本轮已定位到 CoreMedia 的 XPC 超时。后续请求与会话差异检查见[多媒体待办](../backlog/multimedia.md)。不能通过屏蔽断言或伪造媒体服务成功来通过验收。
 
 ## 4. Calendar 首个黑底 draw
 
@@ -54,10 +54,10 @@
 
 首个异常点因此定位为 `commit 863 / work 70`，pipeline 为 `0x11413aa00`，54 个顶点，scissor 为 `632,369 446x446`。该 draw 使用 10 个纹理和 8 个 buffer，其中槽位 3 输入为 format 115 的 256×1 buffer。相同 pipeline 也出现在 Weather draw。
 
-静态复核尚未找到该 pipeline 的创建行，具体特化名仍未定。QuartzCore 通用 `TbdsA2Xhfcx_Isup_Isrc` 变体读取 `dest_0`，该输入使用 framebuffer fetch；RGB 234 被写成不透明黑也排除了纯 coverage 或 discard。下一轮用独立 pass-through fragment 只测 `dest_0`，检查预填 RGB 234 能否原样读回，再决定是否进入准确 Tbds 特化、blending 或附件写回。
+本轮静态复核尚未找到该 pipeline 的创建行，具体特化名仍未定。QuartzCore 通用 `TbdsA2Xhfcx_Isup_Isrc` 变体读取 `dest_0`，该输入使用 framebuffer fetch；RGB 234 被写成不透明黑也排除了纯 coverage 或 discard。后续结果见[framebuffer fetch 验证](2026-11-08-fbfetch-validation.md)与[组件密集采样](2026-11-08-widget-dense-transition.md)，剩余工作见[图形待办](../backlog/graphics.md)。
 
 ## 5. 设备状态与后续
 
 三轮结束均正常执行 `oem stop`，loader 返回 `returned 1444016 0`，UFS 在途请求为 0，控制器已归还。临时 HTTP 视频服务已关闭。
 
-FairPlay 服务诊断、Safari XPC 参数恢复和 Calendar work 70 静态分析继续并行推进。长帧仍先补硬件刷新时刻与逐 draw GPU 时间线，不在本轮没有测量依据的情况下修改渲染路径。
+后续工作见[多媒体待办](../backlog/multimedia.md)与[图形待办](../backlog/graphics.md)。

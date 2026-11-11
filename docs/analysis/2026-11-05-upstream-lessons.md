@@ -1,21 +1,23 @@
 # 上游与同类项目 11-01～11-05 的可借用做法
 
-核对日期 2026-11-05。按用户决定，上游只借用解法与工作流，不合并代码。上一轮对照见 [11-01 对照](2026-11-01-hakios-upstream-lessons.md)，本文只记新增内容。上游的读数大多来自 POCO X5 Pro（SM7325，A6XX）上的 iOS 16.5，用到 K90 前都要在 A830 与 iOS 26 上重新量。
+核对日期 2026-11-05。该轮按当时的用户决定，只借用上游解法与工作流，不合并代码。上一轮对照见 [11-01 对照](2026-11-01-hakios-upstream-lessons.md)，本文只记新增内容。上游的读数大多来自 POCO X5 Pro（SM7325，A6XX）上的 iOS 16.5，用到 K90 前都要在 A830 与 iOS 26 上重新量。
+
+本文保留 11-01～11-05 的历史差异与读数；后续候选见[图形](../backlog/graphics.md)、[多媒体](../backlog/multimedia.md)、[外设与电源](../backlog/platform.md)及[工程待办](../backlog/engineering.md)。
 
 ## 1. 按收益排序的候选
 
-| # | 做法 | 来源 | 我们的现状 | 下一步与判据 |
+| # | 做法 | 来源 | 11-05 本项目状态 | 当轮结果与后续入口 |
 |---|---|---|---|---|
 | 1 | backboardd 环境变量 `CA_FP16_MIN_HEADROOM=1e30`、`CA_ALLOW_EDR_MIRRORING=0`，让 CoreAnimation 不用 16 位浮点帧缓冲 | UniXNU/AdrenoMetal `d2aa73f`、`0055c37`、`9bad6f5` | 23G90 的共享缓存里有这两个变量名（已核对）；整屏 pass 的第二个附件是 RGBA16Float，每帧约 25 MB 写回 | 已试（`kernel-12377-rate8-fp16`）：第二个附件仍在，整屏 pass 时间不变，不采用。该附件的 `writeMask` 为 0，改由 Mesa 补丁 0010 不写回，见 [11-05 记录](../progress/2026-11-05-defaults-and-charging.md) §3.1 |
-| 2 | 整屏 pass 逐个 draw 计时；CoreAnimation 的大着色器按常量缓冲内容特化编译 | hakios-metal `e59090f`，hakios-xnu-kernel `512d228`、`d53f3e9` | 只有按 pass 的合计（`rebase-26/0008`），不知道 87% 的整屏 pass 时间落在哪几个 draw | 先打印 backboardd 片段着色器的指令数与常量缓冲读取，再在 sysmem 下给单帧逐 draw 计时 |
-| 3 | 画布改为 iPhone XR／11 的 828×1792（2 倍） | hakios-xnu-kernel `09cf881`、`87bf485` | 1206×2622 是为状态栏布局选的（[状态栏布局分析](2026-11-02-status-bar-layout.md)）；像素是 828×1792 的 2.13 倍 | 需用户决定清晰度与帧率的取舍；上游滚动 89～91 → 118 帧／秒，画面变软 |
-| 4 | 隐藏或冻结壁纸做对照 | hakios-xnu-kernel `512d228`、`66b8e63`、`348613f`；hakios-metal `583b67f` | sk1 手势窗口里壁纸扩展用了 519 ms GPU 时间 | SpringBoard 注入库加一个隐藏壁纸窗口的通知，一轮对照手势帧率 |
-| 5 | 着色器编译结果跨开机保存，并随镜像带一份 | hakios-xnu-kernel `39dd3bb`、`5c819b8`、`8ecae63`；hakios-metal `9d52b51`、`6a77e42`、`3d3400f` | Mesa 构建 `shader-cache` 为 `disabled`（已核对）；驱动的管线缓存只在进程内 | 打开 Mesa 着色器缓存、目录放在 `/private/var/db`、随开机种子带上；判据是开机后编译次数与图标出现时间 |
-| 6 | Mesa 26.3 的 ir3 A8xx 修复回移（`189ee824` 等） | Shad0w23333/UniXNU-OnePlus13T | `rebase-26/0006` 关掉了片段着色器纹理预取，可能正是 `189ee824` 修的问题（推断） | 回移后撤掉 0006，看 Dock 玻璃与整屏 pass 时间 |
-| 7 | 亮度经 DSI 测试模式 FIFO 发 DCS，不需要 DMA 与 SMMU | ShueiTsuki/data-a-live 补丁 `0139`～`0141`、`0263`～`0264` | [亮度调研](2026-11-02-brightness-control.md) §5、§8 的 DMA 问题未定 | 寄存器偏移来自 SM8850，要在 SM8750 上核对 |
-| 8 | 在 Qualcomm 上出声的几处坑 | UniXNU-sheng `dea464e`、`4583f03`、`b49ce39`、`6e892fe`、`1b75289` | [音量调研](2026-11-02-audio-and-volume.md)只有指针 | 音量调研 §7 已列出这几项：主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下、传输类型；细节在移植出声时核对 |
-| 9 | 实现 SwapWait，让 `fb_queue=2` 能和下一帧重叠 | data-a-live `0218` | `MiniIOMobileFramebuffer.cpp` 的 SwapWait 直接返回成功，靠 `fb_queue=1` 保证安全 | 约 150 行；判据是 SwapEnd 阻塞时间与有无闪烁 |
-| 10 | A830 打开 ACD | Shad0w23333/UniXNU-OnePlus13T | 我们在没有 ACD 表的情况下跑到 1100 MHz | 固定手势脚本下对比挂起、故障与 GPU 最高温度 |
+| 2 | 整屏 pass 逐个 draw 计时；CoreAnimation 的大着色器按常量缓冲内容特化编译 | hakios-metal `e59090f`，hakios-xnu-kernel `512d228`、`d53f3e9` | 只有按 pass 的合计（`rebase-26/0008`），不知道 87% 的整屏 pass 时间落在哪几个 draw | 逐 draw 计时与常量特化候选见[图形待办](../backlog/graphics.md) |
+| 3 | 画布改为 iPhone XR／11 的 828×1792（2 倍） | hakios-xnu-kernel `09cf881`、`87bf485` | 1206×2622 是为状态栏布局选的（[状态栏布局分析](2026-11-02-status-bar-layout.md)）；像素是 828×1792 的 2.13 倍 | 上游滚动 89～91 → 118 帧／秒，画面变软；画布评估见[图形待办](../backlog/graphics.md) |
+| 4 | 隐藏或冻结壁纸做对照 | hakios-xnu-kernel `512d228`、`66b8e63`、`348613f`；hakios-metal `583b67f` | sk1 手势窗口里壁纸扩展用了 519 ms GPU 时间 | 壁纸与性能对照的当前范围见[图形待办](../backlog/graphics.md)，用户选择见[架构审查 §21](2026-11-08-architecture-review.md#21-用户决定) |
+| 5 | 着色器编译结果跨开机保存，并随镜像带一份 | hakios-xnu-kernel `39dd3bb`、`5c819b8`、`8ecae63`；hakios-metal `9d52b51`、`6a77e42`、`3d3400f` | Mesa 构建 `shader-cache` 为 `disabled`（已核对）；驱动的管线缓存只在进程内 | 跨开机缓存结果见[ir3 磁盘缓存实测](2026-11-09-ir3-disk-cache.md)；预生成缓存候选见[图形待办](../backlog/graphics.md) |
+| 6 | Mesa 26.3 的 ir3 A8xx 修复回移（`189ee824` 等） | Shad0w23333/UniXNU-OnePlus13T | `rebase-26/0006` 关掉了片段着色器纹理预取，可能正是 `189ee824` 修的问题（推断） | 补丁适用性与版本升级评估见[工程待办](../backlog/engineering.md)，像素与性能验证见[图形待办](../backlog/graphics.md) |
+| 7 | 亮度经 DSI 测试模式 FIFO 发 DCS，不需要 DMA 与 SMMU | ShueiTsuki/data-a-live 补丁 `0139`～`0141`、`0263`～`0264` | [亮度调研](2026-11-02-brightness-control.md) §5、§8 的 DMA 问题未定 | 上游寄存器偏移来自 SM8850；本机 DCS 实现结果见[亮度调研 §9](2026-11-02-brightness-control.md)，后续验收见[外设与电源待办](../backlog/platform.md) |
+| 8 | Qualcomm 音频输出的接口差异 | UniXNU-sheng `dea464e`、`4583f03`、`b49ce39`、`6e892fe`、`1b75289` | [音量调研](2026-11-02-audio-and-volume.md)只有指针 | 参考条件包括主机时钟 19.2 MHz、128 位换算、缓冲在 4 GiB 以下与传输类型；实现与实测见[多媒体分析](2026-11-11-multimedia-root-causes-and-design.md)，后续验收见[多媒体待办](../backlog/multimedia.md) |
+| 9 | 实现 SwapWait，让 `fb_queue=2` 能和下一帧重叠 | data-a-live `0218` | `MiniIOMobileFramebuffer.cpp` 的 SwapWait 直接返回成功，靠 `fb_queue=1` 保证安全 | 显示完成契约与验收见[图形待办](../backlog/graphics.md) |
+| 10 | A830 打开 ACD | Shad0w23333/UniXNU-OnePlus13T | 我们在没有 ACD 表的情况下跑到 1100 MHz | ACD 板型条件及验证见[外设与电源待办](../backlog/platform.md) |
 
 ## 2. 工具与工作流
 

@@ -1,5 +1,7 @@
 # 开发指南
 
+构建、测试与发布的未完成事项见[工程待办](backlog/engineering.md)，其他文档见[文档入口](README.md)。
+
 本文说明怎样从源码构建内核、用户态与根盘，组装双系统引导镜像，以及怎样出 Release。只想体验的用户看[体验说明](user-guide.md)即可。接手、排查和真机操作前先读[排查与协作手册](plan/debugging-and-collaboration.md)。
 
 ## 1. 环境

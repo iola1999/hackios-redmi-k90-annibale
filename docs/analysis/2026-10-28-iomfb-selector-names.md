@@ -2,6 +2,8 @@
 
 本文给出 IOMobileFramebuffer user client 的 selector 编号、名字和调用形状，供 `hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp` 的 selector enum 与各分支参考。项目 enum 现有 20 个名字，本文为其余 12 个在用的号定名，并核对 72、73、74：12 个都拿到调用形状，其中 11 个有 Apple 的 `kern_*` 符号名且各有两个以上独立公开来源，88 只有调用点与形状。72、73、74 的名字与项目 enum 一致，74 的实现有一处缺陷（第 5 节）。
 
+后续接口核查与验收见[图形与显示待办](../backlog/graphics.md)。
+
 公开检索之外，本文在项目自带的 iOS 26.6 共享缓存（`hackios-xnu-kernel/ios26/23G90__iPhone18,3/dyld_shared_cache_arm64e*`，`IOMobileFramebuffer` 镜像基址 `0x229493000`）上反汇编，从导出 wrapper、对象分派槽、`kern_*` 实现一直追到 `IOConnectCall*` 的 selector 立即数，得到第 4 节的完整表。
 
 ## 1. 主表
@@ -152,11 +154,8 @@ iOS 26 启动日志中，backboardd 每次 swap 在 SwapBegin(4) 与 SwapEnd(5) 
 
 ## 9. 未实现的改动
 
-以下改动尚未进入 `MiniIOMobileFramebuffer.cpp`，按优先级排列：
+selector 契约补齐与验收统一记录在[图形与显示待办](../backlog/graphics.md)。
 
-1. 74 写满 2 个 scalar，count 与 selected index 都给 0，注释改为「2 scalar out 加 64 字节 struct」。
-2. enum 补 78 `kFBMethodSetBlock`（S1、S2、S3 一致的名字），分支收下 scalar 与 struct，返回成功。
-3. 88 按「1 scalar in 是 display type，存进 client 的 display type 字段（framework 侧对应 `fb+0x888`），返回 0」实现；注释写清名字来源是调用点事实，`s_map_display_type` 一层是推断。
-4. 按实际调用序列补齐其余在用的号。一次 iOS 26 启动的顺序为 `88 57 18 15 22 8 29 33 79(2056) 79(3164) 74(64) 25 12 79(44) 6 27(3084) 17(3084) 84 50 4 78(656) 78(64) 78(64) 68 5 3`，其中 88、18、15、22、33、27、17、84、50、78、68 不在现有 enum 里。17 与 27 的 3084、5 的 `0x588` 按 build 取值，不要写成常量。
+本次记录的一次 iOS 26 启动顺序为 `88 57 18 15 22 8 29 33 79(2056) 79(3164) 74(64) 25 12 79(44) 6 27(3084) 17(3084) 84 50 4 78(656) 78(64) 78(64) 68 5 3`，其中 88、18、15、22、33、27、17、84、50、78、68 未列在本次核查的 enum 中。17 与 27 的 3084、5 的 `0x588` 随 build 变化。
 
-源文件改完后，按 [k90auto 说明](../../tools/k90auto/README.md)复制进 12377 构建树再构建。调试打印沿用现有两个机制：启动参数 `fbtrace=N` 让每个 selector 的前 N 次调用（默认 3）带进程名打印；`not implemented` 一行由 `gFBLogged` 每次启动只打印一次。按 `not implemented` 过滤日志时注意三个驱动的格式不同：`MiniIOMobileFramebuffer` 与 `MiniIOSurface` 的 selector 是十进制，`MiniAppleKeyStore` 是十六进制。
+调试打印有两个机制：启动参数 `fbtrace=N` 让每个 selector 的前 N 次调用（默认 3）带进程名打印；`not implemented` 一行由 `gFBLogged` 每次启动只打印一次。三个驱动的日志格式不同：`MiniIOMobileFramebuffer` 与 `MiniIOSurface` 的 selector 是十进制，`MiniAppleKeyStore` 是十六进制。
