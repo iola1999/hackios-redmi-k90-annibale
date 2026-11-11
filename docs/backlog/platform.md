@@ -6,7 +6,7 @@
 
 | 编号 | 事项 | 状态与已知条件 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
-| S3 | 真实温度上报 | 修复与宿主检查通过，构建与真机状态以系统专题最新结果为准 | 核对电池真实读数、单位、无效值处理、IOKit 消费者和既有手电高温保护 | [系统批次 S3](../plan/2026-11-12-system-followup.md)、[系统契约](../analysis/2026-11-12-system-contracts.md) |
+| S3 | 真实温度上报 | 修复、宿主检查与完整内核构建通过，真机读数待验 | 核对电池真实读数、单位、无效值处理、IOKit 消费者和既有手电高温保护 | [系统批次 S3](../plan/2026-11-12-system-followup.md)、[系统契约](../analysis/2026-11-12-system-contracts.md) |
 | P1 | 背光闪烁与亮度保留 | 单位与滑块覆盖问题已修复并完成软件对照；物理面板待观察 | 滑块、空闲、手电切换和最低亮度的面板观察；连续两次重启核对滑块、原生 nits 与 DBV | [多媒体验证 §7、§19](../analysis/2026-11-11-multimedia-validation.md)、[亮度分析](../analysis/2026-11-02-brightness-control.md) |
 | P2 | 触觉反馈与手电档位 | 手电点亮已确认；触觉端口与事件修复尚需真机验收 | 检查系统触觉事件与马达反馈、手电档位／熄灭和温度限制；面板闪烁合并 P1 观察 | [架构跟进 §5](../progress/2026-11-10-arch-review-execution.md)、[手电与触感记录](../progress/2026-10-26-torch-and-haptics.md) |
 | P3 | Wi-Fi 图标、首次连接与重连 | cmd564、LINK／LQM 及主接口重评估已修改，真机待验 | 检查事件送达 wifid／SpringBoard、RSSI 和 wifiActive；测首次连接、重启重连和实际传输 | [LQM39 记录](../progress/2026-11-08-wifi-lqm39.md)、[架构跟进 §6](../progress/2026-11-10-arch-review-execution.md) |
