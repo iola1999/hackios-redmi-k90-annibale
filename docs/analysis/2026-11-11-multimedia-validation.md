@@ -786,7 +786,7 @@ cd20 以第 37 节的 cd19 为基线，普通 NC／WB 数据页增加 AP_UNPRIV 
 - 服务端仅收到主机健康检查，设备 GET、page-ready、点击和播放均为 0。后置回归与相机 metadata 读取未执行，Safari 播放尚未进入验收阶段。
 - HTTP 服务与控制进程均已退出，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。短轮没有 CPU 即时温度报告，周期采样覆盖不足。
 
-下一探针保持同一原生 LS 入口及 options，单次采集 NSError 的 domain、code、userInfo、锁定状态与阶段耗时。原始结果位于本地 `kernel-12377-codex-1112-cd16-audio-safari/run/safari-review.json`。
+后续单次探针的阶段结果见第 45 节。原始结果位于本地 `kernel-12377-codex-1112-cd16-audio-safari/run/safari-review.json`。
 
 ## 43. Iris PSC 类型修正与输出缓冲数量
 
@@ -803,7 +803,7 @@ cd21 保持第 41 节的 DMA 权限及诊断配置，crop 新增接受 U64，dep
 | POC | `0` |
 | color | `0x21202` |
 
-当前 RAW pool 容量为 4，PSC 要求 6 个输出缓冲，`iris_start_output()` 因容量检查返回 EOPNOTSUPP（102）。RAW 配置、RESUME 与 output START 尚未发送，BUFFER 返回与解码帧数均为 0；单次探针耗时 460 ms，回调仍为 `-12909`。下一步按原厂的输出／DPB 分配规则修正资源数量，再验证实际输出。
+该轮 RAW pool 容量为 4，PSC 要求 6 个输出缓冲，`iris_start_output()` 因容量检查返回 EOPNOTSUPP（102）。RAW 配置、RESUME 与 output START 尚未发送，BUFFER 返回与解码帧数均为 0；单次探针耗时 460 ms，回调仍为 `-12909`。缓冲数量修正后的解码结果见第 46 节。
 
 生产修正已提交到内核仓 `e1f85a98`，不包含 STAGE1 或临时属性日志。实际应用后的源码通过 124 项 ASan／UBSan 场景，49 类消融均被检出；单文件均未超过 1,200 行。
 
@@ -813,8 +813,8 @@ cd21 保持第 41 节的 DMA 权限及诊断配置，crop 新增接受 U64，dep
 
 cd22 以第 40 节的内核和辅助盘为基线，只修正第 39 节的 CCI 数据字节位置、事务完成检查与 GPIO 时钟错误传播，并增加 ID 读取日志。VFE 版本寄存器 offset 仍为 `0xa00`，CCI 时钟仍为 19.2 MHz，未加入 sensor streaming。
 
-- 后摄首次读取 slave `0x10`、寄存器 `0x300a`，IRQ 为 `0x01011000`；RD_DONE 与 Q0_REPORT 均置位，error mask 未命中。实际读取的 `READ_BUF_LEVEL` 为 0，因此拒绝此次事务并停用后续后摄探测，汇总 ID 为 `0x0000`。
-- 日志的 `raw=0`／`payload=0` 是初始化值；本次没有读取 FIFO 数据，不能据此解释传感器 payload。
+- 启动快照 `s005.log` 第 6741 行记录后摄 slave `0x10` 首次读取 `0x300a` 成功，`READ_BUF_LEVEL=1`、raw 为 `0x560a5621`、payload 为 `0x56`。下一行的 `0x300b` 读取见到相同 IRQ `0x01011000`，但实际 FIFO level 为 0，因此拒绝此次事务并停用后续后摄探测，汇总 ID 为 `0x0000`。
+- 上述 IRQ 的 RD_DONE 与 Q0_REPORT 均置位，error mask 未命中。空 FIFO 事务的 `raw=0`／`payload=0` 是未读取数据的初始化值；首次成功事务的 payload 则来自 FIFO bits 15:8。
 - 前摄 GPIO 读取 `0x300a=0x56`、`0x300b=0x20`，数据位与 ACK 时钟检查均通过。这两个寄存器的读值仍需与厂商指定的 ID 地址、数据宽度、mask 和 expected ID 对应，型号尚未验收。
 - VFE 版本仍返回 0，`hw_dma=0`，本轮没有真实相机像素或 CSI／IFE DMA 结果。
 
@@ -823,3 +823,61 @@ cd22 以第 40 节的内核和辅助盘为基线，只修正第 39 节的 CCI �
 该模块使用 `Parameter Parser V5.2.1 (2408261003)`，现有 `camsensor.py` 只接受 V3.0.1。现阶段确认文件完整性，V5 的 sensorDriverData 字段布局继续核对；AAC wide_i 仅取得首段压缩数据，完整后摄模块尚未提取。
 
 本轮 24 个步骤按预期完成，包含两张桌面截图和上述三条读取。最高 CPU 采样温度为 73.3°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。原始日志见本地 `kernel-12377-codex-1112-cd22-camera-read/run/camera-read-events.json`，模块边界与 CRC32 检查见 `codex-1112-camera-native/metadata-v5/v5-container-review.json`。
+
+## 45. Safari 打开前的锁状态查询耗时
+
+独立探针使用同一 LS 方法与 `__UnlockDevice` 选项，并保留 NSError 输出。该轮在打开前调用 `SBSSpringBoardServerPort()` 与 `SBGetScreenLockStatus()`，两次调用所在的查询阶段共耗时 29.338195 秒；记录尚未拆分两者各自的耗时。
+
+- 查询返回码为 0，`locked_raw=0`、`passcode_raw=0`。这些值对应查询完成时刻，开机最初的锁定状态仍以同期系统日志为准。
+- `defaultWorkspace` 随后正常返回，探针开始调用原生 `openSensitiveURL:withOptions:error:`，但进程 30 秒总期限即将用尽。日志只有 `open-begin`，没有 `open-end`，BOOL 与 NSError 均缺失。
+- 原生命令以 124 退出，耗时 30,340 ms；该结果仅确认探针达到总期限，原先约十秒返回 false 的原因仍待定位。
+- 最高 CPU 采样温度为 73.6°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7；HTTP 服务及控制进程均已退出。
+
+后续候选去掉前后锁查询，原生打开函数、options 和单次调用保持一致。准备阶段与打开方法分别计时，30 秒仍为进程总期限；完整 `open-end` 结果见第 48 节。候选通过五项宿主检查、arm64e 构建与签名校验，既有辅助盘文件内容均保持一致。
+
+本轮阶段数据位于本地 `kernel-12377-codex-1112-cd16-safari-opener/run/opener-phases.json`；后续候选与独立包检查位于 `codex-1112-safari-open-direct/`。
+
+## 46. Iris RAW 协商后完成 30 帧硬解
+
+cd23 只调整第 43 节的 RAW 缓冲数量。OPEN 前保留初始 4 块，收到 PSC 后按固件 minimum 追加，实际发布 `max(4, minimum)` 块；容量上限沿用 DPB 的 6 块。本轮 minimum 为 6，RAW 与 DPB 均发布 6 块，随后收到 RESUME、RAW START 和 BUFFER 应答。
+
+- 320×192 H.264 单次请求提交、接受、回调和出帧均为 30，`hardware=1`、`require_hardware=1`、`software=0`。错误回调、丢帧、空帧和布局检查错误均为 0，原生退出码与 rsh 退出码均为 0，总耗时 770 ms。
+- 输出为 NV12，有效 Y／UV 数据共 2,764,800 字节。主机从实际测试 APFS 核对样本，再用单线程 FFmpeg 软件 H.264 解码；30 帧有效 Y／UV 区域的 FNV1a64 逐帧全部一致。设备尚未回传原始像素转储；探针的 `pixel_errors` 仅检查格式、布局与可读性，内容核验来自上述独立哈希对照。
+- 输入 STOP、RAW STOP 与 CLOSE 均收到应答，随后记录 `close done`，对应会话缓冲全部释放和解除映射。退出时的全局 PAS／SMMU 保留记录对应另一组资源，仍按复位要求处理。
+- 最高 CPU 采样温度为 73.6°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。该轮为 RAM 测试，完整部署镜像保持原版本。
+
+生产实现按成功分配数维护 `raw_count`，返回索引、取帧与重新入队均检查该数量；释放扫描全部槽位，覆盖映射失败后保留的资源。零数量、容量、DPB 实际字节数和 RAW IOVA 范围检查保留，重复或变化 PSC 仍拒绝。实际源码通过 160 项 ASan／UBSan 场景、64 类消融和三个内核单元编译，已与相机 CCI 读取修正合入内核仓 `496e356d`。
+
+cd23 仍包含 STAGE1 诊断设置，当前生产源码未包含该设置。后续需按原厂通用 STAGE 规则验证生产配置；连续播放、其他分辨率及其他格式尚未验收。
+
+本轮原始结果位于本地 `kernel-12377-codex-1112-cd23-iris-raw-count/`；软件参考与逐帧对照位于 `codex-1112-iris-raw-count/reference-check/comparison.json`，生产检查位于同目录的 `production-applied-check/` 与 `production-applied-compile/`。
+
+## 47. 相机 CCI 中断清除后连续读取成功
+
+cd24 以第 44 节为基线，仅将 `CCI_IRQ_GLOBAL_CLEAR_CMD` 从 `0xc10` 修正为 `0xc00`。本机原厂 `camera.ko` 的 `cam_cci_irq` 向 `0xc00` 写入 1；`0xc10` 对应 IRQ_MASK_1，原厂在相邻路径对该寄存器执行 mask 读改写。
+
+| 后摄寄存器 | payload | FIFO level | IRQ | 读取结果 |
+|---|---|---|---|---|
+| `0x300a` | `0x56` | 1 | `0x00011000` | 成功 |
+| `0x300b` | `0x50` | 1 | `0x00011000` | 成功 |
+| `0x300c` | `0x45` | 1 | `0x00011000` | 成功 |
+
+后摄三次读取连续完成，诊断汇总为 `wide=0x5650`、revision `0x45`、slave `0x10`、bus 1。前摄仍读得 `0x300a/0x300b=0x56/0x20`。VFE 仍返回 0、`hw_dma=0`，真实图像尚未取得。
+
+本轮末尾读取后摄 V5 数据区，原生退出码为 0、耗时 227 ms，但 telemetry 插入一行 Base64 中间，rsh 输出缺少后半行，连续性校验失败后结束采集。四份原始日志均保留相同的前 20 字符和后 44 字符；合并后另存派生回复，598 行／28,704 字节通过严格连续性检查，七个 LZ4 extent 按预期解出 62,369 字节。原始回复与日志保持原样，后一条 HAL inode 读取仍未执行，metadata-v6 未生成。
+
+按 V5 schema 对齐解读，后摄 `sensorDriverData` 的 slaveAddress 为 `0x20`，ID 地址为 `0x300a`，expected ID 为 `0x5650`，mask 为 `0xffff`；本轮 `0x300a/0x300b=0x56/0x50` 与这组字段相符。本机 V5 生成 parser 尚未取得，字段偏移仍属 schema 对齐推断；当前只提取所需片段，完整后摄模块的 CRC 尚未校验。
+
+最高 CPU 采样温度为 74.4°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。生产修正已随内核仓 `496e356d` 提交，保留已修正的 VFE offset `0x1000`；本轮 RAM 候选仍用旧 offset `0xa00`，VFE 新地址需要单独真机复核。生产测试通过 34 项场景、7 类身份消融和 3 类 MMIO 消融。
+
+本轮结果位于本地 `kernel-12377-codex-1112-cd24-camera-global-clear/`；缺失 offset 与回复校验见其 `run/metadata-gap-review.json`。恢复过程与 ID 对照见 `codex-1112-camera-identity/v5-schema/cd24-recovery/`；原厂寄存器核对、编译及宿主检查位于 `codex-1112-camera-global-clear/`。
+
+## 48. Safari 打开接口取得 LS 超时错误
+
+direct 探针去掉第 45 节的锁查询，取得完整 `open-end`。原生打开方法耗时 12.949221 秒，返回 false；NSError 为 `NSPOSIXErrorDomain`、code 60，`_LSFile=LSDispatchUtils.mm`、`_LSFunction=_LSDispatchWithTimeout`、`_LSLine=147`。进程总耗时 13,110 ms，原生与 rsh 退出码均为 1，`defaultWorkspace` 调用耗时 10 µs。
+
+方法返回后执行一次进程查询，并保存 8.242 秒日志窗口。窗口后段的 `s008.log` 记录 MobileSafari 启动，以及包含 `com.apple.mobilesafari` 的 FBS 前台布局；需结合完整启动时序分析 LS 等待的完成回调。服务端全程仅收到主机健康检查，页面 GET 与 page-ready 均为 0，页面播放仍待验证。
+
+本轮单次调用后结束，没有重试。最高 CPU 采样温度为 73.3°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7；HTTP 服务与控制进程均已退出。
+
+完整返回值、阶段计时和最终日志位于本地 `kernel-12377-codex-1112-cd16-safari-open-direct/`，静态分析位于 `codex-1112-safari-open-direct/rootcause/`。后续沿 LS、应用启动服务和 SpringBoard 的原生完成回调定位等待条件。
