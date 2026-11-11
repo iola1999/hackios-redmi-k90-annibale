@@ -164,7 +164,7 @@ AIR 翻译器是本项目最独特也最脆弱的一层。目前的失败模式�
 
 ### 8.1 四处可疑的契约偏差
 
-1. **10 位 XR 格式被静默替换成 8 位。** `MiniIOSurface.cpp` 把 `w30r`／`l10r`／`w30R`／`b3a8` 建成 `BGRA`，驱动再用 `ann_canonical_pixel_format()` 把 Metal 格式 94 与 550～555 映射为 80／81（`hackios-xnu-kernel/tools/userland-driver/annibale_drawable.h`）。iPhone 17 身份下 CoreAnimation 会为玻璃与壁纸选 XR 格式，超出 [0,1] 的分量被截断，sRGB 与线性的判定（551／553／555 视为 sRGB）也是推断而非从 QuartzCore 读出的对应关系。这是最直接会把半透明材质颜色画偏的一条，建议第一个核对。正确做法是在内核 IOSurface 里真的提供 10 位格式（A830 支持 `RGB10_A2` 与相关布局），驱动按真实格式建纹理。
+1. **高精度格式被替换成 8 位。** `MiniIOSurface.cpp` 把 `w30r`／`l10r`／`w30R`／`b3a8` 建成 `BGRA`，驱动的 `ann_canonical_pixel_format()` 再把 Metal 格式 94 与 550～555 映射为 80／81。94 是 `BGR10A2Unorm`；公开 XR 枚举为 552／553 `BGRA10_XR`、554／555 `BGR10_XR`，553／555 的 sRGB 属性已有 SDK 定义，550／551 的私有契约待确认。CoreVideo 的 32 位 RGB、64 位 ARGB 与独立 alpha 平面需要分别实现。当前材质的实际格式分布，以及格式替换与颜色异常的关系仍待测量。先验证普通纹理和 buffer-backed 纹理对格式 94 的不同处理，再核对 XR 布局与扩展范围，见[系统契约核查 §7](2026-11-12-system-contracts.md#7-高精度像素格式的下一项测试)。
 2. **framebuffer fetch 的降级路径。** `air_to_nir.c` 把 `air.render_target` 输入翻成 `fb_fetch_output`，Mesa 再降成 `txf_ms_fb`；补丁 0016 用常量图层 0 绕过了 VPC 脏寄存器。这是个合理修补，但 A830 上 fb fetch 在 GMEM 多 bin 与两个颜色附件下的一致性没有专门测试，而 iOS 26 的材质着色器大量依赖它。
 3. **附件读写策略的两条补丁有正确性前提。** 0009 把 `MTLLoadActionDontCare` 附件标为内容无效、0010 跳过 `colormask=0` 附件的写回，两者都假设 CoreAnimation 之后不再读这块附件。整屏 pass 的第二个 RGBA16Float 附件正是材质路径可能回读的那块；若某些 pass 确实回读，就会出现「局部区域颜色错、切换控制中心后又对」这种状态依赖的症状。建议做一次 A/B：关掉 0009／0010 跑同一组截图，看搜索栏、顶栏、状态栏是否变化。
 4. **混合状态映射。** `air_metal.c` 第 5251 行附近注明某些混合操作按 `max(Cs, Cd)` 处理而忽略因子；合成滤镜（`darkenSourceOver`、`sourceAtop`、`plusL` 等）全靠混合状态与双源混合表达，任何一项映射不精确都会表现为「颜色老是不对」。
