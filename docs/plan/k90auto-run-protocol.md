@@ -94,13 +94,13 @@
 
 不需要停下的情形：
 
-- 复位后落到 B 槽 Android：`run-queue.sh` 和 `cycle.py` 调 `recover-loader.py`，在 40 秒内等 adb，确认唯一一台 B 槽 annibale 后经 LK `set_active a` 回到 loader。
+- 起轮前处于运行态、收尾态或复位后落到 B 槽 Android：`cycle.py` 与 `run-queue.sh` 自动通过 `oem stop`、`reboot` 加 `oem recovery` 或 `recover-loader.py`（在 40 秒内等 adb，确认唯一一台 B 槽 annibale 后经 LK `set_active a`）收敛回 loader 的 `idle` 状态。
 - 开机约一秒就 panic 返回（early startup 的 UBSAN trap，或 `ml_get_max_cpu_number()` 断言）：`round-run.py` 把上次的 `run/` 移到 `run-attempt-<n>/` 重跑，`K90_PANIC_RETRY` 默认 3 次。
 - 快照缺一两份而收尾正常，本轮有效。单条 `getvar`／`oem log` 超时一次，可手动重试该命令，最多 2 次。
 
 停下处理，不重跑：
 
-- loader 未枚举、`result` 不为 idle 或序列号为空，以及需要按键、切槽、重刷：按 `AGENTS.md` §5 停手并报用户。
+- 序列号为空，或软件恢复失败需要按键、切槽、重刷：按 `AGENTS.md` §5 记录现场并报告用户。
 - `--verify` 不过且重拉一次快照仍不过：先修合并或采集工具。哈希与 manifest 不符、打包或编译失败同样先修。
 - 同一路径连续失败 3 次：换测法或改代码后再排。失败签名对这一代载荷是新的：先在历史轮次里按文件点名搜同一签名，没有先例就先分析、写下重试理由，再消耗下一次启动。
 

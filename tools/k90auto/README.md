@@ -6,8 +6,8 @@
 
 ## 1. 前提与产物位置
 
-- 设备处于驻留 loader 的 idle 状态（`fastboot -s xnuloader getvar result` 输出 `result: idle`），USB 连接主机；`cycle.py` 也可以从 Android 出发。同一设备一次只跑一个队列。
-- loader 用 `hackios-xnu-kernel/out/handoff-loader-v17.img`（`cycle.py` 的 `LOADER`），构建见 [annibale UEFI 与 loader 镜像构建](../../docs/analysis/annibale-uefi-build.md)，刷写见[真机调试手册 §3](../../docs/plan/device-test-playbook.md#3-安装驻留-loader)。
+- 设备通过 USB 连接主机；`cycle.py` 自动将独立运行态、收尾态或 B 槽 Android 收敛到驻留 loader 的 `idle` 状态（`fastboot -s xnuloader getvar result` 输出 `result: idle`）。同一设备一次只跑一个队列。
+- 驻留双启动 loader 位于 `boot_a`（`hackios-xnu-kernel/out/boot-a-ios.img`），构建见 [annibale UEFI 与 loader 镜像构建](../../docs/analysis/annibale-uefi-build.md)，刷写见[真机调试手册 §3](../../docs/plan/device-test-playbook.md#3-安装驻留-loader)。
 - 主机需要 Python 3.12 或更新版本、`adb`、`fastboot`；截图转换需要 `ffmpeg`，截图统计需要 NumPy。
 - 输出目录默认是 `docs/progress/evidence/k90auto`（Git 忽略），可用 `K90_EVIDENCE` 改。一轮的目录是 `kernel-<内核名>-<标签>/`，含 `manifest.json` 和 `run/`（`s###.log` 日志快照、截图、`commands.jsonl`、`reboot.json`、`tour.json`）。
 - `run-auto.py` 按 `manifest.json` 校验载荷、辅助盘与启动卷的大小和 SHA-256，核对载荷实际启动参数；要求 loader 报告 `ramdisk-protocol: 1` 且常驻区为空。这里的常驻启动区只接收不超过 64 MiB 的 `flashboot.apfs` 引导卷，系统卷和可变数据都不放入该区域。`EXPECT_PAYLOAD_SHA256`、`EXPECT_ROOT_SHA256`、`EXPECT_BOOT_SHA256` 可再指定期望值，build-id 记入 `reboot.json`。
@@ -172,7 +172,7 @@ python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL
 - 默认值：内核记录 `12377-st5`（`--kernel`），`--seconds 900`，`jobs/rc.jobs.interactive`，`GPU_SPEED=14`，CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
 - 固定启动参数 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、`touch_poll_us=4000` 和 Wi-Fi（`pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。之后是 `--boot-args`，最后是 `fbwidth=1206 fbheight=2622 fbpitch=460`（iPhone 17 画布，见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)）。
 - `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 分别替换固定参数、CPU 参数和 GPU 档位。同一个键出现两次时内核取第一个，所以本轮变量是 `FIXED_ARGS` 里的键时要用 `CYCLE_FIXED_ARGS` 整串替换；画布三个键排在最后，可以在 `--boot-args` 里改。`CYCLE_PROGRAMS=路径[:路径]` 往根盘的 `/annibale/bin` 多放程序。
-- 起轮前要求 loader 已枚举、`result` 为 idle、启动卷常驻区为空，否则停止；设备在 Android 时先调 `recover-loader.py`。每 2 轮做一次检查点：经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再 `fastboot boot` 起 `LOADER`（或 `LOADER_IMAGE=FILE`）；驻留 loader 的 build-id 不含 `45d97a8` 时也先做检查点。LK 由 `ANDROID_SERIAL` 指定，计数存在 `docs/progress/evidence/k90auto/cycle-state.json`。
+- 起轮前由 `ensure_loader_idle()` 将运行态（`oem stop` 后 `reboot` 加 `oem recovery`）、收尾态或 B 槽 Android（`recover-loader.py`）收敛到已枚举的 `xnuloader` 且 `result` 为 `idle`、启动卷常驻区为空。显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1`（配合 `ANDROID_SERIAL`）时经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再启动对应镜像。
 - `--hold` 在操作截图后不结束这一轮，跑满 `--seconds` 或收到 `respin.py --stop` 才结束。期间用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传辅助盘；需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 annsh。SpringBoard 被结束后停在 backboardd 的转圈界面，所以改 SpringBoard 的设置仍要重新起一轮。
   - `--env` 把 `kern.annibale.env` 设为给出的词（`进程名:变量=值` 或 `进程名:-变量`），超过 119 字符时拆成一条 `setenv` 和若干条 `addenv`；不带词时清空。
   - `--restart` 向同名进程发 SIGKILL，由 launchd 重新拉起；驱动在进程加载时把本进程名下的设置写进环境变量，覆盖 plist 里的同名变量，每条打印 `kern.annibale.env: 词`。

@@ -100,7 +100,8 @@ BT_FW = BT_FW_MODE != "0"
 BT_FW_FILES = (BT_FW_USED if BT_FW_MODE in ("used", "1") and all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else
                sorted(p.name for p in BT_FW_DIR.glob("hmt*")) if BT_FW else [])
 assert not BT_FW or BT_FW_FILES, f"BT_FW={BT_FW_MODE}, but {BT_FW_DIR} has no hmt* files (tools/mk-fw-bt.py extract)"
-IRIS_FW_DIR = WORKSPACE / "out/fw-iris" if (WORKSPACE / "out/fw-iris").is_dir() else WORKSPACE / "fw-iris"
+IRIS_FW_DIR = (WORKSPACE / "hackios-xnu-kernel/out/fw-iris" if (WORKSPACE / "hackios-xnu-kernel/out/fw-iris").is_dir()
+               else WORKSPACE / "out/fw-iris" if (WORKSPACE / "out/fw-iris").is_dir() else WORKSPACE / "fw-iris")
 IRIS_FW_FILE = "vpu35_4v.mbn"
 IRIS_FW = os.environ.get("IRIS_FW", "1" if (IRIS_FW_DIR / IRIS_FW_FILE).is_file() else "0") == "1"
 assert not IRIS_FW or (IRIS_FW_DIR / IRIS_FW_FILE).is_file(), f"IRIS_FW=1, but {IRIS_FW_DIR / IRIS_FW_FILE} is missing"

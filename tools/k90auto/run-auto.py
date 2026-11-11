@@ -282,7 +282,10 @@ def serve_commands():
     for request in sorted(run.glob("cmd-request-*.txt")):
         text = request.read_text().strip()
         request.unlink()
-        record = call(["oem", "sh", text], 8, False)
+        if not text or len(text.encode("utf-8")) > 119 or "\n" in text or "\r" in text:
+            record = {"rc": 2, "output": "command must be one line of 1 to 119 UTF-8 bytes"}
+        else:
+            record = call(["oem", "sh", text], 8, False)
         # fastboot prints the loader's INFO answer, the new sequence number, as "(bootloader) N"
         match = re.search(r"^\(bootloader\) (\d+)\s*$", record["output"], re.M)
         seq = int(match.group(1)) if match and record["rc"] == 0 and "FAILED" not in record["output"] else None
@@ -454,20 +457,30 @@ if left == "idle":
 elif reset:
     watch = time.monotonic()
     while time.monotonic() - watch < 90:
-        devices = subprocess.run(["fastboot", "devices"], capture_output=True, text=True, timeout=3).stdout
-        if "xnuloader" in devices:
+        try:
+            enumeration = subprocess.run(["fastboot", "devices"], capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            time.sleep(0.5)
+            continue
+        if enumeration.returncode or "FAILED" in enumeration.stdout + enumeration.stderr:
+            time.sleep(0.5)
+            continue
+        devices = [line.split() for line in enumeration.stdout.splitlines()]
+        if devices.count(["xnuloader", "fastboot"]) == 1:
+            # Interrupt standalone boot_a's 5 s countdown menu so it stays in Fastboot idle mode.
+            recovery = call(["oem", "recovery"], 8, False)
             # A reset can finish between two polls, so the gap is recorded rather than required:
             # a loader that answers idle over an empty RAM disk is the fresh one the next run needs.
-            if fresh_loader():
+            if recovery["rc"] == 0 and "FAILED" not in recovery["output"] and fresh_loader():
                 mode = "loader"
                 break
         else:
             off_seen = True
             android = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=3).stdout
-            if "\tdevice" in android:
+            if any(len(parts := line.split()) == 2 and parts[1] == "device" for line in android.splitlines()):
                 mode = "android"
                 break
-        time.sleep(1)
+        time.sleep(0.5)
     seconds = time.monotonic() - watch
 summary = {"off_seen": off_seen, "mode": mode, "seconds": seconds, "left": left, "reset": reset,
            "failed": failed, "samples": index, "loader_build_id": loader_build_id,

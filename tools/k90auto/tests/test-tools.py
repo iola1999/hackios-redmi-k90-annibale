@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline checks for frame statistics, the unattended queue, and the runner's teardown."""
+import ast
 import hashlib
 import importlib.util
 import json
@@ -215,6 +216,40 @@ class ToolsTests(unittest.TestCase):
         result, runs = self.run_queue(False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(runs), 2)
+
+
+class CommandBoundsTests(unittest.TestCase):
+    def test_rsh_rejects_oversized_utf8_before_creating_request(self):
+        for command in ("x" * 120, "你" * 40, "echo\rhi", "echo\nhi"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "run").mkdir()
+                result = subprocess.run([sys.executable, str(HERE / "rsh.py"), str(root), command],
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(list((root / "run").iterdir()), [])
+
+    def test_runner_checks_raw_request_utf8_length_before_usb(self):
+        tree = ast.parse((HERE / "run-auto.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "serve_commands")
+        for command, allowed in (("x" * 119, True), ("你" * 39, True),
+                                 ("x" * 120, False), ("你" * 40, False), ("echo\nhi", False)):
+            with self.subTest(bytes=len(command.encode("utf-8"))), tempfile.TemporaryDirectory() as directory:
+                run = Path(directory)
+                (run / "cmd-request-test.txt").write_text(command + "\n")
+                sent = []
+
+                def call(args, *_):
+                    sent.append(args)
+                    return {"rc": 0, "output": "(bootloader) 9\nOKAY\n"}
+
+                namespace = {"run": run, "call": call, "json": json, "re": __import__("re"),
+                             "time": time, "CMD_FOLLOW_SECONDS": (2, 5, 10, 18), "command_reads": []}
+                exec(compile(ast.Module(body=[function], type_ignores=[]), "run-auto.py", "exec"), namespace)
+                namespace["serve_commands"]()
+                reply = json.loads((run / "cmd-reply-test.json").read_text())
+                self.assertEqual(reply["seq"], 9 if allowed else None)
+                self.assertEqual(sent, [["oem", "sh", command]] if allowed else [])
 
 
 class RunAutoTests(unittest.TestCase):

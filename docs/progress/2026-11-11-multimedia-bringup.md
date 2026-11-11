@@ -2,7 +2,7 @@
 
 本轮完成音频播放、相机适配、视频硬件解码与 YUV 合成以及背光／时钟收尾项的全链路代码落地、13 组宿主单测验证与内核／用户态产物构建。根因定位、静态反汇编依据与模块设计见[多媒体根因定位及架构设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)，前序事项见[11-10 架构审查跟进记录](2026-11-10-arch-review-execution.md)。
 
-## 1. 本轮落地变更概览
+## 1. 首批落地变更概览
 
 跨 `hackios-xnu-kernel`（提交 `7507f4c9`）、`hackios-xnu-userland`（提交 `023e088`）与顶层打包脚本 `tools/k90auto/package.py` 共完成四部分工作，所有新增与修改源码文件均控制在 1200 行以内。
 
@@ -11,7 +11,7 @@
 - 相机适配与系统级 Metal 发现。`MiniFramebufferUserClient.inc`、`annibalemetal_device.inc` 与 `package.py` 发布 `AnnibaleMetal.bundle` 并将默认 `featureProfile` 对齐至 `MTLGPUFamilyApple3`；`camera_device.c` 与 `camera_device_stream.inc` 补齐 `SoftISP = false`、`ModuleInfo`、`TuningParameters` 与 `FaceDetectionConfiguration`；`annibale_camera.c` 与 `annibale_camera_hw.inc` 补齐 SM8750 CAMSS 7 路电源、时钟、`apps_smmu` `SID 0x1c00` 幂等旁路及前后置 OV50E／OV20B 探测。
 - 视频 YUV 合成与 Iris VPU v3.5 硬解。`annibaledrawable.m`、`annibalemetal_yuv.inc` 与 `air_metal_yuv.inc` 支持 10-bit P010（`x420`／`xf20`）、宏块对齐尺寸、用途位 `0x10` 与 BT.2020 矩阵；`annibale_iris*.c` 实现 `/dev/annibale-iris`（`videocc`、双 SMMU Stage-1、PAS `9` `vpu35_4v.mbn`、HFI Gen2 H.264／HEVC 解码与 B 帧时间戳排空）；`videotoolbox_iris.c` 构建为 `libannibale-vt.dylib`，按硬件就绪状态向 `VideoToolbox` 注册 `'avc1'`、`'hvc1'` 与 `'hev1'` 硬解器。
 
-## 2. 编译打包与产物摘要
+## 2. 首批编译打包与产物摘要
 
 内核经 `xnu26/build-macos.sh` 编译链接并登记为 `12377-multimedia-1111`，用户态经 `build-air.py`、`COMPILE_ONLY=1 bash build.sh`、`package.py`（`GPU_SPEED=14`）与 `make-payload.py` 完成根盘与引导载荷组装。
 
@@ -43,13 +43,6 @@
 | `hackios-xnu-userland/tools/tests/test-video-decode-test.py` | `video_decode_test` 硬解要求门控、损坏样本与超时保护（10 项） | 通过 |
 | `hackios-xnu-userland/tools/tests/test-video-player-test.py` | `video_player_test` 像素采样、播放结束判据与异常流处理（10 项） | 通过 |
 
-## 4. 真机门禁核查与待复核项
+## 4. 真机验证与剩余问题
 
-按 [AGENTS.md](../../AGENTS.md) §5 起轮前只读查询真机状态，`fastboot devices` 枚举到 `xnuloader`，`getvar product` 返回 `xnuloader`，`getvar slot-retry-count:a` 返回 `7`，`getvar result` 返回 `running 0 0`（手机当前处于独立运行态，非 `idle`）。执行 `python3 tools/k90auto/cycle.py mm1 --kernel 12377-multimedia-1111` 触发 `loader result is not idle` 门禁并写入标记文件 `docs/progress/evidence/k90auto/cycle-stop.json`，按规程停止设备侧命令，未对运行中系统下发复位或停机操作。
-
-待手机退回 `xnuloader` 且 `getvar result` 为 `idle` 后，直接执行 `python3 tools/k90auto/cycle.py mm1 --kernel 12377-multimedia-1111` 即可按单批次不超过 3 轮的约束集中复核以下指标。
-
-1. 音频通路。核查 `dmesg` 中 `aadsp:`／`damp:`（TFA9866 `0x9866` 探测与 `CLKS == 1`）、`airplayd` 无崩溃、`audiomxd` 无 30 秒超时，以及 `sound_test` 与 Safari／`AVPlayer` 冷启动出声延迟。
-2. 相机通路。核查 `dmesg` 中 `cam:` 前后置 `OV50E`／`OV20B` 芯片 ID 探测、`cameracaptured` 图提交无 `-12780` 错误，以及 `camera_avtest`／`Camera.app` 实传感器预览帧输出。
-3. 视频硬解与 YUV 合成。核查 `dmesg` 中 `iris:` PAS `9` 固件启动与 HFI 建链、`video_decode_test --require-hardware` 返回 `hw=1`、10-bit P010／BT.2020 `video_combined_test` 渲染像素及 `video_player_test` 端到端播放。
-4. 背光与时钟。核查控制中心滑块调节与锁屏唤醒后的面板 DBV 跟随，以及连续调用 `gettimeofday` 无 `tv_usec >= 1,000,000` 样本。
+mm1～mm4 出现启动 panic；mm5 采样约 408 秒，未捕获 panic，主动停止后恢复 loader 空闲态。音频提交与本地视频播放通过，扬声器实际出声待确认。Iris 硬件未就绪，相机仍输出软件测试帧；P010／BT.2020 与界面交互尚未验收。各轮结果、产物和接续检查见[多媒体验证结果](../analysis/2026-11-11-multimedia-validation.md)。

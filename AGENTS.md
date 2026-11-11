@@ -44,9 +44,9 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 无人值守指的是机器自己跑完整轮，不含设备进入需要人按键才能离开的状态。2026-10-29 出现过一次整天连续起轮、loader 从 USB 消失几小时、只能靠长按电源键恢复的事故，以下约束据此写死。
 
-- **loader 未枚举即停手。** 起轮前要求 `fastboot devices` 出现 `xnuloader` 且 `getvar result` 为 `idle`，任一条件不满足时整条队列立刻停止：写标记文件、报用户、等指令。不自行 `reboot`、不自行断电重来、不自行换槽。
+- **起轮前自动收敛至驻留 loader。** 起轮前由工具链将设备收敛到已枚举的 `xnuloader` 且 `getvar result` 为 `idle`、启动卷常驻区为空：运行态先发 `oem stop` 等内核静默后执行 `reboot` 并发 `oem recovery` 锁定独立双启动 loader 的 Fastboot 模式，B 槽 Android 经 `recover-loader.py` 切回 A 槽 loader。软件恢复失败时记录现场并报告用户。
 - **序列号为空视同未枚举。** `adb devices` 列出设备但序列号为空时，除轮询外不发任何命令。序列号必须能原样读出。
-- **每轮收尾硬校验。** `getvar result` 必须是 idle、`getvar product` 必须是 `xnuloader`，两项都满足才允许下一轮。任一项不满足，队列停下报用户。
+- **每轮收尾硬校验。** `getvar result` 必须是 `idle`、`getvar product` 必须是 `xnuloader` 且常驻区为空；复位重枚举后立即发 `oem recovery` 锁定 Fastboot 空闲态。任一项不满足，队列停下报用户。
 - **A 槽重试预算与 GPT GUID 相位。** `xnuloader` 启动时会自动维护自身槽位的重试计数与 `_a`／`_b` 分区 `PartitionTypeGUID` 相位；主机侧起轮前仍需检查 `slot-retry-count:a`（低于 3 先 `set_active a`），切槽时确保 LUN 4 与 LUN 0 的活动槽位持有各自的 `PartitionTypeGUID`（非活动槽位为 `77036cd4-...`），防止触发高通 LK `ValidateSlotGuids` 校验失败。
 - **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再起下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。

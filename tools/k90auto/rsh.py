@@ -8,7 +8,7 @@ ROUND_DIR is the directory make-payload.py printed and run-auto.py is running. T
 loader_live magic3, loader "oem sh"). run-auto.py stays the only process that talks to the device:
 this drops the command into ROUND_DIR/run/cmd-request-*.txt and waits for run-auto.py to send it
 and to read the log into ROUND_DIR/run/cmd-SEQ.log. The command is one line of at most 119
-characters, words split on blanks with no quoting; the built-ins are listed in
+UTF-8 bytes, words split on blanks with no quoting; the built-ins are listed in
 hackios-xnu-kernel/userland/src/annsh.c. annsh applies its own command deadline, and a slow native call
 can also finish after the default output wait. Set RSH_OUTPUT_TIMEOUT and RSH_SUBPROCESS_TIMEOUT for
 callers that need a longer observation window.
@@ -35,8 +35,8 @@ def main():
     if not run.is_dir() or (run / "reboot.json").exists():
         print(f"rsh: {run} is not a running round", file=sys.stderr)
         return 2
-    if not text or len(text) > 119 or "\n" in text:
-        print("rsh: the command must be one line of 1 to 119 characters", file=sys.stderr)
+    if not text or len(text.encode("utf-8")) > 119 or "\n" in text or "\r" in text:
+        print("rsh: the command must be one line of 1 to 119 UTF-8 bytes", file=sys.stderr)
         return 2
     name = f"cmd-request-{time.time_ns()}-{os.getpid()}"
     partial = run / f".{name}.tmp"

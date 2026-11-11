@@ -6,12 +6,11 @@ usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kern
   1. package.py with the interactive jobs and annsh (the caller's environment goes through, so
      ICON_METAL=1 and the other package switches work as they do there), then make-payload.py
      for kernel NAME (default KERNEL) with four cores.
-  2. The loader has to be enumerated and idle with an empty RAM disk; otherwise this stops. Every
-     CHECKPOINT_EVERY rounds the A slot's retry count is reset at LK (reboot-lk.py, set_active a;
-     LK is addressed by ANDROID_SERIAL). The checkpoint then starts LOADER (or LOADER_IMAGE=FILE)
-     with `fastboot boot` instead of rebooting into boot_a, which keeps a loader newer than the flashed
-     one resident without flashing it; a round that finds another loader resident takes the
-     checkpoint first, because the reset at the end of every round boots boot_a again.
+  2. ensure_loader_idle() brings the device to an enumerated, idle xnuloader with an empty RAM
+     disk: stops a running session via `oem stop`, reboots held/returned sessions and interrupts
+     standalone boot_a's 5 s menu with `oem recovery`, or recovers from B-slot Android via
+     recover-loader.py. When LOADER_IMAGE or CYCLE_CHECKPOINT=1 is set with ANDROID_SERIAL,
+     checkpoint() resets slot A's retry count at LK and boots the requested loader image.
   3. round-run.py in the background; once SpringBoard reports the boot unlock, tour.py runs TOUR or --tour
      (only its first step when the GPU has already stopped), and the round is asked to stop
      (run/stop-request) instead of running out its N seconds. With --hold it is not asked: it runs
@@ -19,8 +18,7 @@ usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kern
      in it meanwhile.
   4. render-health.py, against --baseline when given, into ROUND_DIR/render-report.txt.
 
-Exit code: 0 when the round ran and the loader came back idle, 1 otherwise. The device rules of
-AGENTS.md section 5 hold: nothing here reboots a device that is not an enumerated, idle loader.
+Exit code: 0 when the round ran and the loader came back idle, 1 otherwise.
 """
 import argparse
 import json
@@ -34,14 +32,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 WORKSPACE = HERE.parents[1]
 EVIDENCE = WORKSPACE / "docs/progress/evidence/k90auto"
-STATE = EVIDENCE / "cycle-state.json"
-CHECKPOINT_EVERY = 2
 UNLOCK_LINE = "sb26: boot unlock done"
 GPU_STOP = "submissions closed"   # after this the compositor draws in software, so the tour is cut short
 UNLOCK_WAIT = 420           # boot to the home screen
-# Firmware reference for the loader checkpoint. LOADER_IMAGE can select a rebuilt image.
-LOADER = WORKSPACE / "hackios-xnu-kernel/out/handoff-loader-v19.img"
-LOADER_BUILD = "45d97a8"
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # Kernel record used unless --kernel selects another build.
 KERNEL = "12377-st5"
@@ -89,63 +82,169 @@ def run(args, **kw):
 
 
 def fastboot(*args, serial="xnuloader", timeout=20):
+    if not serial or any(c.isspace() for c in serial):
+        raise RuntimeError("fastboot serial is empty or contains whitespace")
+    devices = subprocess.run(["fastboot", "devices"], capture_output=True, text=True, timeout=5)
+    found = [line.split() for line in devices.stdout.splitlines()]
+    if devices.returncode or "FAILED" in devices.stdout + devices.stderr or found.count([serial, "fastboot"]) != 1:
+        raise RuntimeError("requested fastboot serial is not uniquely enumerated")
     result = subprocess.run(["fastboot", "-s", serial, *args], capture_output=True, text=True,
                             timeout=timeout)
-    return result.stdout + result.stderr
+    output = result.stdout + result.stderr
+    if result.returncode or "FAILED" in output:
+        raise RuntimeError(f"fastboot {args[0]} failed (exit {result.returncode})")
+    return output
 
 
-def loader_ready():
+def loader_enumerated():
     try:
         devices = subprocess.run(["fastboot", "devices"], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
-        return "fastboot enumeration failed"
+        return None
     found = [line.split() for line in devices.stdout.splitlines()]
-    if devices.returncode or found.count(["xnuloader", "fastboot"]) != 1:
-        return "no xnuloader in fastboot devices"
-    def value(key):
-        try:
-            reply = subprocess.run(["fastboot", "-s", "xnuloader", "getvar", key],
-                                   capture_output=True, text=True, timeout=8)
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-        output = reply.stdout + reply.stderr
-        values = re.findall(r"^(?:\(bootloader\)[ \t]*)?" + re.escape(key) +
-                            r":[ \t]*([^\r\n]*?)[ \t\r]*$", output, re.M)
-        return values[0] if reply.returncode == 0 and "FAILED" not in output and len(values) == 1 else ""
+    if devices.returncode or "FAILED" in devices.stdout + devices.stderr:
+        return None
+    if found.count(["xnuloader", "fastboot"]) != 1:
+        return False
+    return True
 
-    if value("product") != "xnuloader":
+
+def loader_var(key):
+    try:
+        output = fastboot("getvar", key, timeout=8)
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        return ""
+    values = re.findall(r"^(?:\(bootloader\)[ \t]*)?" + re.escape(key) +
+                        r":[ \t]*([^\r\n]*?)[ \t\r]*$", output, re.M)
+    return values[0] if len(values) == 1 else ""
+
+
+def loader_ready():
+    enum = loader_enumerated()
+    if enum is None:
+        return "fastboot enumeration failed"
+    if not enum:
+        return "no xnuloader in fastboot devices"
+    if loader_var("product") != "xnuloader":
         return "loader product is not xnuloader"
-    if re.fullmatch(r"idle(?: 0 0)?", value("result")) is None:
+    if re.fullmatch(r"idle(?: 0 0)?", loader_var("result")) is None:
         return "loader result is not idle"
-    if re.fullmatch(r"idle 0 0 [0-9a-fA-F]+", value("ramdisk-state")) is None:
+    if re.fullmatch(r"idle 0 0 [0-9a-fA-F]+", loader_var("ramdisk-state")) is None:
         return "loader RAM disk is not empty"
     return None
+
+
+def ensure_loader_idle():
+    """Converge a running/held xnuloader or B-slot Android session to an idle xnuloader."""
+    try:
+        return _ensure_loader_idle()
+    except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as error:
+        EVIDENCE.mkdir(parents=True, exist_ok=True)
+        (EVIDENCE / "cycle-recovery.json").write_text(json.dumps({"error": str(error)}) + "\n")
+        return str(error)
+
+
+def _ensure_loader_idle():
+    enumerated = loader_enumerated()
+    if enumerated is None:
+        return "fastboot enumeration failed"
+    if enumerated and loader_var("product") != "xnuloader":
+        return "loader product is not xnuloader"
+    if enumerated:
+        res = loader_var("result")
+        if re.fullmatch(r"running(?: [0-9a-fA-F]+ [0-9a-fA-F]+)?", res):
+            print("loader is running a session; sending oem stop...", flush=True)
+            fastboot("oem", "stop")
+            stop_wait = int(os.environ.get("K90_STOP_WAIT", "70"))
+            deadline = time.monotonic() + stop_wait
+            while time.monotonic() < deadline:
+                time.sleep(1)
+                res = loader_var("result")
+                if res and not res.startswith("running"):
+                    break
+        if re.fullmatch(r"(?:returned|returned-held|hung|hung-held|not-started)(?: [0-9a-fA-F]+ 0)?", res):
+            print(f"loader is in {res}; rebooting to fresh idle...", flush=True)
+            fastboot("reboot")
+            off_seen = False
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                time.sleep(0.5)
+                enum = loader_enumerated()
+                if enum is None:
+                    return "fastboot enumeration failed during recovery"
+                if not enum:
+                    off_seen = True
+                    try:
+                        adb = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=3).stdout
+                    except (OSError, subprocess.TimeoutExpired):
+                        adb = ""
+                    if "\tdevice" in adb:
+                        break
+                    continue
+                if off_seen or re.fullmatch(r"idle(?: 0 0)?", loader_var("result")):
+                    fastboot("oem", "recovery")
+                    break
+        if loader_enumerated() is True and re.fullmatch(r"idle(?: 0 0)?", loader_var("result")):
+            fastboot("oem", "recovery")
+            ramdisk = loader_var("ramdisk-state")
+            if re.fullmatch(r"(?:ready|staging) [0-9a-fA-F]+ [0-9a-fA-F]+ [0-9a-fA-F]+", ramdisk):
+                fastboot("oem", "ramdisk", "none")
+            return loader_ready()
+        if loader_enumerated() is True:
+            return loader_ready()
+
+    EVIDENCE.mkdir(parents=True, exist_ok=True)
+    rec_dir = EVIDENCE / f"loader-recover-{time.time_ns()}"
+    rec = run([sys.executable, HERE / "recover-loader.py", rec_dir], capture_output=True, text=True)
+    if rec.returncode:
+        return "recover-loader.py failed; see its command records"
+    if loader_enumerated() is not True:
+        return "recovered loader is not uniquely enumerated"
+    return _ensure_loader_idle()
 
 
 def checkpoint():
     """LK step of the reset: through reboot-lk.py to LK, set_active a, reboot to the loader."""
     serial = os.environ.get("ANDROID_SERIAL")
-    if not serial:
+    if not serial or serial == "xnuloader" or any(c.isspace() for c in serial):
         return "ANDROID_SERIAL is not set, and LK is addressed by it"
-    out = EVIDENCE / f"reboot-lk-cycle-{int(time.time())}"
+    out = EVIDENCE / f"reboot-lk-cycle-{time.time_ns()}"
     prepare = WORKSPACE / "hackios-xnu-kernel/out/ios26-resume/reboot-lk-prepare/annibale-reboot-lk-prepare.bin"
     sha = "6b81e800ae789cf30adbaaa9c98768012e264c66a4e56110c6449cecf93fb7d7"
     if run([sys.executable, HERE / "reboot-lk.py", out, "--payload", prepare, "--sha256", sha,
             "--serial", serial], capture_output=True, text=True).returncode != 0:
         return "reboot-lk.py failed"
     fastboot("set_active", "a", serial=serial)
-    if "slot-retry-count:a: 7" not in fastboot("getvar", "slot-retry-count:a", serial=serial):
+    if re.findall(r"^(?:\(bootloader\)[ \t]*)?slot-retry-count:a:[ \t]*([^\r\n]*?)[ \t\r]*$",
+                  fastboot("getvar", "slot-retry-count:a", serial=serial), re.M) != ["7"]:
         return "slot A retry count did not reset to 7"
-    image = os.environ.get("LOADER_IMAGE") or (str(LOADER) if LOADER.exists() else None)
+    image = os.environ.get("LOADER_IMAGE")
     if image:
         fastboot("boot", image, serial=serial, timeout=60)
     else:
         fastboot("reboot", serial=serial)
-    for _ in range(60):
-        time.sleep(1)
-        if loader_ready() is None:
-            return None
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        time.sleep(0.5)
+        if loader_enumerated() is True:
+            fastboot("oem", "recovery")
+            if loader_ready() is None:
+                return None
     return "the loader did not come back after the checkpoint"
+
+
+def slot_preflight():
+    """Read the A-slot budget and reset it through LK below the three-try floor."""
+    retry = loader_var("slot-retry-count:a")
+    if not re.fullmatch(r"[0-7]", retry):
+        return "loader did not report a valid slot A retry count"
+    if int(retry) >= 3:
+        return None
+    print("slot A retry count is below 3; resetting through LK", flush=True)
+    try:
+        return checkpoint()
+    except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+        return str(error)
 
 
 def newest_log(run_dir):
@@ -168,24 +267,7 @@ def main():
     if "ufs_write=1" not in FIXED_ARGS and "ufs_write=1" not in args.boot_args:
         args.boot_args = " ".join([args.boot_args, "ufs_write=1"]).strip()
 
-    problem = loader_ready()
-    if problem:
-        EVIDENCE.mkdir(parents=True, exist_ok=True)
-        (EVIDENCE / "cycle-stop.json").write_text(json.dumps({"reason": problem}) + "\n")
-        print(f"STOP: {problem}")
-        return 1
-    state = json.loads(STATE.read_text()) if STATE.exists() else {"rounds_since_checkpoint": 0}
-    if (not os.environ.get("LOADER_IMAGE") and LOADER.exists()
-            and LOADER_BUILD not in fastboot("getvar", "build-id")):
-        print(f"the resident loader is not {LOADER.name}; starting it through LK", flush=True)
-        state["rounds_since_checkpoint"] = CHECKPOINT_EVERY
-    if state["rounds_since_checkpoint"] >= CHECKPOINT_EVERY:
-        problem = checkpoint()
-        if problem:
-            print(f"STOP: {problem}")
-            return 1
-        state["rounds_since_checkpoint"] = 0
-
+    EVIDENCE.mkdir(parents=True, exist_ok=True)
     # GPU up to 1100 MHz (speed 14; kernels from 12377-rate6 lower it to what the bin has, older ones
     # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).
     gpu_speed = os.environ.get("GPU_SPEED", "14")
@@ -196,7 +278,7 @@ def main():
                                           *[p for p in os.environ.get("CYCLE_PROGRAMS", "").split(":") if p]]))
     with open(EVIDENCE / f"pack-{args.label}.log", "w") as log:
         if run([sys.executable, HERE / "package.py"], env=env, stdout=log, stderr=subprocess.STDOUT).returncode:
-            print(f"STOP: package.py failed, see {log.name}")
+            print(f"package.py failed, see {log.name}")
             return 1
     # CYCLE_CPU_ARGS replaces the processor boot-args, as CYCLE_FIXED_ARGS does FIXED_ARGS.
     # The screen is the v57 identity's own, 1206 x 2622 at 460 ppi (from 2026-11-02): MobileGestalt then
@@ -214,12 +296,26 @@ def main():
                                            "fbwidth=1206 fbheight=2622 fbpitch=460"] if part)],
                env=payload_env, capture_output=True, text=True)
     if made.returncode:
-        print(f"STOP: make-payload.py failed: {made.stdout[-400:]}{made.stderr[-400:]}")
+        print(f"make-payload.py failed: {made.stdout[-400:]}{made.stderr[-400:]}")
         return 1
     round_dir = EVIDENCE / f"kernel-{args.kernel}-{args.label}"
 
-    state["rounds_since_checkpoint"] += 1
-    STATE.write_text(json.dumps(state) + "\n")
+    problem = ensure_loader_idle()
+    if problem:
+        print(f"loader not ready before the round: {problem}")
+        return 1
+    if os.environ.get("LOADER_IMAGE") or os.environ.get("CYCLE_CHECKPOINT") == "1":
+        try:
+            problem = checkpoint()
+        except (OSError, subprocess.SubprocessError, RuntimeError) as error:
+            problem = str(error)
+        if problem:
+            print(f"checkpoint failed: {problem}")
+            return 1
+    problem = slot_preflight()
+    if problem:
+        print(f"slot preflight failed: {problem}")
+        return 1
     out = open(EVIDENCE / f"cycle-{args.label}.out", "w")
     rounder = subprocess.Popen([sys.executable, str(HERE / "round-run.py"), str(round_dir), str(args.seconds),
                                 "0,0,5"], cwd=WORKSPACE, stdout=out, stderr=subprocess.STDOUT,
@@ -246,10 +342,9 @@ def main():
                   *(["--baseline", args.baseline] if args.baseline else [])], capture_output=True, text=True)
     (round_dir / "render-report.txt").write_text(report.stdout)
     print(f"report: {round_dir / 'render-report.txt'}  sheet: {round_dir / 'run/tour-sheet.png'}")
-    problem = loader_ready()
+    problem = ensure_loader_idle()
     if problem:
-        (EVIDENCE / "cycle-stop.json").write_text(json.dumps({"reason": problem}) + "\n")
-        print(f"STOP after the round: {problem}")
+        print(f"loader not ready after the round: {problem}")
         return 1
     return 0 if rounder.returncode == 0 else 1
 

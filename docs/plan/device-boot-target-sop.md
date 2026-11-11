@@ -98,15 +98,14 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 
 ## 6. 连续起轮
 
-无人值守的硬约束见 [AGENTS.md](../../AGENTS.md) 第 5 节：loader 未枚举或序列号为空即停手，每轮收尾校验 `getvar result` 为 idle、`getvar product` 为 `xnuloader`，A 槽重试有预算，一个批次最多 3 轮。设备从 USB 整个消失的形态与处置见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md) 第 4 节。
+无人值守的硬约束见 [AGENTS.md](../../AGENTS.md) 第 5 节：起轮与收尾均收敛到 `getvar product` 为 `xnuloader` 且 `getvar result` 为 `idle`，序列号必须能原样读出，A 槽重试有预算，一个批次最多 3 轮。设备从 USB 整个消失的形态与处置见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md) 第 4 节。
 
-`cycle.py` 已把起轮前后的检查做进脚本：
+`cycle.py` 已把起轮前后的收敛与核对做进脚本：
 
-- 起轮前要求 `fastboot devices` 精确列出一个 `xnuloader`、`product` 为 `xnuloader`、`result` 完整回答为 `idle` 或 `idle 0 0`，且 `ramdisk-state` 为 `idle 0 0 <window>`。`window` 可以是尚未分配的 `0`；非零状态字段、重复回答或命令失败均停止。
-- loader 未枚举即写入本地 `cycle-stop.json` 并停止；设备恢复由独立操作执行。
-- 每 2 轮做一次检查点（§5.3），驻留 loader 的 build-id 不含 `a48c7fb`（v16、v17 的 loader）时也先做检查点。
+- 起轮前由 `ensure_loader_idle()` 将运行态（发 `oem stop` 等静默后 `reboot` 并发 `oem recovery`）、收尾态（`returned*`／`hung*` 直接 `reboot` 并发 `oem recovery`）或 B 槽 Android（`recover-loader.py`）收敛到 `fastboot devices` 精确列出一个 `xnuloader`、`product` 为 `xnuloader`、`result` 完整回答为 `idle` 或 `idle 0 0`，且 `ramdisk-state` 为 `idle 0 0 <window>`（残留常驻区通过 `oem ramdisk none` 清空）。
+- 显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1`（配合 `ANDROID_SERIAL`）时执行检查点（§5.3）。
 - 载荷、辅助盘、启动卷的身份由 `make-payload.py`、`run-auto.py` 按 `manifest.json` 的 SHA-256 核对，不符就拒跑。实际载荷参数固定包含 `rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1`。上传顺序为 payload、`oem ramdisk`、启动卷；运行前核对接收长度与内存窗口。
-- 轮次结束后再核一次 loader 状态，不满足就以非零退出。
+- 轮次结束后再经 `ensure_loader_idle()` 收敛并核对 loader 状态，软件恢复失败以非零退出。
 
 手工起轮时，在 LK 侧读下面五项并记下，作为下一轮出现异常时的对照基线：
 

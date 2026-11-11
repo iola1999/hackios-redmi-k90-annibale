@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Verify the loader idle, or recover its existing A slot (or LOADER_IMAGE) from identified B-slot Android."""
-import json, os, subprocess, sys, time
+import json, os, re, subprocess, sys, time
 from pathlib import Path
 base=Path(sys.argv[1]);base.mkdir()
 records=[]
@@ -16,25 +16,43 @@ def call(argv,limit=8):
     return r.stdout
 
 def fastboots():
-    return [l.split()[0] for l in call(["fastboot","devices"],3).splitlines() if "fastboot" in l]
+    return [parts[0] for l in call(["fastboot","devices"],3).splitlines()
+            if len(parts := l.split()) == 2 and parts[1] == "fastboot"]
 def adb_devices():
-    return [l.split()[0] for l in call(["adb","devices"],3).splitlines() if l.endswith("\tdevice")]
+    return [parts[0] for l in call(["adb","devices"],3).splitlines()
+            if len(parts := l.split()) == 2 and parts[1] == "device"]
+def value(reply,key):
+    values=re.findall(r"^(?:\(bootloader\)[ \t]*)?"+re.escape(key)+r":[ \t]*([^\r\n]*?)[ \t\r]*$",reply,re.M)
+    assert len(values)==1 and values[0],"missing or ambiguous "+key
+    return values[0]
 def idle():
     # build-id is recorded, not checked: this loader answers "unknown", and an identity the
     # firmware does not carry says nothing about which build is resident.
     pre=["fastboot","-s","xnuloader"]
-    assert "product: xnuloader" in call(pre+["getvar","product"])
+    assert value(call(pre+["getvar","product"]),"product")=="xnuloader"
     build_id=call(pre+["getvar","build-id"]).strip().splitlines()[0]
-    assert "result: idle" in call(pre+["getvar","result"])
+    assert re.fullmatch(r"idle(?: 0 0)?",value(call(pre+["getvar","result"]),"result"))
+    ramdisk=value(call(pre+["getvar","ramdisk-state"]),"ramdisk-state")
+    if re.fullmatch(r"(?:ready|staging) [0-9a-fA-F]+ [0-9a-fA-F]+ [0-9a-fA-F]+",ramdisk):
+        call(pre+["oem","ramdisk","none"])
+        ramdisk=value(call(pre+["getvar","ramdisk-state"]),"ramdisk-state")
+    assert re.fullmatch(r"idle 0 0 [0-9a-fA-F]+",ramdisk),"loader RAM disk is not empty"
     return build_id
-if "xnuloader" in fastboots():
-    print("loader idle verified (%s); no mode change"%idle());sys.exit(0)
+configured=os.environ.get("ANDROID_SERIAL")
+assert not configured or (configured!="xnuloader" and not any(c.isspace() for c in configured)),"invalid ANDROID_SERIAL"
+found=fastboots()
+assert found.count("xnuloader")<=1,"duplicate loader enumeration"
+if "xnuloader" in found:
+    assert value(call(["fastboot","-s","xnuloader","getvar","product"]),"product")=="xnuloader"
+    call(["fastboot","-s","xnuloader","oem","recovery"])
+    print("loader Fastboot idle and empty RAM verified (%s)"%idle());sys.exit(0)
 start=time.monotonic()
 while not adb_devices():
     assert time.monotonic()-start<ADB_WAIT,"no Android device on adb within %ds"%ADB_WAIT
     time.sleep(2)
 selected=[]
 for serial in adb_devices():
+    if configured and serial!=configured:continue
     pre=["adb","-s",serial,"shell","getprop"]
     if call(pre+["ro.product.device"]).strip()=="annibale":
         assert call(pre+["ro.boot.slot_suffix"]).strip()=="_b"
@@ -52,12 +70,18 @@ for variable in ("current-slot","slot-retry-count:a","slot-unbootable:a","slot-s
     if variable=="slot-successful:b": assert "slot-successful:b: yes" in value
 # LOADER_IMAGE=FILE starts that loader image with `fastboot boot` instead of boot_a, as cycle.py's checkpoint does
 call(pre+["set_active","a"])
+assert value(call(pre+["getvar","current-slot"]),"current-slot")=="a"
+assert value(call(pre+["getvar","slot-retry-count:a"]),"slot-retry-count:a")=="7"
+assert value(call(pre+["getvar","slot-unbootable:a"]),"slot-unbootable:a")=="no"
 call(pre+["boot",os.environ["LOADER_IMAGE"]],60) if os.environ.get("LOADER_IMAGE") else call(pre+["reboot"])
 start=time.monotonic();off=False
 while True:
     found=fastboots()
     if serial not in found and "xnuloader" not in found:off=True
-    if off and "xnuloader" in found:break
+    if off and "xnuloader" in found:
+        assert found.count("xnuloader")==1 and serial not in found,"ambiguous loader enumeration"
+        break
     assert time.monotonic()-start<60,"the loader did not re-enumerate"
-    time.sleep(1)
+    time.sleep(0.5)
+call(["fastboot","-s","xnuloader","oem","recovery"])
 print("identified Android B to LK to existing loader A; %s"%idle())
