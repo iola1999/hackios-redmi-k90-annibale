@@ -114,6 +114,20 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 
 图形交互验收同时检查 SpringBoard、backboardd、前台应用的 `userabort`／`usertrap` 与断言，并记录 SpringBoard／backboardd 的 PID，可用 `tools/k90auto/ui-health.py`（[k90auto 说明 §6](../../tools/k90auto/README.md#6-界面进程状态检查)）。原始日志可能含 NUL，检索使用文本模式。采集和软件恢复成功后，界面进程中止或重启时功能结果仍记为失败。
 
+### 7.1 图像审阅与短暂异常
+
+涉及渲染、显示或交互的批次，执行者必须用图像查看工具打开本轮截图，分别记录可见画面、像素探针、进程与日志结果。自动计数和图像规则用于筛选待查画面；实际图像审阅应覆盖下列场景，具体故障与进度见[图形待办](../backlog/graphics.md)。
+
+- 桌面：先查看完整屏幕，再查看两个大组件的原尺寸区域，记录内容是否可读，以及白块／黑块遮挡、错误颜色、裁剪和残留。冷启动、解锁与返回桌面分别观察。
+- 多任务：确认应用已显示，再上滑停留进入多任务，横滑查看卡片，最后返回应用。核对卡片内容、边缘、背景与激活后的界面；动作注入成功后仍需用截图确认实际进入的场景。
+- 采样：由唯一 device 成员通过现有队列串行采集动作前、转场期间可取得的画面、动作结束及短暂稳定观察的截图。记录动作标识、请求和实际采集时刻、截图间隔、失败与缺样；缩略拼图用于定位，异常帧与相邻帧按原尺寸审阅。
+- 短暂异常：截图未覆盖的转场阶段继续记为待验。未拍到既往报告的异常，记录「本次未捕获」及实际覆盖范围；随后调整触发动作、采样相位或有界采样密度，仍遵守每批最多 3 轮和单变量约束。
+- 采集边界：先核对截图来源、尺寸、行距与颜色格式。帧缓冲读取覆盖到的显示阶段需按实现确认；物理面板扫描结果单独验收。出现画面与日志不一致，先确认截图的新旧、动作时序及读取位置。
+- 截图一致性：当前 [`oem screenshot`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 直接指向 `SCREEN.base`，随后分块上传，未创建冻结副本。动态更新期间可能跨帧读取，是否发生需另行核对；记录实际传输耗时，不能从请求频率推定有效帧率。
+- 录屏：短暂异常可由 device 成员使用有界 `rec_secs`／`rec_start`／`rec_mb` 配置采集，并用 [`recording.py --frames`](../../hackios-xnu-kernel/tools/recording.py) 导出原始采样帧。30 fps 转码可能遗漏短帧；当前[录屏实现](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp) 读取提交的 layer 0 surface，按 `rec_step` 降采样，需结合帧缓冲截图审阅，并记录内存占用与复制开销。
+- 性能影响：采图与传输可能改变时序，视觉验证记录采样配置；性能对照保持同样的采样安排，耗时测量窗口中的额外采图单独说明。
+- 结果：每项记录轮次与产物、实际场景、截图文件及异常区域、发生阶段和下一项定位步骤。无崩溃、探针通过或单张截图正常，只支持各自检查覆盖的范围；已有可见故障继续保留在待办中。
+
 ## 8. 外设开关（修改 kernel payload 的 cmdline）
 
 `make-payload.py` 固定带 `rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1` 与 `touchscreen=2 buttons=1 battery=1`，`cycle.py` 的 `FIXED_ARGS` 再加 GPU、120 Hz、触摸轮询和 Wi-Fi 一组，其余参数用 `cycle.py --boot-args` 追加。每轮只增加一个待测参数，先检查 USB 日志和对应的实际行为。触摸、震动、手电不带参数时不做任何动作，QEMU 也不需要它们。

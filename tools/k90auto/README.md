@@ -74,7 +74,7 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 - 帧间隔只统计帧数不少于 20 且帧率不低于 10 帧/秒的窗口。`summary.py` 只把 `s[0-9]*.log` 当日志快照，按重叠部分对接，同一窗口只算一次。loader 的日志区是 263,349 字节的头加 1,048,576 字节的环，环满之后开头的内容被覆盖；容量与快照频率见[运行协议](../../docs/plan/k90auto-run-protocol.md)的日志环一节。
 - `gestures.py` 按手势统计主动画的帧间隔（控制中心下拉取首帧起 1.8 s，翻页取 600 ms），输出 p50／p95／最长间隔、超过 18 ms 的比例、帧率和触摸到首帧的时间。需要 `touch_lat=1`，加 `glslow=3000` 时还给出窗口服务器每帧绘制时间。
 - `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，给出长帧归因和每段动画的帧率；需要 `touch_lat=1`。新日志另有 `panel_obs`，表示拷屏完成到观测 `CTL_FLUSH` 清零的上界。带 `tl: l` 时用 `INTF_FRAME_COUNT` 的差值计算显示间隔和长帧分组，`at` 只表示观测时刻；没有 `tl: l` 的旧日志沿用 `shown` 为拷屏开始的 copy 口径，P/G/bw/C 等原有数值不变，不将该口径当作实测面板时刻。
-- 异常截图指 GMEM 分 bin 边界下方出现状态栏蓝色块的截图（2026-10-25 的 framebuffer fetch 缓存问题）。其他显示异常要看拼图或由人确认。
+- 现有异常截图计数针对 GMEM 分 bin 边界下方的状态栏蓝色块（2026-10-25 的 framebuffer fetch 缓存问题）。每个图形批次还需实际打开截图，检查桌面组件、多任务卡片及转场画面；采样、原图审阅和缺样判定见[真机调试手册 §7.1](../../docs/plan/device-test-playbook.md#71-图像审阅与短暂异常)。
 - 温度和 CPU 档位来自 `cpufreq=1` 或 `2` 时内核每 30 s 写的日志。`N by temperature, M without a reading` 区分限频由读数触发还是没有读数触发；判断限频是否守住看紧跟的 `hot ticks` 一行。
 - backboardd 的 GPU 时间按 pass 拆分：`JOB_ENV` 加 `com.apple.backboardd.plist:ANNIBALE_PASS_TIMES=1` 和 `com.apple.backboardd.plist:FD_GPU_TRACEPOINT=-all,+render_pass,+draw_ib,+compute,+blit,+nondraw,+tile_loads,+tile_stores`，日志每 5 秒打印一组 `pass times`。AIR 库要带 `tools/mesa/rebase-26/0008`，读法见[GPU 提频后的 120 Hz](../../docs/analysis/2026-11-02-120hz-after-gpu-clock.md) §6；带 `0018` 时还会为不低于 2 ms 的 draw 打印 `draw gpu slow`，每个进程每 5 秒最多 4 行。
 - 震动、亮度、声音等需要人感知的项目不在判定范围内。

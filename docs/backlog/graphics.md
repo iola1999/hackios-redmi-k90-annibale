@@ -7,14 +7,15 @@
 | 编号 | 事项 | 状态与已知条件 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
 | S6 | XR 与格式 94 精度 | 15 项入口检查复现五处问题；原生 Metal 三路共 24 个像素字一致，局部修复会新增管线／附件不一致 | 完整实现格式 94 的创建、导入、IOSurface 元数据及显示转换；XR 布局单独核对 | [渲染核查 §6](../analysis/2026-11-12-rendering-runtime.md#6-格式-94-的完整路径) |
-| G1 | 大组件黑底、白块或蓝块 | 待验证；已有实际 draw／shader 关联与单变量候选，当前画面仍需复核 | 获取实际完整 AIR，检查输入与目标附件，验证修复后的组件冷启动及解锁转场 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md) |
+| G1 | 大组件黑底、白块或蓝块 | 2026-11-12 用户反馈组件白块；heap 轮完整截图与原尺寸局部已确认天气整块浅白、日历上下白块且中部露出壁纸，组件内容未显示；已有 draw／shader 关联与单变量候选 | 实际查看冷启动、解锁和返回桌面的完整截图与组件原尺寸区域；获取实际完整 AIR，核对输入与目标附件，修复后按相同动作复核内容和遮挡 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
 | G2 | framebuffer fetch 与多附件 | 独立双附件探针完成原生 8 组／3,072 像素对照及 iOS 编译；此前 A830 单附件已通过 | 执行 A830 双附件、交换读取及同 encoder 先写后读；混合、其他格式和 TBDR 路径另行验证 | [双附件参考 §9](../analysis/2026-11-12-rendering-runtime.md#9-g2-双附件-framebuffer-fetch)、[既有设备结果](../progress/2026-11-08-fbfetch-validation.md) |
 | G3 | Mesa alias.rt 与 fsat | 维护补丁已完成；旧版 3／16 失败，修复后 16／16 成功，隔离 iOS 库链接通过 | 验证 A830 像素、16 位 shader 与实际 UI；完整 AIR 语料待恢复宿主工具后运行 | [渲染核查 §2](../analysis/2026-11-12-rendering-runtime.md#2-mesa-aliasrt-与-fsat) |
 | G4 | 其他 ir3／A8xx 正确性 | 候选；大缓冲 NUM_ELEMENTS、布尔 subgroup、fquantize2f16 有上游修复 | 先确认本仓调用会生成对应 NIR 或描述符，再按容量边界、部分活跃 lane、subnormal 构造验证 | [上游对照 §5](../analysis/2026-11-12-upstream-review.md#5-mesa) |
-| G5 | 启动图标与持续交互 | 当前完整镜像已显示应用及 Dock 图标，控制中心可收回；天气、日历大组件内容仍为空白 | 记录解锁、图标出现、设置完整加载时刻，连续巡检主屏、控制中心、通知中心与大组件 | [问题复核](../analysis/2026-11-08-issue-reassessment.md)、[多媒体验证 §23](../analysis/2026-11-11-multimedia-validation.md) |
+| G5 | 启动图标与持续交互 | 此前完整镜像已显示应用及 Dock 图标，控制中心可收回；组件遮挡继续按 G1 跟进 | 记录解锁、图标出现、设置完整加载时刻；实际审阅主屏、控制中心、通知中心与大组件截图，短暂异常未捕获时保留覆盖限制 | [问题复核](../analysis/2026-11-08-issue-reassessment.md)、[多媒体验证 §23](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
 | G6 | 可清除纹理与内存回收 | 已复核当前入口仍返回固定状态；资源与 IOSurface、视图、在途命令共享生命周期 | 定义回收及重新使用语义，再验证内存压力下的释放和在途命令 | [渲染核查 §7](../analysis/2026-11-12-rendering-runtime.md#7-构建复杂度与后续验收)、[架构审查](../analysis/2026-11-08-architecture-review.md) |
 | G7 | AIR 未覆盖指令与验证语料 | minnum／maxnum 已修复，原生眼镜景深管线真机通过；CCPortrait 82 个模块中 79 个编译成功，余 3 个缺 air.cospi.f16，真机仍有 _antialiasY 初始化失败 | 按实际系统 shader 的输入和精度要求实现 cospi，分别验证编译与 GPU 数值；常规检查基础设施见工程待办 | [多媒体验证 §23](../analysis/2026-11-11-multimedia-validation.md)、[工程待办](engineering.md) |
 | G14 | 相机 MPS 输入与 Core Image stitching | RG16Float 导入、A830 8 组逐像素检查与部署通过，MPS 空输入断言消失；相机后续退出于 heap protectionOptions 缺失，ci_affine_crop 图仍被拒 | 补齐普通 heap 的保护属性契约；实现 GraphSPI 计算入口、资源绑定、条件提前返回和节点依赖；核对进程内存包装 surface 与未对齐行距的写回 | [多媒体验证 §24](../analysis/2026-11-11-multimedia-validation.md#24-rg16float-的-iosurface-导入) |
+| G17 | 多任务卡片的可见渲染异常 | 2026-11-12 用户反馈前几天上滑进入多任务时，卡片内经常有渲染异常；近期巡检截图未覆盖多任务，当前是否仍复现待确认 | 在当前已验收基线上采集进入多任务、横滑卡片和返回应用的图像，实际检查卡片内容、遮挡、裁剪和残留；结合 S5 的 scene／应用身份定位首个异常阶段 | [图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常)、[系统待办 S5](system.md) |
 
 ## 2. 显示完成与性能
 
