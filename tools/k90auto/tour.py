@@ -6,7 +6,7 @@ usage: tools/k90auto/tour.py ROUND_DIR STEP [STEP ...]
 Each STEP is LABEL=COMMAND@SETTLE*SHOTS, for example
   settings=/annibale/bin/anntouch tap 0.5 0.5@3*2
   home@1*1                      (no command: only screenshots)
-COMMAND goes to the device through rsh.py (annsh, so at most 119 characters); SETTLE is the seconds
+COMMAND goes to the device through rsh.py (annsh, so at most 119 UTF-8 bytes); SETTLE is the seconds
 to wait after it; SHOTS is how many screenshots to take after that, one after another. With two or
 more, the shots of one step are compared: the screen did not change between them, so pixels that
 differ outside the status bar are flicker or content that comes and goes.
@@ -14,7 +14,8 @@ differ outside the status bar are flicker or content that comes and goes.
 The round must be running under run-auto.py with on-request screenshots (shot-now.py's channel)
 and annsh in its rc.jobs. Results go to ROUND_DIR/run/tour.json, appended per call, and
 ROUND_DIR/run/tour-sheet.png holds every step so far, numbered in the order of tour.json. Exit code: 0, or 1 when a command
-or a screenshot did not come back.
+or a screenshot did not come back. A failed command or missing screenshot stops later steps;
+screenshots already received remain in tour.json.
 """
 import json
 import subprocess
@@ -118,11 +119,21 @@ def main():
     for step in sys.argv[2:]:
         label, command, settle, count = parse(step)
         if command:
-            sent = subprocess.run([sys.executable, str(HERE / "rsh.py"), str(base), *command.split()],
-                                  capture_output=True, text=True, timeout=90)
+            try:
+                sent = subprocess.run([sys.executable, str(HERE / "rsh.py"), str(base), *command.split()],
+                                      capture_output=True, text=True, timeout=90)
+            except subprocess.TimeoutExpired:
+                print(f"{label}: command timed out; device-side completion is unknown")
+                status = 1
+                break
+            except OSError as error:
+                print(f"{label}: could not start command: {error}")
+                status = 1
+                break
             if sent.returncode != 0:
                 print(f"{label}: command exited {sent.returncode}: {sent.stdout[-300:]}{sent.stderr[-300:]}")
                 status = 1
+                break
         time.sleep(settle)
         shots = []
         for _ in range(count):
@@ -139,6 +150,8 @@ def main():
                 entry["changed_share"], entry["changed_box"] = compare(shots[n - 1], shot)
             entries.append(entry)
             print(json.dumps(entry))
+        if status:
+            break
     record.write_text(json.dumps(entries, indent=1) + "\n")
     if entries:
         sheet(run, entries)

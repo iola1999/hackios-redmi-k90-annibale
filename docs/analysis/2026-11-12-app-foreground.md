@@ -105,7 +105,7 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 | `ios-state.py` | 8 项宿主测试成功，覆盖 CLI、原查询顺序、普通失败保留、传输失败停止；设备组合已完成前后两阶段采集，普通查询失败被保留 | 后台复用失败阶段的完整状态 |
 | `ui.py` | 10 项宿主测试成功；旧版同套检查有 8 项失败；既有 tools 39 项、ui-health 8 项成功；现场图标前提和四张截图已取得 | Preferences 完整 AX 列表及多任务 |
 | scene 扩展 | 12 场景、68 项宿主检查成功；旧版同测有 34 项失败；沿用 `build.sh` 四源文件命令完成 arm64e 链接与签名检查；设备前台 scene 字段已与设置画面对照 | 后台实例复用的启动、恢复与 scene 回应 |
-| LS／FBS identity | 7 项实际探针宿主检查及 12 项 ABI／异常辅助检查成功，缺失应用和错误指针 ABI 的消融检查均失败；arm64e 链接与签名检查成功；iOS 查询保留两个不存在 selector 的错误，其余 LS／FBS 字段可读 | 两个 record inode getter 的版本差异、历史应用的注册身份 |
+| LS／FBS identity | 7 项实际探针宿主检查及 12 项 ABI／异常辅助检查成功，缺失应用和错误指针 ABI 的消融检查均失败；arm64e 链接与签名检查成功；iOS 查询保留两个 inode getter 的原生拒绝错误，其余 LS／FBS 字段可读 | 历史应用的注册身份；record 内部 inode 仍未知 |
 | S5 行为 | 失败阶段与判据已整理 | 同一应用连续前后台切换的设备验收 |
 
 实现复核保留现有 annsh、rsh 和层树入口，进程信息没有在 LS 工具中重复查询。scene 与 SDF 共用 getter ABI 校验；尚缺的请求／完成记录先通过原生日志采集。三个目标产物独立构建，完整诊断候选已按 heap 基线装配，产物检查见 §8。
@@ -197,7 +197,7 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 
 ### 9.1 原图与时序
 
-`kernel-12377-codex-1112-cd14-s5-foreground` 轮使用 §8 的诊断候选与冻结脚本，先等待桌面稳定 60 秒，再执行采集。完整采集耗时 107.994 秒，四张图均满足计划调用窗口，未发生传输失败、超时或遗漏时点。原始资料位于该轮的 `docs/progress/evidence/k90auto/` 目录。
+`kernel-12377-codex-1112-cd14-s5-foreground` 轮使用 §8 的诊断候选与冻结脚本。annsh 可用且 `kern.annibale.frames` 查询完成后，固定等待 60 秒再采集；脚本没有检查桌面稳定性。完整采集耗时 107.994 秒，四张图均满足计划调用窗口，未发生传输失败、超时或遗漏时点。原始资料位于该轮的 `docs/progress/evidence/k90auto/` 目录。
 
 四张 BGRA 原始图均已按 `1156×2510` 解码并实际打开原尺寸 PNG。下表的相对时间以点击命令返回为起点，记录宿主调用截图 API 至返回的区间；设备采帧与面板呈现时刻未测得。
 
@@ -221,6 +221,24 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 
 `app-identity` 返回 1 并保留有效 JSON。LS 的 System 分类、安装与有效状态、FBS 派生身份及路径 `stat` 均可读；`LSApplicationRecord` 的 `bundleInode`、`executableInode` 抛出 unrecognized selector，未获得这两个字段。当前结果不能用于比较 LS record 内部保存的 inode 与路径 inode。
 
+23G90 的两个 getter 方法体位于 `0x18172191c`、`0x18172193c`，方法表编码均为 `Q16@0:8`。两者将当前 selector 传给 `0x1818edba0`，该消息入口调用 `doesNotRecognizeSelector:`。因此 `respondsToSelector:` 和 ABI 校验可以通过，实际调用仍由原生实现主动拒绝。当前工具将字段保留为 null 并记录错误，无需改用路径 `stat` 填充 record 字段。
+
 基线 layers 达到 1500 行并标记 `(cut)`；after 为 1493 行，含完整 end 标记。after AX 仅输出「设置」「搜索」两项，完整列表节点未覆盖。两阶段默认 `downloads` 查询均返回 1，其余状态命令的结果逐项保存在报告。
 
 本轮覆盖一次冷启动，后台实例复用、多任务和连续前后台切换仍待按执行计划验证。请求与回应的完整日志时序也尚未逐项核对。下一批先取得历史应用身份与后台启动前提，再对照相同 PID 的激活结果；本轮页面可见结果不用于结束 S5。
+
+### 9.4 轮次收尾
+
+runner 和 helper 均返回 0，批次 issues 为空，CPU 采样峰值为 74 °C。独立查询确认 `product=xnuloader`、`result=idle`、`ramdisk-state=idle 0 0 0`，LK 恢复记录的 A 槽重试数为 7。完整记录保存在 `docs/progress/evidence/k90auto/codex-device-1111/safe-batch-s5/batch-20261111T194610Z/round-1-review.json`，批次完成时间为 `2026-11-11T19:50:47.534167+00:00`。
+
+## 10. 后续动作所需的错误传播
+
+源码复核确认 `anntouch` 曾在队列写入失败后继续动作并返回 0，`tour.py` 也会在 rsh 失败或截图缺失后执行后续 STEP。这会使前后台与多任务对照失去动作前提。本批只修正两个现有入口的失败处理，当前冻结设备批次保持原版本。
+
+`anntouch` 现对 EINTR 重试整条记录；短写与实际错误返回 1，停止后续动作。内核只接受完整记录，短写不续写尾部。若本进程已成功写入 DOWN 且尚未释放，只按最后成功位置或原按钮编号尝试一次必要 UP；释放失败另报「input may remain pressed」，仍返回失败。正常候选动作保持 44 个队列记录，计数只描述驱动接受情况。
+
+17 项宿主测试成功，包含实际 `annsh do_spawn` 创建与等待子进程的返回码传递，ASan／UBSan 检查通过；旧版在其中 14 项失败。arm64e 构建与严格签名检查成功，产物及摘要保存在 Git 忽略的 `hackios-xnu-userland/out/s5-anntouch-1112/`。实际 HID 识别与画面仍待设备验证。
+
+`tour.py` 现遇到 rsh 非零、启动失败、等待超时或缺失截图就停止后续 STEP，已收到的截图继续保存到 `tour.json`。7 项宿主检查成功；旧版同套检查出现 2 个断言失败、6 个异常，包含子测试。既有 UI 的 10 项、工具的 39 项检查成功。截图文件读取与比较过程中的文件异常未纳入本次记录保留保证。
+
+宿主采集器停止等待无法撤回已送达设备的命令。其 18 秒 rsh 上限与远端 annsh 的 120 秒单命令上限分别生效；tour 自身保留 90 秒 rsh 等待。持续 EINTR 或外部强制终止仍可能中断释放；内核输入队列满后会丢弃最旧记录，成功入队也无法独立确认 HID 消费。下一批仍通过既有 runner 处理 stop-request、超时和设备收尾。
