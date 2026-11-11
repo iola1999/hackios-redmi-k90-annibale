@@ -108,7 +108,7 @@ TrollStore 默认注册为 System，并已设置 `IsDeletable`。`SBApplicationI
 
 优先检查后台进程复用与 scene 激活，其次核对注册类型与身份。
 
-文件系统身份另有独立检查方向。本地 APFS 将底层设备号放在 `f_fsid.val[0]`，容器及卷编号放在 `val[1]`；XNU 的 `fsgetpath` 仅按第一分量查找支持 `PATH_FROM_ID` 的挂载。启动代码可从同一设备挂载 OS／App 的不同容器，因此具备查找歧义的条件。当前设备的实际挂载组合仍待读取，不能据此确定前台切换根因。上游相关回退记录及其验收边界见[上游对照 §4.1](2026-11-12-upstream-review.md#41-pagani-的-usb-与文件身份)。
+S5 继续按[应用前台切换计划](../plan/2026-11-12-app-foreground.md)排查，结果见[专题核查](2026-11-12-app-foreground.md)。S10 的 APFS 挂载身份已改用 `vfs_getnewfsid`，实现及验证范围以[渲染核查 §4](2026-11-12-rendering-runtime.md#4-apfs-文件身份)为准；设备实际挂载往返仍待验，当前尚未确认该修改与 S5 的因果关系。
 
 已准备只读 `fsid-roundtrip` 工具，按指定路径记录 `statfs`、`getattrlist`、`fsgetpath`、再次 `stat` 的结果，核对返回对象的完整 FSID 与 FILEID。macOS 的 7 个路径在 ASan／UBSan 下往返通过，缺失路径、非目录、无路径查询能力及参数错误均返回非零。原生 macOS 的两个查询接口可返回不同 FSID 但仍正确往返，因此仅记录接口间差异，以返回对象身份及 API 结果判断失败。
 

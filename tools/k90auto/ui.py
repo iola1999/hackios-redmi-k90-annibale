@@ -29,13 +29,11 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
-import tour  # noqa: E402
 
 
 def rsh(round_dir, *words):
     return subprocess.run([sys.executable, str(HERE / "rsh.py"), str(round_dir), *words],
-                          capture_output=True, text=True).stdout
+                          capture_output=True, text=True, check=True).stdout
 
 
 def dump(round_dir):
@@ -51,9 +49,7 @@ def dump(round_dir):
     for name in names():
         local = out / name
         subprocess.run([sys.executable, str(HERE / "fetch.py"), str(round_dir), f"/private/var/tmp/{name}", str(local)],
-                       capture_output=True, text=True)
-        if not local.exists():
-            continue
+                       capture_output=True, text=True, check=True)
         lines = local.read_text(errors="replace").splitlines()
         m = re.match(r"# (\S+) pid \d+ screen (\d+) (\d+)", lines[0]) if lines else None
         if not m:
@@ -124,6 +120,8 @@ def main():
         print(f"ui: {rest[0]!r} did not appear")
         return 1
     if command == "shot" and rest:
+        import tour
+
         run = round_dir / "run"
         raw = tour.take_shot(run)
         if raw is None:
@@ -140,4 +138,14 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except subprocess.CalledProcessError as error:
+        print(f"ui: command exited {error.returncode}: {' '.join(map(str, error.cmd))}", file=sys.stderr)
+        for output in (error.stdout, error.stderr):
+            if output:
+                print(output.rstrip(), file=sys.stderr)
+        sys.exit(1)
+    except OSError as error:
+        print(f"ui: {error}", file=sys.stderr)
+        sys.exit(1)
