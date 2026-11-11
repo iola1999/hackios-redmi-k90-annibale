@@ -84,12 +84,12 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 ## 6. 故障定位与恢复
 
 - `result: running`：内核仍在运行，读取 USB 日志判断进度。
-- `result: returned ...` 或 `checkpoint ...`：确认没有 held／fault 状态，再取日志、上传下一份内核载荷；小型启动卷仍驻留在本次 loader 的内存窗口中；自动流程要求重新进入常驻区为空的 idle 状态。
-- `result: returned ...`、`oem stop` 成功和 annsh 退出码 0 只说明对应调用结束。one-shot loader 在内核返回后会进入 recovery 界面；起轮前必须同时检查实际屏幕、`result`、`ramdisk-state`、UFS 在途请求和 GPU 日志。出现 `retained until cold reset` 时，先保存返回快照，再冷复位并重新枚举到 `result: idle`、启动卷为空；在此之前不得开始下一轮，也不得把探针成功写成系统恢复正常。
+- `result: returned ...` 或 `checkpoint ...`：先保存终态与日志。下一轮必须重新进入已枚举的 loader，独立核验 `product=xnuloader`、`result=idle` 和空的启动卷常驻区。
+- `result: returned ...`、`oem stop` 成功和 annsh 退出码 0 只说明对应调用结束。one-shot loader 在内核返回后会进入 recovery 界面；起轮前检查 `result`、`ramdisk-state`、UFS 在途请求和 GPU 日志。出现 `retained until cold reset` 时，保留原内核内存与映射，保存返回快照后执行共享恢复入口。终态硬校验失败即停止后续轮次。
 - recovery 界面的 `getvar screen` 可能返回空值。空的可选显示字段不得阻塞已授权的测试；K90 原始帧按已验证的 1156×2510、每行 4624 字节解码，并保留实际字节数校验。
-- 从 standalone 冷复位后可能直接运行 `boot_a`，读到 `result: running 0 0`。更换候选时沿运行中停止、返回快照、`oem ramdisk none`、prepare 载荷进入 LK 的路径执行，避免连续重复冷复位。
+- standalone 复位后可能直接运行 `boot_a`，读到 `result: running 0 0`。更换候选使用 `tools/k90auto/recover-loader.py <新恢复目录>`，通过 `ANDROID_SERIAL` 和 `LOADER_IMAGE` 选择已识别的设备与完整 loader-only 镜像。工具先停止运行中的内核并保存终态日志，再经 LK 或 B 槽 Android 返回空闲 loader；原停止现场保留常驻 RAM。
 - `result: hung ...`：先保存可读日志，核对资源保留状态，再复位。
-- `result: hung-held ...`、`returned-held ...` 或带 fault：设备可能仍在访问原内核的内存和映射。loader 拒绝 `oem ramdisk`、`download:`、`oem run` 等会改写资源的命令（完整列表见 `xnuloader/loader_01_base_log_dt.inc` 的 `lc_blocked_cmd`），查询、日志、截图和 `reboot` 保留；没有运行中的内核可通知时，`oem stop` 返回 `FAIL`。先按第 5 节保存日志，再 `reboot`，确认 USB 断开、重新枚举和 `result: idle`，随后按第 4 节重新上传载荷与启动卷。
+- `result: hung-held ...`、`returned-held ...` 或带 fault：设备可能仍在访问原内核的内存和映射。loader 拒绝 `oem ramdisk`、`download:`、`oem run` 等会改写资源的命令（完整列表见 `xnuloader/loader_01_base_log_dt.inc` 的 `lc_blocked_cmd`），查询、日志、截图和 `reboot` 保留；没有运行中的内核可通知时，`oem stop` 返回 `FAIL`。先按第 5 节保存日志，再执行共享恢复入口；确认 USB 重新枚举与三项终态硬校验后，按第 4 节上传载荷与启动卷。
 - 带 GPU 的内核在普通退出与 panic 返回时都检查 `adreno8_reset_required` 和 `adreno8_memory_retained()`，ACK 成功、失败或分配中途失败都可能要求保留资源；需要保留时内核停在 `adreno8_quiesce()` 不返回，只能复位后再上传下一份内核，源码链见[无人值守收尾 §2](../analysis/2026-10-28-unattended-teardown.md#2-判断依据源码链)。
 - 复位后重新枚举且 `result: idle`：loader 已重新启动，按第 4 节重新上传载荷与启动卷。
 - `result: reset-failed`：PSCI 复位调用返回，直接读取日志中的返回值；loader 保留 USB 命令循环。
@@ -124,7 +124,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - `pcie=N`：Wi-Fi 卡（WCN7850）执行第 1～N 步，最多 10（`mhi_pcie.c` 文件头）。第 1～6 步是诊断读取，7～9 步启动卡上固件并与 WLFW 服务交换，第 10 步由 ath12k 驱动代替第 7～9 步。`cycle.py` 固定带 `pcie=10` 一组和 `wifi_station=1`，见 [Wi-Fi 驱动记录](../progress/2026-11-01-wifi-ath12k-driver.md)。
 - 手电（`annibale_torch.c`，需要内核 `4d6eee3` 及以后）：`torch_secs=3` 亮 3 秒后自动熄灭（驱动内最多 5 秒），`torch_ma=1..500` 调电流，默认 125；`torch=3` 提供 `/dev/annibale-torch` 给 iOS 的 AVFlashlight 与 mediaserverd，单次默认 30 秒，`torch_max_s` 最多 120 秒。驱动先验 TYPE/SUBTYPE 且无 fault 才写，每次写入都回读，遇到 fault 拒绝点亮。
 - 震动（`annibale_haptic.c`，需要内核 `5847dd3` 及以后）：`hv_haptic=3` 起内核后直驱马达 30 ms，靠手感验收，没感觉时加 `haptic_amp=128`，仍没有就读 USB 日志的 `haptic:` 行；`hv_haptic=4` 让 iOS 触感反馈经 `/dev/annibale-haptic` 驱动马达，单次最长 1 秒，出现 fault 后停用。
-- 更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。手电与震动在 iOS 26 上还不能用。
+- 更早的内核用 Extended Register Write 写 PMIC，寄存器值不变，驱动在第一次读回不一致时停止，见[手电与震动实测](../progress/2026-10-26-torch-and-haptics.md)。手电筒已获用户确认，iOS 26 下的振动待验收。
 
 ## 9. 启动卷与内存窗口检查
 

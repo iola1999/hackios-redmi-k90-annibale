@@ -6,10 +6,9 @@ usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kern
   1. package.py with the interactive jobs and annsh (the caller's environment goes through, so
      ICON_METAL=1 and the other package switches work as they do there), then make-payload.py
      for kernel NAME (default KERNEL) with four cores.
-  2. ensure_loader_idle() brings the device to an enumerated, idle xnuloader with an empty RAM
-     disk: stops a running session via `oem stop`, reboots held/returned sessions and interrupts
-     standalone boot_a's 5 s menu with `oem recovery`, or recovers from B-slot Android via
-     recover-loader.py. When LOADER_IMAGE or CYCLE_CHECKPOINT=1 is set with ANDROID_SERIAL,
+  2. ensure_loader_idle() uses recover-loader.py to reach an enumerated, idle xnuloader with an
+     empty resident boot image, then checks that state independently.
+     When LOADER_IMAGE or CYCLE_CHECKPOINT=1 is set with ANDROID_SERIAL,
      checkpoint() resets slot A's retry count at LK and boots the requested loader image.
   3. round-run.py in the background; once SpringBoard reports the boot unlock, tour.py runs TOUR or --tour
      (only its first step when the GPU has already stopped), and the round is asked to stop
@@ -137,70 +136,16 @@ def loader_ready():
 def ensure_loader_idle():
     """Converge a running/held xnuloader or B-slot Android session to an idle xnuloader."""
     try:
-        return _ensure_loader_idle()
+        EVIDENCE.mkdir(parents=True, exist_ok=True)
+        rec_dir = EVIDENCE / f"loader-recover-{time.time_ns()}"
+        rec = run([sys.executable, HERE / "recover-loader.py", rec_dir], capture_output=True, text=True)
+        if rec.returncode:
+            return "recover-loader.py failed; see its command records"
+        return loader_ready()
     except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as error:
         EVIDENCE.mkdir(parents=True, exist_ok=True)
         (EVIDENCE / "cycle-recovery.json").write_text(json.dumps({"error": str(error)}) + "\n")
         return str(error)
-
-
-def _ensure_loader_idle():
-    enumerated = loader_enumerated()
-    if enumerated is None:
-        return "fastboot enumeration failed"
-    if enumerated and loader_var("product") != "xnuloader":
-        return "loader product is not xnuloader"
-    if enumerated:
-        res = loader_var("result")
-        if re.fullmatch(r"running(?: [0-9a-fA-F]+ [0-9a-fA-F]+)?", res):
-            print("loader is running a session; sending oem stop...", flush=True)
-            fastboot("oem", "stop")
-            stop_wait = int(os.environ.get("K90_STOP_WAIT", "70"))
-            deadline = time.monotonic() + stop_wait
-            while time.monotonic() < deadline:
-                time.sleep(1)
-                res = loader_var("result")
-                if res and not res.startswith("running"):
-                    break
-        if re.fullmatch(r"(?:returned|returned-held|hung|hung-held|not-started)(?: [0-9a-fA-F]+ 0)?", res):
-            print(f"loader is in {res}; rebooting to fresh idle...", flush=True)
-            fastboot("reboot")
-            off_seen = False
-            deadline = time.monotonic() + 60
-            while time.monotonic() < deadline:
-                time.sleep(0.5)
-                enum = loader_enumerated()
-                if enum is None:
-                    return "fastboot enumeration failed during recovery"
-                if not enum:
-                    off_seen = True
-                    try:
-                        adb = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=3).stdout
-                    except (OSError, subprocess.TimeoutExpired):
-                        adb = ""
-                    if "\tdevice" in adb:
-                        break
-                    continue
-                if off_seen or re.fullmatch(r"idle(?: 0 0)?", loader_var("result")):
-                    fastboot("oem", "recovery")
-                    break
-        if loader_enumerated() is True and re.fullmatch(r"idle(?: 0 0)?", loader_var("result")):
-            fastboot("oem", "recovery")
-            ramdisk = loader_var("ramdisk-state")
-            if re.fullmatch(r"(?:ready|staging) [0-9a-fA-F]+ [0-9a-fA-F]+ [0-9a-fA-F]+", ramdisk):
-                fastboot("oem", "ramdisk", "none")
-            return loader_ready()
-        if loader_enumerated() is True:
-            return loader_ready()
-
-    EVIDENCE.mkdir(parents=True, exist_ok=True)
-    rec_dir = EVIDENCE / f"loader-recover-{time.time_ns()}"
-    rec = run([sys.executable, HERE / "recover-loader.py", rec_dir], capture_output=True, text=True)
-    if rec.returncode:
-        return "recover-loader.py failed; see its command records"
-    if loader_enumerated() is not True:
-        return "recovered loader is not uniquely enumerated"
-    return _ensure_loader_idle()
 
 
 def checkpoint():
@@ -214,23 +159,8 @@ def checkpoint():
     if run([sys.executable, HERE / "reboot-lk.py", out, "--payload", prepare, "--sha256", sha,
             "--serial", serial], capture_output=True, text=True).returncode != 0:
         return "reboot-lk.py failed"
-    fastboot("set_active", "a", serial=serial)
-    if re.findall(r"^(?:\(bootloader\)[ \t]*)?slot-retry-count:a:[ \t]*([^\r\n]*?)[ \t\r]*$",
-                  fastboot("getvar", "slot-retry-count:a", serial=serial), re.M) != ["7"]:
-        return "slot A retry count did not reset to 7"
-    image = os.environ.get("LOADER_IMAGE")
-    if image:
-        fastboot("boot", image, serial=serial, timeout=60)
-    else:
-        fastboot("reboot", serial=serial)
-    deadline = time.monotonic() + 60
-    while time.monotonic() < deadline:
-        time.sleep(0.5)
-        if loader_enumerated() is True:
-            fastboot("oem", "recovery")
-            if loader_ready() is None:
-                return None
-    return "the loader did not come back after the checkpoint"
+    # The shared recovery entry verifies slot B and restores A's retry count at LK.
+    return ensure_loader_idle()
 
 
 def slot_preflight():

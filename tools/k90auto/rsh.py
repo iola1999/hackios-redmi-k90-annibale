@@ -7,7 +7,8 @@ ROUND_DIR is the directory make-payload.py printed and run-auto.py is running. T
 /annibale/bin/annsh in its rc.jobs and boot a kernel and loader with the command mailbox (kernel
 loader_live magic3, loader "oem sh"). run-auto.py stays the only process that talks to the device:
 this drops the command into ROUND_DIR/run/cmd-request-*.txt and waits for run-auto.py to send it
-and to read the log into ROUND_DIR/run/cmd-SEQ.log. The command is one line of at most 119
+and to read the log into ROUND_DIR/run/cmd-SEQ.log. Later completion can also be read from
+the latest periodic s*.log snapshot. The command is one line of at most 119
 UTF-8 bytes, words split on blanks with no quoting; the built-ins are listed in
 hackios-xnu-kernel/userland/src/annsh.c. annsh applies its own command deadline, and a slow native call
 can also finish after the default output wait. Set RSH_OUTPUT_TIMEOUT and RSH_SUBPROCESS_TIMEOUT for
@@ -62,10 +63,19 @@ def main():
     deadline = time.monotonic() + OUTPUT_TIMEOUT
     text_seen = ""
     while time.monotonic() < deadline:
-        if log.exists():
-            text_seen = log.read_text(errors="replace")
+        logs = [log]
+        snapshots = [path for path in run.glob("s*.log") if re.fullmatch(r"s[0-9]+\.log", path.name)]
+        if snapshots:
+            logs.append(max(snapshots, key=lambda path: int(path.stem[1:])))
+        for source in logs:
+            if source.exists():
+                candidate = source.read_text(errors="replace")
+                if source == log or end.search(candidate):
+                    text_seen = candidate
             if end.search(text_seen):
                 break
+        if end.search(text_seen):
+            break
         time.sleep(0.5)
     for line in text_seen.splitlines():
         if line.startswith(line_mark):

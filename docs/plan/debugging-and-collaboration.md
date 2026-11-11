@@ -30,7 +30,7 @@
 | 状态 | 为什么需要单独确认 |
 |---|---|
 | 顶层仓库与两个 submodule | 父仓只记录子模块 commit |
-| 12377 内核构建树 `out/xnu12377-cmd`（更早的一棵是 `out/xnu12377`） | 独立 git 目录（分支 `annibale26`），顶层 `git log --all` 查不到它的提交；改动从 `xnu/files/` 复制进去，见 [k90auto 说明](../../tools/k90auto/README.md) |
+| 12377 内核构建树 `hackios-xnu-kernel/xnu-src/xnu-12377.121.6` | `xnu26/build-macos.sh` 默认使用这棵树，`XNU26_SRC` 可指定其他位置；改动从 `xnu/files/` 复制进去，接手先核对实际构建输入，见 [k90auto 说明](../../tools/k90auto/README.md) |
 | `xnu/files/`、`xnu26/patches/` 与展开树 | 仓库来源和实际编译输入可能不同，没有双向同步 |
 | 宿主与 `kbuild` 的 `/work/repo` | 容器用持久卷 checkout，宿主更新后要同步 |
 | 编译结果、打包输入与设备 RAM | 还要核对选择、打包、上传和本轮实际使用 |

@@ -56,98 +56,67 @@ class LoaderStateTests(unittest.TestCase):
             with self.subTest(config=config):
                 self.assertIsNotNone(self.check_state(**config)[0])
 
-    def test_running_session_stops_reboots_and_locks_fastboot_idle(self):
-        state = {"result": "running 0 0", "ramdisk-state": "ready 400000 400000 300000000", "off": False}
+    def test_shared_recovery_is_followed_by_independent_state_checks(self):
         sent = []
 
-        def fake_run(argv, **kwargs):
-            sent.append(list(argv))
-            if argv == ["fastboot", "devices"]:
-                if state["off"]:
-                    state["off"] = False
-                    return subprocess.CompletedProcess(argv, 0, "", "")
-                return subprocess.CompletedProcess(argv, 0, "xnuloader\tfastboot\n", "")
-            if argv == ["adb", "devices"]:
-                return subprocess.CompletedProcess(argv, 0, "List of devices attached\n\n", "")
-            if argv[:4] == ["fastboot", "-s", "xnuloader", "getvar"]:
-                key = argv[4]
-                val = "xnuloader" if key == "product" else state[key]
-                return subprocess.CompletedProcess(argv, 0, f"(bootloader) {key}: {val}\nFinished.\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "stop"]:
-                state["result"] = "hung-held"
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "reboot"]:
-                state["off"] = True
-                state["result"] = "idle"
-                state["ramdisk-state"] = "idle 0 0 0"
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "recovery"]:
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "ramdisk", "none"]:
-                state["ramdisk-state"] = "idle 0 0 0"
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            raise AssertionError(f"unexpected command: {argv}")
-
-        with patch.object(cycle.subprocess, "run", side_effect=fake_run), \
-                patch.object(cycle.time, "sleep"):
-            self.assertIsNone(cycle.ensure_loader_idle())
-        self.assertIn(["fastboot", "-s", "xnuloader", "oem", "stop"], sent)
-        self.assertIn(["fastboot", "-s", "xnuloader", "reboot"], sent)
-        self.assertIn(["fastboot", "-s", "xnuloader", "oem", "recovery"], sent)
-
-    def test_idle_with_staged_ramdisk_clears_ramdisk_in_place(self):
-        state = {"result": "idle", "ramdisk-state": "ready 400000 400000 300000000"}
-        sent = []
-
-        def fake_run(argv, **kwargs):
-            sent.append(list(argv))
-            if argv == ["fastboot", "devices"]:
-                return subprocess.CompletedProcess(argv, 0, "xnuloader\tfastboot\n", "")
-            if argv == ["adb", "devices"]:
-                return subprocess.CompletedProcess(argv, 0, "List of devices attached\n\n", "")
-            if argv[:4] == ["fastboot", "-s", "xnuloader", "getvar"]:
-                key = argv[4]
-                val = "xnuloader" if key == "product" else state[key]
-                return subprocess.CompletedProcess(argv, 0, f"(bootloader) {key}: {val}\nFinished.\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "recovery"]:
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "ramdisk", "none"]:
-                state["ramdisk-state"] = "idle 0 0 300000000"
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            raise AssertionError(f"unexpected command: {argv}")
-
-        with patch.object(cycle.subprocess, "run", side_effect=fake_run):
-            self.assertIsNone(cycle.ensure_loader_idle())
-        self.assertIn(["fastboot", "-s", "xnuloader", "oem", "ramdisk", "none"], sent)
-
-    def test_unenumerated_loader_invokes_recover_loader(self):
-        state = {"enumerated": False}
-        sent = []
-
-        def fake_run(argv, **kwargs):
-            argv = [str(x) for x in argv]
-            sent.append(argv)
-            if argv == ["fastboot", "devices"]:
-                out = "xnuloader\tfastboot\n" if state["enumerated"] else ""
-                return subprocess.CompletedProcess(argv, 0, out, "")
-            if len(argv) >= 2 and argv[1].endswith("recover-loader.py"):
-                state["enumerated"] = True
-                return subprocess.CompletedProcess(argv, 0, "recovered\n", "")
-            if argv == ["adb", "devices"]:
-                return subprocess.CompletedProcess(argv, 0, "List of devices attached\n\n", "")
-            if argv[:4] == ["fastboot", "-s", "xnuloader", "getvar"]:
-                key = argv[4]
-                vals = {"product": "xnuloader", "result": "idle", "ramdisk-state": "idle 0 0 0"}
-                return subprocess.CompletedProcess(argv, 0, f"(bootloader) {key}: {vals[key]}\nFinished.\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "recovery"]:
-                return subprocess.CompletedProcess(argv, 0, "OKAY\n", "")
-            raise AssertionError(f"unexpected command: {argv}")
+        def run(argv, **kwargs):
+            sent.append([str(x) for x in argv])
+            self.assertTrue(str(argv[1]).endswith("recover-loader.py"))
+            return subprocess.CompletedProcess(argv, 0, "recovered\n", "")
 
         with tempfile.TemporaryDirectory() as directory, \
                 patch.object(cycle, "EVIDENCE", Path(directory)), \
-                patch.object(cycle.subprocess, "run", side_effect=fake_run):
+                patch.object(cycle.subprocess, "run", side_effect=run), \
+                patch.object(cycle, "loader_ready", return_value=None) as ready:
             self.assertIsNone(cycle.ensure_loader_idle())
-        self.assertTrue(any(len(cmd) >= 2 and cmd[1].endswith("recover-loader.py") for cmd in sent))
+            ready.assert_called_once()
+        self.assertEqual(len(sent), 1)
+
+    def test_successful_recovery_does_not_accept_invalid_final_state(self):
+        recovered = subprocess.CompletedProcess([], 0, "recovered\n", "")
+        for failure in ("no xnuloader in fastboot devices", "loader result is not idle",
+                        "loader RAM disk is not empty", "loader product is not xnuloader"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(cycle, "EVIDENCE", Path(directory)), \
+                    patch.object(cycle.subprocess, "run", return_value=recovered), \
+                    patch.object(cycle, "loader_ready", return_value=failure):
+                self.assertEqual(cycle.ensure_loader_idle(), failure)
+
+    def test_recovery_failure_stops_before_further_device_queries(self):
+        failed = subprocess.CompletedProcess([], 1, "", "stop failed")
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(cycle, "EVIDENCE", Path(directory)), \
+                patch.object(cycle.subprocess, "run", return_value=failed) as run, \
+                patch.object(cycle, "loader_ready") as ready:
+            self.assertIsNotNone(cycle.ensure_loader_idle())
+            ready.assert_not_called()
+            run.assert_called_once()
+            self.assertTrue(str(run.call_args.args[0][1]).endswith("recover-loader.py"))
+
+    def test_recovery_exception_is_recorded(self):
+        for error in (OSError("missing client"), subprocess.TimeoutExpired(["python3"], 180)):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(cycle, "EVIDENCE", Path(directory)), \
+                    patch.object(cycle.subprocess, "run", side_effect=error), \
+                    patch.object(cycle, "loader_ready") as ready:
+                self.assertIsNotNone(cycle.ensure_loader_idle())
+                self.assertTrue((Path(directory) / "cycle-recovery.json").is_file())
+                ready.assert_not_called()
+
+    def test_checkpoint_uses_shared_native_recovery_after_verified_lk(self):
+        with patch.dict(cycle.os.environ, {"ANDROID_SERIAL": "test-device"}), \
+                patch.object(cycle, "run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                patch.object(cycle, "ensure_loader_idle", return_value=None) as recover:
+            self.assertIsNone(cycle.checkpoint())
+            self.assertTrue(str(run.call_args.args[0][1]).endswith("reboot-lk.py"))
+            recover.assert_called_once()
+
+    def test_checkpoint_failure_never_attempts_slot_selection(self):
+        with patch.dict(cycle.os.environ, {"ANDROID_SERIAL": "test-device"}), \
+                patch.object(cycle, "run", return_value=subprocess.CompletedProcess([], 1)), \
+                patch.object(cycle, "ensure_loader_idle") as recover:
+            self.assertIsNotNone(cycle.checkpoint())
+            recover.assert_not_called()
 
     def test_command_errors_and_timeouts_stop(self):
         devices = subprocess.CompletedProcess(["fastboot", "devices"], 0, "xnuloader\tfastboot\n", "")
@@ -172,26 +141,6 @@ class LoaderStateTests(unittest.TestCase):
             with patch.object(cycle, "loader_var", return_value=reading), patch.object(cycle, "checkpoint") as reset:
                 self.assertIsNotNone(cycle.slot_preflight())
                 reset.assert_not_called()
-
-    def test_failed_stop_does_not_send_reboot_or_clear_ram(self):
-        sent = []
-
-        def run(argv, **kwargs):
-            sent.append(argv)
-            if argv == ["fastboot", "devices"]:
-                return subprocess.CompletedProcess(argv, 0, "xnuloader\tfastboot\n", "")
-            if argv[:4] == ["fastboot", "-s", "xnuloader", "getvar"]:
-                value = "xnuloader" if argv[-1] == "product" else "running 0 0"
-                return subprocess.CompletedProcess(argv, 0, f"{argv[-1]}: {value}\n", "")
-            if argv == ["fastboot", "-s", "xnuloader", "oem", "stop"]:
-                return subprocess.CompletedProcess(argv, 0, "FAILED (remote: refused)\n", "")
-            self.fail(f"Unexpected command after failed stop: {argv}")
-
-        with tempfile.TemporaryDirectory() as directory, patch.object(cycle, "EVIDENCE", Path(directory)), \
-                patch.object(cycle.subprocess, "run", side_effect=run):
-            self.assertIsNotNone(cycle.ensure_loader_idle())
-            self.assertTrue((Path(directory) / "cycle-recovery.json").is_file())
-        self.assertEqual(sent[-1], ["fastboot", "-s", "xnuloader", "oem", "stop"])
 
     def test_fastboot_requires_valid_and_enumerated_serial(self):
         for serial in ("", " ", "test serial"):

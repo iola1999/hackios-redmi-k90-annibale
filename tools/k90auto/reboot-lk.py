@@ -2,7 +2,9 @@
 """Prepare the K90 LK target through a verified payload; stop at LK by default.
 
 Usage: reboot-lk.py OUTPUT --payload FILE --sha256 HASH [--serial LK_SERIAL] [--return-loader]
-LK_SERIAL defaults to ANDROID_SERIAL. OUTPUT must be a new directory.
+LK_SERIAL defaults to ANDROID_SERIAL. If neither is set, identify the only LK
+device after reboot and save OUTPUT/device.json; OUTPUT must be Git-ignored.
+OUTPUT must be a new directory.
 Requires an idle/returned loader, empty resident RAM disk and exclusive device access.
 """
 import argparse
@@ -60,6 +62,12 @@ def workflow(args, base, result):
     result["payload"] = {"path": str(payload), "bytes": payload.stat().st_size, "sha256": digest.hexdigest()}
     require(digest.hexdigest() == args.sha256.lower(), "Payload SHA256 mismatch; no device command sent")
     require(0 < payload.stat().st_size <= 0x03700000, "Payload exceeds the loader download buffer")
+    discover_serial = args.serial is None
+    serial_config = base / "device.json"
+    if discover_serial:
+        ignored = subprocess.run(["git", "-C", str(base), "check-ignore", "-q", str(serial_config)],
+                                 capture_output=True, text=True)
+        require(ignored.returncode == 0, "LK discovery requires a Git-ignored output directory")
 
     def call(argv, limit=8, check=True):
         started = time.monotonic()
@@ -88,8 +96,18 @@ def workflow(args, base, result):
 
     def devices(check=True):
         record = call(["fastboot", "devices"], check=check)
-        return [parts[0] for line in record["stdout"].splitlines()
-                if len(parts := line.split()) == 2 and parts[1] == "fastboot"] if record["ok"] else None
+        if not record["ok"]:
+            return None
+        found = []
+        for line in record["stdout"].splitlines():
+            if not line.strip():
+                continue
+            parts = line.split()
+            if parts == ["fastboot"]:
+                return None
+            require(len(parts) == 2 and parts[1] == "fastboot", "Malformed Fastboot enumeration")
+            found.append(parts[0])
+        return found
 
     def loader_ready(only_returned=False):
         state = getvar("xnuloader", "result")
@@ -125,6 +143,22 @@ def workflow(args, base, result):
                 require(found.count("xnuloader") == 1 and args.serial not in found,
                         "Ambiguous loader/LK enumeration after return reboot")
                 require(getvar("xnuloader", "product") == "xnuloader", "Unexpected returned loader product")
+                state = getvar("xnuloader", "result")
+                runtime_recovery = re.fullmatch(r"idle(?: 0 0)?", state) is None
+                if not runtime_recovery:
+                    recovery = call(["fastboot", "-s", "xnuloader", "oem", "recovery"], check=False)
+                    if not recovery["ok"]:
+                        output = recovery["stdout"] + recovery["stderr"]
+                        require("kernel resources are unavailable for recovery" in output,
+                                "Returned loader recovery failed; see commands.jsonl")
+                        runtime_recovery = True
+                if runtime_recovery:
+                    require(getvar("xnuloader", "build-id") == result["loader_build_id"],
+                            "Returned runtime loader build-id changed")
+                    recovered = base / "return-recovery"
+                    call([sys.executable, str(Path(__file__).with_name("recover-loader.py")),
+                          str(recovered)], limit=180)
+                    result["return_runtime_recovery"] = str(recovered)
                 build_id = getvar("xnuloader", "build-id")
                 require(build_id == result["loader_build_id"], "Returned loader build-id changed")
                 require(getvar("xnuloader", "ramdisk-protocol") == "1", "Returned loader RAM protocol changed")
@@ -133,10 +167,13 @@ def workflow(args, base, result):
                         "Returned loader download target is not its payload buffer")
                 result.update(loader_returned=True, returned_loader_build_id=build_id)
                 return
-            time.sleep(1)
+            time.sleep(0.25)
         raise RuntimeError("Fresh loader was not identified within 60 seconds; inspect the recorded USB results")
 
     found = devices()
+    require(found is not None, "Fastboot enumeration has no usable serial")
+    if discover_serial:
+        require(found == ["xnuloader"], "LK discovery requires only xnuloader before preparation")
     require(found.count("xnuloader") == 1 and args.serial not in found,
             "Expected one xnuloader and no existing device with the requested LK serial")
     require(getvar("xnuloader", "product") == "xnuloader", "Unexpected loader product")
@@ -172,11 +209,20 @@ def workflow(args, base, result):
         found = devices(check=False)
         if found is not None:
             off_seen |= "xnuloader" not in found
-            if args.serial in found and "xnuloader" not in found:
+            if discover_serial:
+                require(len(found) <= 1, "Ambiguous Fastboot enumeration during LK discovery")
+                if found and "xnuloader" not in found:
+                    args.serial = found[0]
+            if args.serial and args.serial in found and "xnuloader" not in found:
+                require(found.count(args.serial) == 1, "Ambiguous requested LK serial")
                 require(getvar(args.serial, "product") == "annibale", "Destination product is not annibale")
+                require(getvar(args.serial, "is-userspace") == "no", "Destination is not LK Fastboot")
                 slot = getvar(args.serial, "current-slot")
                 require(slot in ("a", "b"), "Invalid LK current-slot response")
-                result.update(lk_entered=True, current_slot=slot, loader_disconnected=off_seen)
+                if discover_serial:
+                    serial_config.write_text(json.dumps({"serial": args.serial}, indent=2) + "\n")
+                    result["serial_config"] = str(serial_config)
+                result.update(lk_entered=True, serial=args.serial, current_slot=slot, loader_disconnected=off_seen)
                 if args.return_loader:
                     return_to_loader()
                 return
@@ -190,11 +236,12 @@ def main():
     parser.add_argument("output", type=Path, help="new directory for commands.jsonl, prepared.log and result.json")
     parser.add_argument("--payload", type=Path, required=True, help="verified prepare-only XNUP payload")
     parser.add_argument("--sha256", required=True, help="expected full SHA256 of the payload")
-    parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL"), help="LK serial; defaults to ANDROID_SERIAL")
+    parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL") or None,
+                        help="LK serial; defaults to ANDROID_SERIAL, otherwise discover the only LK device")
     parser.add_argument("--return-loader", action="store_true",
                         help="after LK verification, require bootable successful B, reset A retries and verify fresh loader")
     args = parser.parse_args()
-    if not args.serial or args.serial == "xnuloader" or any(c.isspace() for c in args.serial):
+    if args.serial is not None and (not args.serial or args.serial == "xnuloader" or any(c.isspace() for c in args.serial)):
         parser.error("--serial or ANDROID_SERIAL must identify the device in LK")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", args.sha256):
         parser.error("--sha256 requires a full SHA256 digest")

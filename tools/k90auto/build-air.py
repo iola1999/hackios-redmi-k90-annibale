@@ -43,7 +43,9 @@ FILES = ["air_metal.c", "air_metal.h", "air_clear_plan.h", "air_metal_clear.inc"
          "air_metal_dispatch.inc", "air_texture.inc", "air_llvm.inc", "air_argbuf.inc",
          "air_metal_depth_stencil.inc", "air_ptr_slot.inc", "air_ptr_phi.inc", "air_debug.inc",
          "air_metal_vertex_cache.inc", "air_metal_yuv.h", "air_metal_yuv.inc",
-         "air_metal_formats.inc", "air_yuv_test.c"]
+         "air_metal_formats.inc", "air_yuv_test.c", "air_gep.inc",
+         "air_reflection.c", "air_reflection.h", "air_metal_reflection.h",
+         "air_reflection_test.c", "meson.build"]
 
 # The toolchain: a venv with meson 1.12.1 and the ninja from homebrew, with bison ahead of the
 # system one because the frontend's parser needs it. The paths are part of the host image, not of
@@ -125,6 +127,11 @@ def main():
     sign = subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(OUT)],
                           capture_output=True, text=True)
     assert sign.returncode == 0, sign.stderr
+
+    exports = subprocess.run(["/usr/bin/nm", "-gU", str(OUT)],
+                             capture_output=True, text=True, check=True).stdout
+    assert any(line.split()[-1:] == ["_rwa_compute_get_reflection"]
+               for line in exports.splitlines()), "compute reflection query is missing from the AIR library"
 
     text = strings(OUT)
     record.update({
