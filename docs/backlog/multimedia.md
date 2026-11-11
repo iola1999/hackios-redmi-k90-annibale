@@ -6,10 +6,10 @@
 
 | 编号 | 事项 | 当前边界 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
-| M1 | Iris 硬件解码出帧 | 进行中；cd16 首条 fatal 明确为 COMV 数量 `host 8 < fw 18`，仍为零帧；原厂输入端口初始最小数量属性缺失 | 单变量验证输入订阅后的 `0x03000124=4`，保持 COMV 8，继续核对数量协商，再验实际解码像素和连续播放 | [多媒体验证 §30](../analysis/2026-11-11-multimedia-validation.md#30-iris-固件错误诊断)、[视频分析](../analysis/2026-11-05-video-decode.md) |
-| M2 | 真实相机流与 DMA | 进行中；R16 `1C0h` 导入、CI label 与原版 CI 图数值通过；MPS 数组签名和 process-owned IOSurface 仍有缺口，真实 CSI／IFE DMA 尚未实现 | 验证 MPS 二维数组读取，修复 process-owned IOSurface 导入；按本机 CSID／IFE 契约实现 sensor streaming 与 DMA，再验首尾行真实像素 | [多媒体验证 §28、§31、§33、§34](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
+| M1 | Iris 硬件解码出帧 | 进行中；初始 `0x03000124=4` 修正已提交，cd18 收到 input START ACK，原 COMV fatal 消失；随后命令读取停在 420，仍为零帧 | 单变量验证原厂 STAGE 设置，合并采集队列与故障状态，继续核对数量协商，再验实际解码像素和连续播放 | [多媒体验证 §30](../analysis/2026-11-11-multimedia-validation.md#30-iris-固件错误诊断)、[视频分析](../analysis/2026-11-05-video-decode.md) |
+| M2 | 真实相机流与 DMA | 进行中；R16 `1C0h`、CI label、CI 图数值与 MPS 数组 2,184 分量均通过真机检查；后续 read_write 读取签名和 process-owned IOSurface 仍有缺口，真实 CSI／IFE DMA 尚未实现 | 修复 MPS read_write 签名，验证 process-owned IOSurface 只读输入导入；按本机 CSID／IFE 契约实现 sensor streaming 与 DMA，再验首尾行真实像素 | [多媒体验证 §28、§31、§33、§34](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
 | M3 | 扬声器实际出声 | 待验证；AudioQueue、PCM 完成及双功放 operating 已有结果 | 先核对功放配置与软件保护；缺少 DSP 扬声器保护的首次出声按原调研使用低增益并由人在场确认。冷启动播放已知音频，结合路由、PCM 完成和听音验收左右声道与音量 | [多媒体验证 §2](../analysis/2026-11-11-multimedia-validation.md)、[音频分析](../analysis/2026-11-02-audio-and-volume.md) |
-| M4 | 冷启动播放器与 Safari 视频 | 进行中；冷启动及重复的零幅 AudioQueue／DSP 排空通过，首次 9.239 秒、重复 3.968 秒；路由名称乱码来自 console 的 7 位字符处理 | 分阶段对照 AVPlayer／Safari 冷启动，核对输出设备 ID 的原生含义，软解与硬解分别标明；本地完整播放与网页播放待验 | [多媒体验证 §32](../analysis/2026-11-11-multimedia-validation.md#32-冷启动音频的阶段与排空诊断)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
+| M4 | 冷启动播放器与 Safari 视频 | 进行中；AudioQueue 与本地零幅 AVPlayer 首次／重复播放及 DSP 排空通过，AVPlayer 首次 6.382 秒、重复 3.968 秒；本轮耗时差主要在 item 创建 | 拆分冷启动 item 创建，验证 HTTP／Safari 与带视频轨播放，核对输出设备 ID 的原生含义，软解与硬解分别标明 | [多媒体验证 §32、§35](../analysis/2026-11-11-multimedia-validation.md)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
 
 NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查已经通过，原版 SLM 两条管线构造也已通过。这些结果作为后续回归基线。
 

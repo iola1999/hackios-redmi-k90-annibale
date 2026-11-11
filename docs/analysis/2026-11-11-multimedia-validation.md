@@ -568,7 +568,14 @@ cd16 真机取得首条具体 fatal：`h264DecCalcBufReq(1944): num of col buffe
 
 原厂以输出 buffer 的 `min_count` 同时计算 COMV 字节数并发送 HFI `0x03000193`，当前实现两处固定为 8。进一步反汇编确认原厂首次输入 PSC 订阅后发送 `0x03000124`，其值取自输出 `min_count`；AVC／HEVC 初值为 4，HFI 端口为 bitstream、载荷为 U32。当前实现遗漏了这条初始属性。
 
-cd18 单变量候选只补输入订阅后的 `0x03000124=4`，COMV 仍为 8，其他初始属性、STAGE／PIPE 和后续 PSC 行为保持原样。100 项 ASan／UBSan 检查通过，缺包、错误端口、错误载荷类型与错误数量四个变体均被拒绝；cd16 独立重链逐字节一致，候选仅 HFI 对象变化。原厂 setter 表、指令字节与交付保存在本地 `codex-1112-iris-input-min/`，属性遗漏与固件要求 18 的因果关系待真机验证。
+cd18 单变量候选只补输入订阅后的 `0x03000124=4`，COMV 仍为 8，其他初始属性、STAGE／PIPE 和后续 PSC 行为保持原样。cd16 独立重链逐字节一致，候选仅 HFI 对象变化。原厂 setter 表、指令字节与交付保存在本地 `codex-1112-iris-input-min/`。
+
+cd18 首次收到 input START ACK，原 COMV fatal 与 session fatal 均未出现。该单变量结果支持初始数量属性缺失导致此前启动错误。输入提交 4,909 字节后仍未收到 PSC、输入或输出 BUFFER 返回；探针在 1,616 ms 后返回 1，frames／output_bytes 均为 0。
+
+- START ACK 对应的命令队列读写位置均为 420。后续 DRAIN 与两次 STOP 将写入位置推进到 436、452、468，读取位置仍为 420；驱动保留 DMA，复位后才完成设备收尾。
+- 本轮 19 条命令按预期返回，另有一次硬解失败和两次截图。最高 CPU 采样温度为 74.0°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 内核仓 `5ab0eead` 落实四行初始属性补发。100 项 HFI／session ASan／UBSan 检查通过，45 个负例均检出，其中本次新增的六类报文错误分别覆盖 AVC 与 HEVC。
+- 真机记录在本地 `kernel-12377-codex-1112-cd18-iris-input-min/run/iris-input-min-review.json`，后续静态核对在 `codex-1112-iris-input-min-production/`。同一首样本经生产 Annex B 转换函数构造后可由 FFmpeg 解出 320×192 单帧；真机 DMA 内容尚未读回。
 
 原厂的 320×192 H.264 初次启动还会发送 PIPE 4、STAGE 1；当前实现尚未设置，两项与 fatal 的因果关系仍待确认。该属性差异与 COMV 容量分别验证，硬解码首帧与实际像素继续待验。
 
@@ -611,18 +618,26 @@ category 之前的区间包含 `sharedInstance` 和符号／API 查找，当前�
 - HAL 在首条音频命令前已打开设备；`audiomxd` 在前、中、后三份快照保持 PID 70，已审日志未见音频服务崩溃、PCM 错误或 XPC 超时。`airplayd` 未出现在这些快照中，直接 MachServices 运行注册记录缺失；包内配置与实际会话响应分别记录。
 - 两次 route type／UID 均为 Speaker。friendly name 的输出逐字节等于「扬声器」UTF-8 清除最高位后的结果；XNU `bsd/dev/arm/km.c` 的 `kmoutput` 执行 `& 0x7f`，与控制字节来源一致。getter ABI 与探针字符串使用已核对，AVOutputDevice ID 为 nil 的原生属性含义继续待核。
 - 本轮 22 条命令按预期返回，另完成两次截图，8 份运行 Metal／AIR UUID 匹配冻结库；HAL 与探针自身仅完成包内 UUID 核对。最高 CPU 采样温度为 74.8°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
-- 实际听音、左右声道、真实录音、本地完整播放和网页播放继续分别待验。
+- 实际听音、左右声道、真实录音和网页播放继续分别待验。本地零幅 AVPlayer 播放结果见第 35 节。
 
 ## 33. MPS 二维纹理数组读取
 
 原版 `mps_stgf_computeInvertedGuideCovarianceMatrix3` 使用 builtin read sampler 读取二维数组，guideStack 的 access 为 0，mean 的 access 为 1。AIR 前端原来只接受普通二维纹理的七操作数签名；数组形式增加 layer 操作数，导致第 28 节相机编译失败。
 
-候选扩展已有 read sampler 分支，按数组形式调整 offset、lod 与 access 的位置，检查 layer 为 i16 或 i32，并复用 `tex_coord_and_layer` 与 txf。原生 i16 重载同时使用 i16 坐标、layer 和 lod；非零 offset、非法 access、layer 类型及原有 image／depth／MS 限制继续检查。
+用户态 `c6a1cdc` 扩展已有 read sampler 分支，按数组形式调整 offset、lod 与 access 的位置，检查 layer 为 i16 或 i32，并复用 `tex_coord_and_layer` 与 txf。原生 i16 重载同时使用 i16 坐标、layer 和 lod；非零 offset、非法 access、layer 类型及原有 image／depth／MS 限制继续检查。
 
 - 原版 MPS 函数及五个 fixture 均通过 NIR 与 A830 IR3 编译。fixture 覆盖 float read32／sample32／read16、half read32 和普通二维回归，使用三层、三个 mip 及动态坐标、layer、lod。
 - Apple GPU 的 2,184 个分量全部正确；强制 layer 0 的变体产生 672 个错误。旧前端拒绝四个数组 fixture，普通二维用例仍通过，三种坏签名在预期检查处拒绝；共 36 项检查通过。
 - arm64e 基线重建与已验收 minmax AIR 逐字节一致，候选源文件只改变 `air_texture.inc`。新 AIR SHA-256 为 `024d7857b39dc62b9160e3c1fbc85b30b73746900ba4522048c111b5689bd316`，UUID 为 `8473C785-B244-3DB1-999C-EAF072473612`。
-- RAM 基于已验 R16 alias 辅助盘，仅替换 AIR 并增加数组探针，Metal、内核、resident 和启动参数固定。宿主记录在 `codex-1112-mps-read/`，交付在 `codex-1112-mps-array-root/`；完整 AIR 回归正在运行，A830 数值与相机后续行为待真机验证。
+- RAM 基于已验 R16 alias 辅助盘，仅替换 AIR 并增加数组探针，Metal、内核、resident 和启动参数固定。宿主记录在 `codex-1112-mps-read/`，交付在 `codex-1112-mps-array-root/`。
+- 本轮冻结源码的完整 AIR 回归共 18 个阶段，退出状态、失败项与计数均与既有基线一致；总退出码仍为 1。当前工作树另行完成完整前端编译及 16 项数组／原版 MPS NIR、IR3、负例和反射检查；组合源码尚未上机。
+
+A830 的五个用例全部完成，状态均为 4，2,184 个分量零错误，探针在 397 ms 后返回 0。相机成功创建 `mps_stgf_computeInvertedGuideCovarianceMatrix3` 与 `mps_stgf_computeCoefficients3`，随后在 `mps_stgf_applyCoefficients3_2d` 的另一个变体创建中失败。
+
+- 提取原版函数后确认 destination 使用 `air.read_write`，读取签名携带 builtin sampler 与 access 3。当前前端仍拒绝该 image 签名，宿主已复现；该问题独立修复。
+- 本轮 25 条命令按预期返回，另完成两次截图。最高 CPU 采样温度为 72.5°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 两张相隔 27.902 秒的完整桌面与原尺寸组件局部均已实际查看：应用和 Dock 图标可见，天气为整块浅白，日历为上下浅白、中间露出壁纸，组件内容仍缺失。
+- 原始记录为本地 `kernel-12377-codex-1112-cd14-mps-array/run/`，数值与相机后续检查保存在 `root-mps-review.json`。原版 read_write 函数及宿主复现保存在 `codex-1112-mps-apply/`。
 
 ## 34. 本机 CSID 与 VFE 寄存器核对
 
@@ -642,4 +657,26 @@ category 之前的区间包含 `sharedInstance` 和符号／API 查找，当前�
 - 原厂 expanded-memory 分支将 DMA 地址右移 8 位写入 `image_addr`，低 8 位写入 `addr_cfg`，`frame_incr` 同样右移 8 位。该分支由内存模式状态选择，当前 SMMU bypass 配置尚未确认对应的硬件地址模式。
 - 原厂 WM 启动先设置 packer、可选 prefetch 与 context，再写 enable；`stop_wm` 清除 cfg 并复位软件状态，该函数内没有 DMA 完成轮询。资源释放仍需核对外围停止流程。
 - 当前 8 MiB 帧缓冲使用 `kmem_alloc`，调用没有物理连续约束；首地址加偏移的线性 DMA 方式尚未成立。
-- 本地 vendor／odm 镜像是按需填充的 sparse cache，缺失目录块需要只读补取，不能据全零块判断传感器模式文件不存在。
+- 本地 vendor／odm 镜像是按需填充的 sparse cache。本轮四条只读命令补取目录块，回复的 base64、连续偏移和末尾 next 均通过检查；只将所需范围写入新的本地 clone，旧 cache 保持原样。
+- 补取后已取得 vendor／odm 的 camera 目录 NID 和 `sensor_config.json` 条目，相关 inode 仍未填充，完整目录检查继续报错。下一步按这些 NID 补取 inode 与文件范围，不能据 sparse cache 的全零块判断文件不存在。
+
+## 35. 本地 AVPlayer 冷启动与重复播放
+
+独立 RAM 候选使用 cd16 音频排空内核，只增加 `audio_player_test` 与三秒零幅 WAV。探针直接创建 `AVPlayerItem` 和 `AVPlayer`，保持默认音频会话与音量，不提前调用 activate；文件为 48 kHz／s16／stereo、144,000 帧，没有视频轨。
+
+冷启动首次与同次启动的新进程重复均返回 0，ready、playing、advanced、ended 全部成立，failed／stalls 均为 0。两次最终播放时间均为 `144000/48000`，并完成 cleanup。
+
+| 阶段 | 冷启动首次 | 新进程重复 |
+|---|---|---|
+| 命令总耗时 | 6,382 ms | 3,968 ms |
+| AVPlayerItem 创建 | 2,342 ms | 64 ms |
+| 首次观察到 playing | 3,203 ms | 119 ms |
+| 收到 ended | 6,355 ms | 3,957 ms |
+
+本轮总耗时差为 2,414 ms，其中 item 创建耗时差为 2,278 ms。该区间继续拆分资源创建、库加载与服务请求，当前数据只覆盖这一轮首次／重复对照。
+
+- 两次独立排空窗口分别为 sent／done 290／290、888／888，backlog、inflight、completion_error 均为 0。日志同时有系统提示音请求，累积 DSP period 计数不能换算为该 WAV 独占的帧数。
+- `audiomxd` 在三份进程快照中保持 PID 71；`airplayd` 在首次播放后出现，PID 177 在重复播放后保持。重复播放的最大采样时钟曾达到 3.463650165 秒，最终停止位置回到 3 秒。
+- 本轮 24 个步骤均按预期完成，包含两次桌面截图；最高 CPU 采样温度为 74.8°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 两张相隔 23.664 秒的完整图已实际查看：应用与 Dock 图标可见，首张缺少应用／组件标签和 Wi-Fi 标记，第二张恢复；天气与日历内容持续缺失。该界面变化单独记录，播放验收以原生事件、最终位置和 DSP 排空为准。
+- 原始结果与冻结输入保存在本地 `kernel-12377-codex-1112-cd16-audio-player/` 和 `codex-1112-audio-player/`。本轮覆盖本地音频播放，实际听音、HTTP、Safari 和带视频轨播放仍需分别验证。
