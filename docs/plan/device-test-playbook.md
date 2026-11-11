@@ -95,7 +95,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - `result: reset-failed`：PSCI 复位调用返回，直接读取日志中的返回值；loader 保留 USB 命令循环。
 - `result: no-such-core ...`：先保存 loader 原始日志，核对目标 MPIDR 和 PSCI 返回值。屏幕上的旧画面不能用来评估本轮。
 - USB 有枚举记录但命令无响应：可能是内核占用 loader 的 CPU、USB 传输等待或固件异常。记录命令、耗时、USB 枚举与画面，按 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)分别排查；设备从 USB 整个消失时的处置也在该文档第 4 节。
-- loader 看门狗：主机 180 秒没有发命令时，loader 不再喂 Haven 虚拟看门狗，手机复位后回到 A 槽 loader，A 槽重试用完时回到 B 槽 Android（`HOST_SILENCE_SECONDS`，`xnuloader/loader_04_fault_payload_nvram.inc`）；运行中的内核自己喂看门狗。
+- loader 看门狗：`a1c40aed` 起，显式进入 Fastboot 驻留后，只要内核未运行、资源已释放、无固件故障且 USB 端点可用，loader 持续喂 Haven 虚拟看门狗；200 秒无主机命令已验证。其他非运行状态保留 180 秒主机静默期限（`HOST_SILENCE_SECONDS`，`xnuloader/loader_04_fault_payload_nvram.inc`）；运行中的内核自己喂看门狗。复位目标仍由活动槽位与实际重试预算决定，见[驻留验证](../analysis/2026-11-11-multimedia-validation.md#16-显式-fastboot-驻留)。
 - 返回 Android：按 [SOP §2](device-boot-target-sop.md#2-五条切换路径) 先进入 LK，再 `set_active b` 加 `reboot`。loader 的 `reboot` 在 annibale 上只执行 PSCI_SYSTEM_RESET，目标仍由当前槽位决定。
 - `oem logwrite` 会覆盖 `boot_a` 开头，不能用于保存启动后的日志；真机调试使用 USB 日志。
 - 桌面 wch 串口属于其他设备。手机 UART 为 GENI `0xa9c000`、`115200n8`，当前没有连接调试线，默认保持关闭。
