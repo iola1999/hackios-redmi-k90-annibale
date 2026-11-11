@@ -193,3 +193,24 @@ macOS 27.0／26A428、Apple M5 Ultra／AGXG17DDevice 上，按上述布局创建
 `_RB4` 失败早于设置点击，WidgetRenderer 也出现同一格式拒绝。当前未建立 surface `0x10`／`0x12` 与 Preferences scene 的对应关系，具体时间和画面见[前台切换核查 §7.1](2026-11-12-app-foreground.md#71-正常重启后打开设置)。
 
 后续先记录失败导入的 Metal 格式、usage、surface ID、宽高、plane offset／stride 和关联 scene／context，再按原生结果实现导入及通道组合。现有 YUV 路径使用半尺寸第二平面与矩阵转换，542 需要完整尺寸和 RGB 通道重组；宿主的 render clear 已成功，仅实现读取仍缺写入覆盖。像素测试需要覆盖布局、绑定、资源生命周期和跨 pass 可见性；系统画面单独验收。本批没有修改生产驱动，也没有在设备上运行 `_RB4` 探针。
+
+### 10.4 非均匀像素探针
+
+新增[独立探针及构建检查](../../hackios-xnu-userland/tools/air/rgb8-444-2p.md)，用户态提交为 `d57938e`。探针使用 `17×9` 非均匀 RGB 图案，两个 plane 的 stride 分别为 128、256，offset 分别为 16384、32768；实际 IOSurface 几何与导入纹理身份均检查一致。每个像素执行 normalized nearest sample 和 integer read，输出先填 NaN，IOSurface 与纹理持有到命令完成。
+
+| Apple M5 Ultra 原生输入 | sample 失配／153 像素 | read 失配／153 像素 |
+|---|---:|---:|
+| 正确全尺寸输入 | 0 | 0 |
+| B／R 字节交换 | 153 | 153 |
+| 第二平面半尺寸元数据与半幅有效内容 | 108 | 108 |
+
+半尺寸对照保留完整 stride 和 allocation，全部内存已初始化，输出以原生拒绝或已完成命令的像素失配分别记录。当前宿主接受该输入并得到上表结果。普通异常、GPU 命令失败和超时均计为运行错误。三个读回文件均为 4896 字节；输出路径错误另经检查，命令完成后写入失败返回 2。
+
+iOS shader 使用 Metal 3.0、`air64-apple-ios16.5.0`，探针为 arm64e、最低 iOS 26.0、SDK 27.1，严格签名校验通过。原始参考、完整命令与来源摘要保存在 Git 忽略的 `hackios-xnu-userland/out/rgb8-444-2p-final/validation.json`。
+
+| 目标产物 | SHA256 |
+|---|---|
+| `iphoneos-probe` | `3269c5bd205fed0a0953e829b8c360d59298d850c80bb7987b891b19aaf2c967` |
+| `iphoneos.metallib` | `8880541ce4a7390c7f1786675a689ee44249e736fac704a77a7d5deaefe8a6a6` |
+
+A830 尚未执行。正确几何的格式 542 导入返回 nil 会记录 `UNSUPPORTED` 并返回 77，像素验收仍需驱动实现后执行。探针复用已有 compute 读回方式，单独定义 RGB 两平面输入；没有增加生产格式开关或改动现有 YUV 测试。shader 写入、clear、线性过滤、argument buffer 和实际 scene 继续分别验收。
