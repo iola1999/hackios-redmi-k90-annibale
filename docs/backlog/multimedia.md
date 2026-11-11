@@ -7,7 +7,7 @@
 | 编号 | 事项 | 当前边界 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
 | M1 | Iris 硬件解码出帧 | 进行中；hardware=1 会话已创建，首帧仍为固件 fatal；错误回调与 drain 已通过 | 对照 HFI 会话、缓冲类型、布局与响应，要求实际硬件解码帧、像素内容和连续播放通过 | [多媒体验证 §18](../analysis/2026-11-11-multimedia-validation.md)、[视频分析](../analysis/2026-11-05-video-decode.md) |
-| M2 | 真实相机流与 DMA | 进行中；前后传感器 ID、设备枚举、原版 SLM 与眼镜景深管线构造通过 | 先处理 MPS 空输入、Core Image stitching 与剩余 cospi 指令，见[图形待办 G7／G14](graphics.md)；同轮核对 sensor streaming、CSI／CSID 帧边界、IFE stride、DMA 地址与 ready 顺序、首尾行真实像素 | [多媒体验证 §7、§19、§23](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
+| M2 | 真实相机流与 DMA | 进行中；前后传感器 ID、设备枚举、SLM 与眼镜景深管线通过，RG16 导入修复后 MPS 滤波已执行；相机后续仍退出 | 先处理 heap protectionOptions、Core Image stitching 与剩余 cospi 指令，见[图形待办 G7／G14](graphics.md)；同轮核对 sensor streaming、CSI／CSID 帧边界、IFE stride、DMA 地址与 ready 顺序、首尾行真实像素 | [多媒体验证 §7、§19、§24](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
 | M3 | 扬声器实际出声 | 待验证；AudioQueue、PCM 完成及双功放 operating 已有结果 | 先核对功放配置与软件保护；缺少 DSP 扬声器保护的首次出声按原调研使用低增益并由人在场确认。冷启动播放已知音频，结合路由、PCM 完成和听音验收左右声道与音量 | [多媒体验证 §2](../analysis/2026-11-11-multimedia-validation.md)、[音频分析](../analysis/2026-11-02-audio-and-volume.md) |
 | M4 | 冷启动播放器与 Safari 视频 | 待验证；预热后本地播放已有结果，冷启动等待与 CoreMedia XPC 超时未完成验收 | 对照冷启动／预热的会话、缓冲及进程状态，要求本地完整播放和网页播放；软解与硬解分别标明 | [音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md) |
 

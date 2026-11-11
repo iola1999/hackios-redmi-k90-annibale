@@ -373,6 +373,35 @@ cd14 出现 `siriactionsd` 的 `NSInvalidUnarchiveOperationException`，以及 `
 
 随后将新 AIR 完整镜像刷入 `boot_a` 并正常重启。该轮运行 185.967 秒，17 项探针完成，最高 CPU 采样温度为 74.8°C；SLM 两项、NV12／P010 的 12 组检查与原生眼镜景深管线继续成功，后续 MPS 空输入等失败与 RAM 轮一致。SpringBoard、backboardd 和相机进程的运行库身份与冻结文件匹配；收尾再次确认新版 loader 空闲、空常驻区与真实 LK 重试 7。
 
+该轮固定操作后的截图已从控制中心返回桌面，应用和 Dock 图标可见；天气与日历大组件仍显示空白内容。完整持续动画和物理面板完成时刻尚未验收。
+
 - 已刷镜像 SHA-256：`011337a785b33b4f8bb1f214809f5a22d8271af391abd6215a71342e64e2b104`；XNUP SHA-256：`aabad51f40aa99f9dd08bcc611d6d5b7bac6bf89b3280f87a20a1193369c353a`。与第 22 节镜像比较，仅辅助盘条目变化，内核、loader 和启动参数相同。
 - 校验覆盖镜像容器、AVB、输入哈希、写入应答、正常重启与实际运行库身份；没有读取物理 `boot_a` 全分区校验哈希。
 - 原始记录位于本地 `kernel-12377-codex-1112-cd14-minmax-air/run/` 与 `codex-device-1111/standalone-minmax-deploy/flashed-boot/`。
+
+## 24. RG16Float 的 IOSurface 导入
+
+SDK 将 Metal 格式 65 定义为 `RG16Float`，CoreVideo 的对应格式为 `TwoComponent16Half`（`2C0h`），每像素包含两个小端 half 分量，共 4 字节。AIR 后端已有 `PIPE_FORMAT_R16G16_FLOAT` 和对应纹理布局；`annibaledrawable.m` 的格式表缺少 65，导致 IOSurface 导入提前返回空值。
+
+内核仓提交 `84371e30` 增加 65 → `2C0h`／4 字节映射，并在格式或几何不匹配的日志中记录实际 FourCC、行距、偏移和纹理尺寸。该改动沿用已有导入路径，未改变 IOSurface 原始字节或格式 94。
+
+- 完整生产文件的宿主测试覆盖 17×5 尺寸、隐式／显式单平面、128／256 字节行距和 0／128 字节偏移。8 组 half 字节与布局检查、拒绝场景和 ASan／UBSan 检查通过；旧代码未通过新增用例。
+- 独立构建冻结 30 项输入。旧源码重建的 dylib 与 bundle executable 均与原产物逐字节一致；候选仅更换 `annibaledrawable.m`，arm64e 编译与 Mach-O 签名检查通过。
+- 独立 GPU 探针使用相同尺寸、行距和偏移，分别执行整数坐标读取与最近邻采样，再写回两个 half 分量。原生 Metal 的 8 组逐像素检查通过；将 shader 加数改错后，8 组均失败。行内 padding 单独统计；allocation 内的 prefix／suffix 按哨兵检查。
+- 真机 A830 的 8 组读取／采样写回全部通过，逐像素错误为零，allocation 内的 prefix、行内 padding 和 suffix 均未变化。该探针覆盖单个隐式平面中的有限 half 数值，未验证 allocation 之外的访问。
+
+候选 dylib SHA-256 为 `2694ad11ce74fdab8e5510809e9076c40f302c4f39b08d63f8538798cf2678da`，UUID 为 `C3285B36-66AC-3601-8E9E-AE38DF879068`；bundle executable SHA-256 为 `000271e32cfbfcea65fa90a1da58132c2ab0b6d6a14067348d7ff219945d3b39`，UUID 为 `BE308971-4917-30CC-AFC4-7EDFA9B71C9F`。构建与探针记录保存在本地 `codex-1112-rg16-metal/`、`codex-1112-rg16-isolated/` 和 `codex-1112-rg16-probe/`。
+
+RAM 验证运行 195.100 秒，最高 CPU 采样温度为 77.1°C；随后完整镜像刷入并正常重启，验证运行 195.039 秒，最高采样温度为 75.2°C。两轮均完成 18 项探针，RG16 的 8 组逐像素检查、SLM 两项管线与反射、NV12／P010 共 12 组色值检查通过。实际加载的新 Metal 与固定 minmax AIR 身份一致；两轮收尾均确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+- 相机实际导入了 `2C0h`，包括 380×380／1536 字节行距和 256×380／1024 字节行距。原 `MPSImageAreaMin` 空输入断言已消失，后续 `MaxFilter2HRadiusAboveLogCutoff` 管线创建与 GPU 命令完成。
+- 当前相机因 `-[AnnibaleMetalHeap protectionOptions]` 未实现而抛出 `NSInvalidArgumentException`。另有进程内存包装 surface 的描述请求返回 `0xe00002c7`；132 像素宽、544 字节行距的纹理不满足 64 字节直接绑定要求，现有实现使用复制路径。这些路径的完整结果仍需分别验证。
+- 两轮均使用底部中央上滑。RAM 轮的后续截图仍显示控制中心；刷入轮在主机命令返回后 3.496／4.447 秒的截图已显示桌面，天气与日历大组件仍空白。事件注入完成与界面完成分开记录，尚未确定稳定的交互计时终点。
+- 已刷镜像 SHA-256：`8724cde9648c8fd48ba2ff6de4239d45e03d21a5bec9786fb2ee9996e31b7ec7`；辅助盘 SHA-256：`0617b7f4b989c1111814b7600ebe9f33c1f7b9829041206f12c3beb11a7bbc56`。内核、AIR、loader 和启动参数均保持第 23 节版本。
+- 校验覆盖 APFS 逐路径差异、镜像容器、AVB、写入应答、正常重启与运行身份；没有读取物理 `boot_a` 全分区校验哈希。原始记录为本地 `kernel-12377-codex-1112-cd14-rg16-metal/run/` 与 `codex-device-1111/standalone-rg16-deploy/flashed-boot/`。
+
+Core Image 的 `ci_affine_crop` 仍需单独实现 stitched compute。原生日志中的图包含 6 个节点、5 个函数和空输出，其中 `MTLFunctionStitchingEarlyReturnNode` 根据 `_ci_early_out` 的结果提前返回；后续节点依赖这次检查，最后执行 `_ci_write_pixel`。Apple 的 `outputNode` 接口允许空值，函数节点的 `controlDependencies` 规定副作用的执行顺序，见 [outputNode](https://developer.apple.com/documentation/metal/mtlfunctionstitchinggraph/outputnode) 与 [函数节点](https://developer.apple.com/documentation/metal/mtlfunctionstitchingfunctionnode)。
+
+- iOS 26 Metal 的原生类元数据确认：纹理和采样器输入使用 `bindIndex`；buffer address 输入另有 `byteOffset`、`dereference`。这些类继承 `NSObject`，现有转换器只识别 `argumentIndex` 和函数节点引用，尚未覆盖这些输入。
+- `pipelineForFunction:descriptor:error:` 要求函数提供 `bitcodeData`，随后直接调用 `mesa.compute_create`；当前入口没有接收计算图或生成对应的计算参数反射。
+- 修复需同时保留资源绑定、条件提前返回、节点依赖与写纹理行为。现有日志深度未记录各输入的具体绑定索引和偏移，后续需结合原生调用与有界诊断补齐。静态记录位于本地 `codex-1112-ci-stitch/`。
