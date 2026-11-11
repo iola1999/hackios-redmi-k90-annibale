@@ -61,14 +61,14 @@ def stalls(text, threshold_s=5.0):
 
 def restarts(text):
     """帧号回退说明计数被清零过，只在那一类重起上有效。"""
-    seen = []
+    resets = []
+    previous = None
     for match in re.finditer(r'^tl: s (\d+) backboardd at (\d+)$', text, re.M):
         number, when = int(match.group(1)), int(match.group(2)) / 1e6
-        if seen and number < seen[-1][1]:
-            seen.append((when, number))
-        elif not seen:
-            seen.append((when, number))
-    return [when for when, _ in seen][1:]
+        if previous is not None and number < previous:
+            resets.append(when)
+        previous = number
+    return resets
 
 
 def report(base):
