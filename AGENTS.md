@@ -50,7 +50,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - **A 槽重试预算与 GPT GUID 相位。** `xnuloader` 启动时会自动维护自身槽位的重试计数与 `_a`／`_b` 分区 `PartitionTypeGUID` 相位；主机侧起轮前仍需检查 `slot-retry-count:a`（低于 3 先 `set_active a`），切槽时确保 LUN 4 与 LUN 0 的活动槽位持有各自的 `PartitionTypeGUID`（非活动槽位为 `77036cd4-...`），防止触发高通 LK `ValidateSlotGuids` 校验失败。
 - **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再起下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。
-- **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。
+- **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。执行 `fastboot -s xnuloader oem "sh ..."` 时单条命令正文不得超过 119 字节（优先使用 `tools/k90auto/rsh.py`），严禁发送超过 511 字节的 Fastboot 命令以免触发 DWC3 `CompleteError` 导致 `usb_out_lost = 1` 端点隔离（见[USB 恢复与减少人工按键的调试经验 §6.6](docs/analysis/2026-10-25-usb-recovery-lessons.md#66-oem-sh-超长命令导致-usb_ep_out-端点永久隔离与五指退回黑盒陷阱)）。
 - **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需使用 `idalib-mcp` 的 `idb_open`／`decompile`／`analyze_function`）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
 
 ## 6. 根因定位与原生对齐约定（必须遵守）

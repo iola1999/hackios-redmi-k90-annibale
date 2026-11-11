@@ -100,6 +100,10 @@ BT_FW = BT_FW_MODE != "0"
 BT_FW_FILES = (BT_FW_USED if BT_FW_MODE in ("used", "1") and all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else
                sorted(p.name for p in BT_FW_DIR.glob("hmt*")) if BT_FW else [])
 assert not BT_FW or BT_FW_FILES, f"BT_FW={BT_FW_MODE}, but {BT_FW_DIR} has no hmt* files (tools/mk-fw-bt.py extract)"
+IRIS_FW_DIR = WORKSPACE / "out/fw-iris" if (WORKSPACE / "out/fw-iris").is_dir() else WORKSPACE / "fw-iris"
+IRIS_FW_FILE = "vpu35_4v.mbn"
+IRIS_FW = os.environ.get("IRIS_FW", "1" if (IRIS_FW_DIR / IRIS_FW_FILE).is_file() else "0") == "1"
+assert not IRIS_FW or (IRIS_FW_DIR / IRIS_FW_FILE).is_file(), f"IRIS_FW=1, but {IRIS_FW_DIR / IRIS_FW_FILE} is missing"
 # configd gives an interface a network service (DHCP and the rest) at the first boot of a data volume;
 # for one that appears later, InterfaceNamer adds a service only when its control preference
 # ConfigureNewInterfaces is set (configd's ifnamer.c: on iOS it "normally" configures no interface after
@@ -148,6 +152,7 @@ INJECT = (
     ("/annibale/lib/libannibale.dylib backboardd\n" if TOUCH_LAT else "") +
     "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences lsd wifid\n"
     "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd\n"
+    "/annibale/lib/libannibale-vt.dylib videocodecd mediaserverd com.apple.WebKit.GPU video_decode_test video_player_test\n"
     "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
     ("/annibale/lib/libannibale-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
@@ -387,6 +392,17 @@ MEDIA_SOURCES = ["userland/src/inject/inject_media.c", "userland/src/services/ca
                  "userland/src/services/camera_isp.c"]
 MEDIA_FLAGS = ["-O2", "-framework", "CoreFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo",
                "-framework", "IOSurface"]
+VT_SOURCES = ["userland/src/inject/videotoolbox_iris.c"]
+VT_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-Wno-four-char-constants", "-framework", "CoreFoundation",
+            "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "VideoToolbox", "-framework", "IOSurface"]
+BUNDLE_FLAGS = ["-bundle", *DRIVER_FLAGS]
+VDEC_TEST_SOURCES = ["userland/src/tests/video_decode_test.m"]
+VDEC_TEST_FLAGS = ["-O1", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation",
+                   "-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo",
+                   "-framework", "VideoToolbox"]
+VPLAY_TEST_SOURCES = ["userland/src/tests/video_player_test.m"]
+VPLAY_TEST_FLAGS = ["-O1", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation",
+                    "-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo"]
 APP_SOURCES = ["userland/src/inject/inject_app.c"]
 APP_FLAGS = ["-O1", "-fblocks"]
 
@@ -484,7 +500,8 @@ def records(path):
 def build(sources, install_name, flags, out, dynamic=True):
     """One arm64e library (or one program, dynamic=False) from the current source, signed as build.sh signs one."""
     kind = ["-dynamiclib", "-install_name", install_name] if dynamic else []
-    command = SDK + flags + ["-fno-objc-arc", *kind, *sources, "-lobjc", "-o", str(out)]
+    arc = [] if "-fobjc-arc" in flags else ["-fno-objc-arc"]
+    command = SDK + flags + [*arc, *kind, *sources, "-lobjc", "-o", str(out)]
     with out.with_suffix(".build.log").open("w") as log:
         log.write(" ".join(command) + "\n")
         subprocess.run(command, stdout=log, stderr=log, check=True, cwd=SRC_ROOT)
@@ -669,10 +686,14 @@ def main():
 
     shim = OUT / "libannibale-sbmetal-experiment.dylib"
     driver = OUT / "libannibalemetal.dylib"
+    driver_bundle = OUT / "AnnibaleMetal"
     air = OUT / "libannibaleair.dylib"
     sb26 = OUT / "libannibale-sb26.dylib"
     userland = OUT / "libannibale.dylib"
     media = OUT / "libannibale-media.dylib"
+    vt = OUT / "libannibale-vt.dylib"
+    vdec_test = OUT / "video_decode_test"
+    vplay_test = OUT / "video_player_test"
     app = OUT / "libannibale-app.dylib"
     assert air.is_file(), (f"{air} is missing; tools/k90auto/build-air.py writes it and signs it, "
                            "and ninja alone does not")
@@ -689,9 +710,13 @@ def main():
                               SHIM_FLAGS, shim),
                 "driver": build(DRIVER_SOURCES, "/annibale/lib/libannibalemetal.dylib",
                                 DRIVER_FLAGS, driver),
+                "driver_bundle": build(DRIVER_SOURCES, "", BUNDLE_FLAGS, driver_bundle, dynamic=False),
                 "sb26": build(SB26_SOURCES, "/annibale/lib/libannibale-sb26.dylib", SB26_FLAGS, sb26),
                 "userland": build(USERLAND_SOURCES, "/annibale/lib/libannibale.dylib", USERLAND_FLAGS, userland),
                 "media": build(MEDIA_SOURCES, "/annibale/lib/libannibale-media.dylib", MEDIA_FLAGS, media),
+                "vt": build(VT_SOURCES, "/annibale/lib/libannibale-vt.dylib", VT_FLAGS, vt),
+                "video_decode_test": build(VDEC_TEST_SOURCES, "", VDEC_TEST_FLAGS, vdec_test, dynamic=False),
+                "video_player_test": build(VPLAY_TEST_SOURCES, "", VPLAY_TEST_FLAGS, vplay_test, dynamic=False),
                 "app": build(APP_SOURCES, "/annibale/lib/libannibale-app.dylib", APP_FLAGS, app)}
     xpcwatch = OUT / "libannibale-xpcwatch.dylib"
     if XPCWATCH_PROCESSES:
@@ -731,7 +756,11 @@ def main():
                             "userland/src/tests/torch_test.c",
                             "userland/src/tests/sound_test.c",
                             "userland/src/tests/record_test.c",
+                            *VT_SOURCES,
+                            *VDEC_TEST_SOURCES,
+                            *VPLAY_TEST_SOURCES,
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
+                            "tools/mesa/air/air_metal_yuv.h", "tools/mesa/air/air_metal_yuv.inc",
                             *(PROBE_SOURCES if PROBE else [])]}
     # The probe goes first, not last. init runs a job file one line at a time and waits for each, so a
     # probe line appended after a few minutes of gestures only starts when the gestures are over: on
@@ -795,6 +824,8 @@ def main():
             f"directory and the round cannot test anything that needs it")
     shutil.copy2(shim, dest / "lib/libannibale-sbmetal-experiment.dylib")
     shutil.copy2(driver, dest / "lib/libannibalemetal.dylib")
+    (dest / "lib/AnnibaleMetal.bundle").mkdir(exist_ok=True)
+    shutil.copy2(driver_bundle, dest / "lib/AnnibaleMetal.bundle/AnnibaleMetal")
     # What lands in the image has to be the library that was just built: on 2026-10-29 a pack left
     # 9d66dd36… in the root while the staging copy was d296b5a4…, and nothing noticed.
     assert sha(dest / "lib/libannibalemetal.dylib") == sha(driver), \
@@ -812,6 +843,9 @@ def main():
         shutil.copy2(WORKSPACE / "ios26/rootfs/usr/sbin/bluetoothd", dest / "bin/bluetoothd")
     shutil.copy2(userland, dest / "lib/libannibale.dylib")
     shutil.copy2(media, dest / "lib/libannibale-media.dylib")
+    shutil.copy2(vt, dest / "lib/libannibale-vt.dylib")
+    shutil.copy2(vdec_test, dest / "bin/video_decode_test")
+    shutil.copy2(vplay_test, dest / "bin/video_player_test")
     shutil.copy2(app, dest / "lib/libannibale-app.dylib")
     assert sha(dest / "lib/libannibale.dylib") == sha(userland), \
         "libannibale.dylib in the image is not the one this pack built"
@@ -858,19 +892,23 @@ def main():
     assert not missing, f"the AIR library does not hold {missing}; check build-air.py --check"
     for name, present in record.get("holds", {}).items():
         assert present or name not in AIR_REQUIRED, f"build-air.py recorded {name} as absent"
-    assert len(INJECT.rstrip("\n ").encode()) < 2047, f"etc/inject.conf is {len(INJECT)} bytes, over 2046"
+    assert len(INJECT.rstrip("\n ").encode()) < 4095, f"etc/inject.conf is {len(INJECT)} bytes, over 4094"
     (dest / "etc/inject.conf").write_text(INJECT)
     for ext_name, settings in EXT_ENV.items():
         (dest / "etc/env").mkdir(exist_ok=True)
         (dest / "etc/env" / ext_name).write_text("".join(s + "\n" for s in settings))
     if PROBE:
         shutil.copy2(probe, dest / "bin/lsprobe")
+    if WIFI_FW or BT_FW or IRIS_FW:
+        (dest / "fw").mkdir(exist_ok=True)
     for name in WIFI_FW_FILES if WIFI_FW else []:
         shutil.copy2(WIFI_FW_DIR / name, dest / "fw" / name)
     if WIFI_FW:
         (dest / "fw" / WIFI_CONTROL).write_bytes(WIFI_CONTROL_PLIST)
     for name in BT_FW_FILES:
         shutil.copy2(BT_FW_DIR / name, dest / "fw" / name)
+    if IRIS_FW:
+        shutil.copy2(IRIS_FW_DIR / IRIS_FW_FILE, dest / "fw" / IRIS_FW_FILE)
     # the desktop's own gesture script in place of build.sh's etc/rc.jobs: an acceptance run needs
     # the eight rounds the harness measures. The probe's line ends with "&": init runs the lines of rc.jobs
     # one after another and would otherwise hold the gestures for the probe's last offset.
@@ -912,11 +950,15 @@ def main():
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
              | ({"/bin/lsprobe"} if PROBE and "/bin/lsprobe" not in before else set())
              | ({"/bin/bluetool", "/bin/bluetoothd"} - set(before) if BLUETOOTH else set())
-             | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} if WIFI_FW else set())
-             | {"/fw/" + name for name in BT_FW_FILES}
+             | ({"/bin/video_decode_test", "/bin/video_player_test"} - set(before))
+             | ({"/fw"} - set(before) if (WIFI_FW or BT_FW or IRIS_FW) else set())
+             | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} - set(before) if WIFI_FW else set())
+             | ({"/fw/" + name for name in BT_FW_FILES} - set(before))
+             | ({"/fw/" + IRIS_FW_FILE} - set(before) if IRIS_FW else set())
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/lib/libannibale-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
              | ({"/lib/libannibale-ax.dylib"} if AX_PROCESSES else set())
+             | ({"/lib/libannibale-vt.dylib"} - set(before))
              | {"/LaunchDaemons/" + name for name in rest_added}
              | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set())
              # build.sh stages the AIR library only when build-air.py had already written it
@@ -929,8 +971,10 @@ def main():
     for name in added:
         changes[name] = {"sha256": [None, after[name]["sha256"]]}
     expected = {"/lib/libannibale-sbmetal-experiment.dylib", "/lib/libannibalemetal.dylib",
+                "/lib/AnnibaleMetal.bundle/AnnibaleMetal",
                 "/lib/libannibaleair.dylib", "/lib/libannibale.dylib", "/lib/libannibale-sb26.dylib",
-                "/lib/libannibale-media.dylib", "/lib/libannibale-app.dylib",
+                "/lib/libannibale-media.dylib", "/lib/libannibale-vt.dylib", "/lib/libannibale-app.dylib",
+                "/bin/video_decode_test", "/bin/video_player_test",
                 *(["/lib", "/lib/libannibale-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-ax.dylib"] if AX_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),
@@ -949,6 +993,7 @@ def main():
                 *(["/bin/lsprobe"] if PROBE else []),
                 *(["/fw", *("/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL])] if WIFI_FW else []),
                 *(["/fw", *("/fw/" + name for name in BT_FW_FILES)] if BT_FW else []),
+                *(["/fw", "/fw/" + IRIS_FW_FILE] if IRIS_FW else []),
                 # the two jobs below change this directory's own times as well
                 "/LaunchDaemons", *["/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP],
                 *["/LaunchDaemons/" + name for name in rest_added],

@@ -49,9 +49,8 @@ PATH="$(brew --prefix llvm)/bin:$PATH" UEFI_TARGET=annibale FD_BASE=0xA7100000 F
 - 若构建免连电脑独立启动的双系统引导镜像（`out/boot-a-ios.img`，内含已链接 `ath12k.o` 的内核与合并了 `out/fw-wifi` 固件的 `root.apfs`），先在顶层工作区执行 `python3 tools/k90auto/package.py`，再在 `hackios-xnu-kernel/` 下执行：
 
 ```sh
-python3 xnuloader/mkstandalone.py -o out/standalone-payload.bin
-python3 xnuloader/mkpayload.py -o out/standalone-loader-payload.bin loader.efi=xnuloader/loader-phone.efi payload.lz4=out/standalone-payload.bin.lz4 --identity v57 --usb
-python3 tools/reseal-loader-img.py out/handoff-loader-v19.img out/standalone-loader-payload.bin -o out/boot-a-ios.img
+python3 xnuloader/mkstandalone.py -k out/xnu12377-s1110-v6.bin -r out/ios26-resume/bbmetal-device/root.apfs -o out/standalone-payload.bin --no-lz4
+python3 tools/reseal-loader-img.py out/handoff-loader-v19.img out/standalone-payload.bin -o out/boot-a-ios.img
 ```
 
 装进手机的方法见[真机调试手册](../plan/device-test-playbook.md)。

@@ -107,8 +107,18 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 - 根因分析：旧版 `efi_main()` 在启动菜单结束后才调用 `usb_start()`，macOS 主机完成 USB 枚举需约 1.8 秒，而 `rdfile_load()`（1.41 秒）加 `EARLY_BOOT`（45 毫秒）合计仅 1.46 秒；等主机枚举出 `xnuloader` 时内核已进入 `adreno8_init()`，错过 `EARLY_BOOT` 末尾 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) `loader_stop_poll_init` 的干净退回窗口。内核进入 `adreno8_init()` 或 `hung-held` 后，`lc_cmd_denied()` 又会拒绝 `download:`、`oem flash_boot` 和 `oem android`。
 - 四层恢复与屏幕故障提示实现（[`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc)、[`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc)）：
-  1. **启动菜单前置 USB 与远程打断**：`efi_main()` 在 `ui_boot_menu()` 之前调用 `usb_start()`，菜单倒计时设为 5 秒并在循环内轮询 `usb_poll_command()`；主机在倒计时期间发送 `fastboot -s xnuloader oem recovery` 可立即打断自动引导并进入 `[3] FASTBOOT USB DIAGNOSTICS`。
-  2. **全状态单次强制恢复命令 `oem recovery`**：`fb_command()` 在 `lc_cmd_denied()` 之前响应 `oem recovery`（调用 `slot_unlock_held_recovery()`），在 `annibale`（`skip_ufs_arbitration = 1`）上置 `other_cpu_done = 1` 并调用 `clean_dcache()` 刷至 PoC，清零 `active_watch`／`kernel_resources_held`／`firmware_fault`；当 `running_live != NULL` 时置 `recovery_pending_after_return = 1`，待 `run_kernel()` 退出后再恢复 UEFI 中断掩码（`held_group1`、`held_daif`）。无论设备处于菜单、内核运行态还是 `hung-held` 态，单次执行 `fastboot -s xnuloader oem recovery` 即可回到 `result=idle` 并刷写新镜像。
-  3. **独立引导异常退回自动解锁与红屏 Panic 横幅（`boot_fallback_enter()`、`ui_draw_fault_banner()`）**：`run_kernel(0, 0)` 因 panic、同步异常或 50 秒心跳超时返回 `efi_main()` 时，自动调用 `boot_fallback_enter()` 解除 `held` 锁（保留 `out_buf` 中的完整内核日志供 `oem log` 拉取），同时由 `ui_draw_fault_banner()` 向 `0xfc800000` 与 `0xfd400000` 双显示缓冲绘制红底白字 `KERNEL FAULT / HUNG - FASTBOOT RECOVERY` 横幅、故障状态、最后一条 `panic` 行和末尾 14 行内核日志，直观区分「仍在启动」与「已崩溃／卡死」。
-  4. **120 秒无主机自动回退 Android（`boot_fallback_check()`）**：进入 `BOOT FALLBACK` 后若 120 秒内没有收到主机 USB 命令，`usb_command_loop()` 自动调用 `slot_set_active_other()` 切换活动槽到 B 槽（Android）并重启，防止脱离电脑时发生看门狗无限重启循环。
+  1. **启动菜单前置 USB 与显式打断**：`efi_main()` 在 `ui_boot_menu()` 之前调用 `usb_start()`，菜单倒计时设为 5 秒并在循环内轮询 `usb_poll_command()`；常规只读查询（如 `getvar`）不阻断 5 秒自动引导，仅显式发送 `fastboot -s xnuloader oem recovery` 时打断自动引导并进入 `[3] FASTBOOT USB DIAGNOSTICS`。
+  2. **全状态单次强制恢复命令 `oem recovery`**：`fb_command()` 在 `lc_cmd_denied()` 之前响应 `oem recovery`（调用 `menu_enter_fastboot()`），在菜单倒计时期间进入 Fastboot 诊断循环。
+  3. **独立引导异常退回自动解锁与红屏 Panic 横幅（`boot_fallback_enter()`、`ui_draw_fault_banner()`）**：`run_kernel(0, 0)` 因 panic、同步异常、五指长按退回或 50 秒心跳超时返回 `efi_main()` 时，自动调用 `boot_fallback_enter()` 置 `UI.ready = 1` 并由 `ui_draw_fault_banner()` 与 `ui_flush_splash_fb()` 向 `0xfc800000` 及 `0xfd400000` 双显示缓冲绘制红底白字 `KERNEL FAULT / HUNG - FASTBOOT RECOVERY` 横幅、故障状态、最后一条 `panic` 行和末尾 14 行内核日志，并对两个缓冲执行 `clean_dcache()`，直观区分「仍在启动」与「已退回／崩溃」。
+  4. **120 秒无主机自动冷复位与 USB 端点隔离自愈（`boot_fallback_check()`）**：进入 `BOOT FALLBACK` 后若发现 `usb_out_lost` 或 `usb_in_lost`（USB 端点因超长包等原因在本次启动周期内被隔离），立即调用 `reboot()` 冷复位恢复 USB 链路；若 120 秒内未收到主机 USB 命令，`boot_fallback_check()` 自动调用 `reboot()` 重启，防止停留在退回画面。
+
+### 6.6 `oem sh` 超长命令导致 `USB_EP_OUT` 端点永久隔离与五指退回黑盒陷阱
+
+- 现象：iOS 26 在 Core 1..7 上交互正常，但主机执行 `fastboot -s xnuloader getvar product` 或 `getvar result` 全部超时无应答；此时在屏幕五指长按 1.5 秒触发 `exit_hold_elapsed()` 退回 `xnuloader`，旧版镜像画面冻结在最后一帧 iOS 桌面且不自动重启。
+- 根因：
+  1. [`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `usb_poll_command()` 向 DWC3 提交的 Bulk OUT 接收缓冲长度为 511 字节（`USB->send(USB_EP_OUT, 511, usb_rx_buf)`），且 `oem_shell()` 限制命令长度不超过 119 字节（`sizeof(live->cmd) - 1`）。主机发送超过 511 字节的 `fastboot oem "sh ..."` 命令时，DWC3 返回 `UsbDeviceTransferStatusCompleteError`，`usb_notification()` 调用 `usb_stop_endpoint(1, ...)` 将 `usb_out_lost` 置为 1。在本次启动周期内 Core 0 不再投递 `USB_EP_OUT` 接收 TRB，而 Core 1..7 上的 iOS 26 仍独立运行并持续通过 `wdt_pet()` 刷新 `host_last_cmd`。
+  2. 五指长按 1.5 秒触发 `loader_return()` 后，所有 iOS 核心关闭，最后一帧画面留在 `0xfc800000`；旧版 `boot_fallback_enter()` 未置 `UI.ready = 1` 且未对 `0xfc800000` 执行 `clean_dcache()`，同时 `boot_fallback_check()` 每 120 秒重置 `host_last_cmd`，在 `usb_out_lost == 1` 下无法接收主机命令也无法触发看门狗复位。
+- 约束与修复：
+  1. 主机侧调用 `fastboot -s xnuloader oem "sh ..."` 时，单条命令总长必须控制在 119 字节以内（优先使用 `tools/k90auto/rsh.py`，其在发送前强制校验 `len(text) <= 119`），严禁发送超过 511 字节的 Fastboot 命令。
+  2. `boot_fallback_enter()` 显式置 `UI.ready = 1` 并通过 `ui_flush_splash_fb()` 同步刷新 `0xfc800000` 与 `0xfd400000` 的数据缓存；`usb_command_loop()` 在 `boot_fallback_active && (usb_out_lost || usb_in_lost)` 时立即调用 `reboot()` 冷复位恢复 USB 端点。
 
