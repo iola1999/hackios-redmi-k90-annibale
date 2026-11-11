@@ -132,8 +132,8 @@ XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
 # which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
 # userland/src/statusbar26.m: the status bar's time and battery 12 points closer to the screen edges.
 # Each application lays out its own status bar, so one not named here keeps iOS's place
-# (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to the kernel's 512-byte
-# kern.exec_inject, which refuses a longer string whole (checked below).
+# (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to kern.exec_inject;
+# the size check below follows the kernel buffer limit.
 AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail "
                               "MobileCal Files").split()
 # MercuryPosterExtension, the provider of the default wallpaper, gets the Metal device unless

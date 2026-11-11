@@ -28,7 +28,7 @@ WIDE_PUNCT = re.compile(
     r"[\u2014\u2018\u2019\u201c\u201d\u2026\u2e80-\u303f\uff01-\uff5d\u3001-\u3011]"
 )
 OPEN_PUNCT = "（(“「『【《〈"
-FENCE = re.compile(r"^(\s*)(```|~~~)")
+FENCE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 HEADING = re.compile(r"^#{1,6}\s")
 TABLE = re.compile(r"^\s*\|")
 BULLET = re.compile(r"^\s*([-*+])\s+")
@@ -59,21 +59,30 @@ def join(prev: str, nxt: str) -> str:
 class Unwrapper:
     def __init__(self):
         self.out: list[str] = []
-        self.in_fence = False
+        self.fence = None
 
     def emit(self, line: str):
-        self.out.append(line.rstrip())
+        self.out.append(line)
 
     def feed(self, lines: list[str]) -> list[str]:
         i, n = 0, len(lines)
         while i < n:
             line = lines[i]
-            if FENCE.match(line):
-                self.in_fence = not self.in_fence
+            fence = FENCE.match(line)
+            if self.fence is not None:
+                if fence and fence[2][0] == self.fence[0] \
+                        and len(fence[2]) >= len(self.fence) \
+                        and not fence[3].strip():
+                    self.fence = None
                 self.emit(line)
                 i += 1
                 continue
-            if self.in_fence or not line.strip():
+            if fence:
+                self.fence = fence[2]
+                self.emit(line)
+                i += 1
+                continue
+            if not line.strip():
                 self.emit(line)
                 i += 1
                 continue
@@ -93,7 +102,6 @@ class Unwrapper:
                 nxt = lines[i]
                 if (
                     not nxt.strip()
-                    or self.in_fence
                     or FENCE.match(nxt)
                     or HEADING.match(nxt)
                     or TABLE.match(nxt)
@@ -125,7 +133,7 @@ class Unwrapper:
     def _append_continuation(self, cont: str):
         if self._pending_break:
             self.emit(self._buf + "  ")
-            self._buf = cont.strip()
+            self._buf = cont.rstrip()
             self._pending_break = cont.endswith("  ")
         else:
             self._buf = join(self._buf, cont)
@@ -149,18 +157,7 @@ class Unwrapper:
         return block, i
 
     def _unwrap_quote(self, block):
-        paras: list[str] = []
-        for inner in block:
-            if not inner.strip():
-                paras.append("")
-                continue
-            if paras and paras[-1] != "" and not HEADING.match(inner) \
-                    and not TABLE.match(inner) and not BULLET.match(inner) \
-                    and not ORDERED.match(inner) and not HRULE.match(inner):
-                paras[-1] = join(paras[-1], inner)
-            else:
-                paras.append(inner.rstrip())
-        return ["> " + p if p else ">" for p in paras]
+        return ["> " + line if line else ">" for line in Unwrapper().feed(block)]
 
 
 def main():

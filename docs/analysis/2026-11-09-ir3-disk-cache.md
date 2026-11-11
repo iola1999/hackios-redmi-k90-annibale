@@ -24,7 +24,10 @@
 核对 `struct ir3_shader_variant` 序列化与 `sc1.log`／`sc2.log` 时间线后，定位到三处独立原因：
 
 1. **`ir3_shader_variant` 序列化完整性核对**：检查 `ir3_shader.h`、`ir3_disk_cache.c`、`ir3_gallium.c`、`fd6_program.cc` 与 `fd6_compute.cc`。`VARIANT_CACHE_START`（`offsetof(struct ir3_shader_variant, info)`）之后的全部变体字段及 `v->bin`、`v->const_state`、`v->imm_state` 均完整序列化并在命中时恢复；`VARIANT_CACHE_START` 之前的链表指针、着色器 stage 与 `bo` 由 `alloc_variant()` 和 `upload_shader_variant()` 重新初始化，不存在未序列化的机器码或寄存器状态。
-2. **`sc2.log` 第二次开机黑屏的真实原因**：`sc2.log` 中 `SpringBoard` 在 `06:28:32.849` 进入锁屏，满 30 秒无触摸后锁屏自动熄屏定时器在 `06:29:06.848` 触发（`reason: SB + pocketTouches + backlight-off; displayState: off; digitizerEnabled: NO`）。200 ms 后（`06:29:07.035`）宿主发送 `com.annibale.unlock`，`inject_sb26.c` 的 `unlock_once()` 在屏幕处于 `backlight-off` 状态下直接调用 `-[SBLockScreenManager unlockUIFromSource:withOptions:]`，返回 `answer=0 locked_after=1` 解锁失败，`06:29:08.272` `backboardd` 清空显示层（`surfaces in layers 0x0 now (0x1 before)`）并关闭触摸，导致后续画面全黑。
+2. **`sc2.log` 第二次开机黑屏的真实原因**：`sc2.log` 中 `SpringBoard` 在 `06:28:32.849` 进入锁屏，满 30 秒无触摸后锁屏自动熄屏定时器在 `06:29:06.848` 触发（`reason: SB + pocketTouches + backlight-off; displayState: off; digitizerEnabled: NO`）。
+
+   - 200 ms 后（`06:29:07.035`）宿主发送 `com.annibale.unlock`，`inject_sb26.c` 的 `unlock_once()` 在屏幕处于 `backlight-off` 状态下直接调用 `-[SBLockScreenManager unlockUIFromSource:withOptions:]`，返回 `answer=0 locked_after=1` 解锁失败。
+   - `06:29:08.272` `backboardd` 清空显示层（`surfaces in layers 0x0 now (0x1 before)`）并关闭触摸，导致后续画面全黑。
 3. **`iconservicesagent` 跨进程缓存未命中的原因**：Mesa `src/util/disk_cache_os.c` 默认以 `mkdir(path, 0700)` 创建 `mesa_shader_cache` 及两字符子目录，并以 `open(..., O_RDWR, 0644)` 创建 `index` 与 `marker`。`backboardd`（`uid 501`）率先建出 `0700` 目录后，`iconservicesagent`（`uid 254`，`_iconservices`）访问该目录和 `O_RDWR` 打开 `index` 时因 `EACCES` 失败，`cache->path_init_failed` 置 `true`，导致 `iconservicesagent` 全程无法读写磁盘缓存。
 
 ## 4. 修复措施

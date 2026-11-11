@@ -51,10 +51,12 @@ fastboot -s "${ANDROID_SERIAL}" reboot
 ## 4. 陷阱（均为实测）
 
 1. LK `fastboot boot <handoff payload>` 无法拉起 loader。2026-10-28 两次实测命令都答 `Booting OKAY`，之后 80 与 90 秒内 `xnuloader` 从未枚举，`result`／`build-id`／`ramdisk-state` 都答 `GetVar Variable not found`。命令答 OKAY 不能说明 loader 已驻留，判别只看 `fastboot devices` 与这三个变量。
-   - 完整的 loader 镜像（BootShim、FD、XNUP、DTB，例如 `hackios-xnu-kernel/out/handoff-loader-v17.img`）可以 `fastboot boot`：2026-10-31 实测 18 秒后 `xnuloader` 枚举，不刷 `boot_a`，也不扣 `slot-retry-count:a`，见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md) §5。本地有 v16 镜像时，`cycle.py` 的检查点就用这条路起 v16。
+   - 完整的 loader 镜像（BootShim、FD、XNUP、DTB）可以 `fastboot boot`：2026-10-31 实测 18 秒后 `xnuloader` 枚举，不刷 `boot_a`，也不扣 `slot-retry-count:a`，见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md) §5。`cycle.py` 的检查点经 `recover-loader.py` 读取 `LOADER_IMAGE`，设置该变量时临时启动指定的完整镜像，未设置时重启进入 A 槽镜像，参数见[真机调试手册 §1](device-test-playbook.md#1-槽位假设与当前启动方式)。
 2. 对未枚举的序列号发 `fastboot -s xnuloader getvar …` 会挂住。该客户端进入 `< waiting for xnuloader>` 并可能成为后台作业，与其它 fastboot 客户端并发时会把 USB 命令通道卡住。枚举一律用 `fastboot devices`。
 3. LK 的 `reboot` 在目标槽被标为不可引导时无效。实测 `slot-unbootable:b=yes` 时 `reboot` 答 `OKAY` 而设备仍停在 LK；`set_active b` 会清掉这个标志（读回 `slot-unbootable:b=no`），`set_active a` 同样清 A 槽。判断是否真的复位看 USB 是否断开：`ioreg` 250 毫秒采样能看到设备消失再重现，只看命令返回值判断不出来。
-4. `slot-retry-count:a` 每跑一轮扣 2 次，约三轮后归 0，LK 随即把 A 槽标成不可引导并回退 B 槽 Android。经 loader 起 iOS 不写成功引导记录，`slot-successful:a` 始终是 `no`，计数器一路递减，与 panic 无关。`set_active a` 把计数重置为 7 并把 `slot-unbootable:a` 清回 `no`。起轮前先读 `slot-retry-count:a`，低于 3 时执行 `set_active a`。`cycle.py` 每 2 轮经 `reboot-lk.py` 进 LK 做一次 `set_active a` 并读回 7；`round-run.py` 只在设备处于 LK 时读这个计数，低于 3 时重置。
+4. 早期 loader 的 `slot-retry-count:a` 每跑一轮扣 2 次，约三轮后归 0，LK 随即把 A 槽标成不可引导并回退 B 槽 Android。该版本经 loader 起 iOS 不写成功引导记录，`slot-successful:a` 始终是 `no`，计数器一路递减，与 panic 无关。`set_active a` 把计数重置为 7 并把 `slot-unbootable:a` 清回 `no`。
+   - 当前起轮前由 [`cycle.py`](../../tools/k90auto/cycle.py) 的 `slot_preflight()` 读取重试次数，低于 3 时经 `reboot-lk.py` 和 `recover-loader.py` 进入 LK，执行 `set_active a` 并读回 7；`round-run.py` 只在设备处于 LK 时读这个计数，低于 3 时重置。
+   - 显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1` 也会执行检查点，需要 `ANDROID_SERIAL`。手工操作先读取实际重试次数，低于 3 时在 LK 执行 `set_active a`。
 5. 安卓侧点屏不能用 `input keyevent`。adb shell 缺 `INJECT_EVENTS`，会抛 `SecurityException`；用 `svc power stayon usb` 能把屏幕点亮。`screencap` 全黑先看 `mWakefulness` 与 `Display State`，两者都是 OFF 时黑屏来自休眠，与面板无关。
 6. `reboot-lk.py` 的 `--payload` 必须是 prepare 载荷。误传轮次载荷时，工具 `stage` 后把内核又起了一次并停在 `hung-held`，报 `Probe return timed out; reboot not sent`；那次引导的日志是 `Process 1 exec of /sbin/launchd failed, errno 2`（历史启动路径缺少常驻系统盘）。
 7. `boot_a` 分区尾部残留 `AVBf` 页脚且偏移 `0x022b9000` 的 `AVB0` 块被覆盖时，LK 执行 `set_active a && reboot` 会在第 1 次引导立即将 `boot_a` 标为 `unbootable` 并回退 B 槽 Android：

@@ -76,6 +76,11 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 - 只读核对（`kernel-12377-st2-r1`）：loader 报 `dsu: dsu_store: 4096 MB from 12288 MB of the DSU slot (1048576 blocks of 4096)`，`var_store show` 读出 `slot 0: empty`、`slot 1: empty`。
 - 硬件 CRC-32 加速（loader v19）：`loader_02_platform_cpu_ufs_survey.inc` 的 `ufs_crc32()` 原为软件逐位循环，在停轮 30 秒时限内只写完 28,672 块（`st2-r2`）。改为 ARMv8 `crc32x`／`crc32b` 指令后（`handoff-loader-v19.img`），`kernel-12377-st2-r3` 在 5,300 毫秒内把 `/private/var`（28,724 条目、410,694,656 字节、CRC `0x2c8947ea`）写进 `slot 0`（写入 99,244 块，跳过相同的 1,024 块）。
 - Android 侧验证：`st2-r3` 写入后切回 Android（B 槽）运行 2 小时，`gsi_tool status` 仍为 `installed`／`disabled`，系统界面与用户数据正常，重装含 `bluetoothd` 的新系统盘后 `system_gsi` 扩展区增至 166 段（loader v19 将 `LP_EXTENTS_MAX` 扩到 1024）。
-- 跨开机从闪存展开与双槽轮换（`kernel-12377-st3-r1`、`kernel-12377-st4-r2`）：不带 `etc/var.seed`（`--seed ""`）启动，`st3-r1` 的 `init` 直接从 `/dev/rufs_dsu_store` 的 `slot 0`（generation 1）展开 11,580 个目录、5,260 个文件（405,602,769 字节）和 61 个符号链接，首个 SpringBoard 显示全部 15 个主屏图标，Wi-Fi 自动连上已保存网络，停轮时在 5,000 毫秒内把 `generation 2`（27,695 条目，408,117,728 字节，CRC `0xfa947c2e`）写入 `slot 1`（写入 97,591 块，跳过 2,048 块）；随后的 `st4-r2` 从 `slot 1`（generation 2）展开 11,216 个目录、4,935 个文件与 85 个符号链接，`bluetoothd` 直接从磁盘恢复上一次缓存的 `'other devices'` 表，停轮时在 4,620 毫秒内把 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`）轮换写回 `slot 0`（写入 100,250 块，跳过 1,024 块）。
+- 跨开机从闪存展开与双槽轮换（`kernel-12377-st3-r1`、`kernel-12377-st4-r2`）：
+
+  - 不带 `etc/var.seed`（`--seed ""`）启动，`st3-r1` 的 `init` 直接从 `/dev/rufs_dsu_store` 的 `slot 0`（generation 1）展开 11,580 个目录、5,260 个文件（405,602,769 字节）和 61 个符号链接，首个 SpringBoard 显示全部 15 个主屏图标，Wi-Fi 自动连上已保存网络。
+  - `st3-r1` 停轮时在 5,000 毫秒内把 `generation 2`（27,695 条目，408,117,728 字节，CRC `0xfa947c2e`）写入 `slot 1`（写入 97,591 块，跳过 2,048 块）。
+  - 随后的 `st4-r2` 从 `slot 1`（generation 2）展开 11,216 个目录、4,935 个文件与 85 个符号链接，`bluetoothd` 直接从磁盘恢复上一次缓存的 `'other devices'` 表。
+  - `st4-r2` 停轮时在 4,620 毫秒内把 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`）轮换写回 `slot 0`（写入 100,250 块，跳过 1,024 块）。
 
 

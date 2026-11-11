@@ -89,7 +89,10 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 - 现象一：独立引导进度条走完停在 `SYSTEM READY`，约 3 分钟后手机自动重启。
 - 根因一：通过 `fastboot -s xnuloader oem log` 拉取 3602 行完整日志定位到两处原因：
   1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `userland/root/lib/libannibale*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起无签名二进制触发 `userspace panic: unexpected exec of non-platform binary`，此时 `SpringBoard` 尚未绘制首帧。
-  2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`；Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`；随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
+  2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`。
+
+     - Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`。
+     - 随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
 - 现象二：修复签名后，进度条走满 `5643 / 5643 MB` 且顶部白点仍在左右移动，但屏幕长时间停在 `SYSTEM READY`（`MiniIOSurface: 0 surfaces`）。
 - 根因二：
   1. [`userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 追加 `var.skel.extra` 时包含与基础模板重复的 `/private/var/mobile/Containers`、`/private/var/mobile/Containers/Data`、`/private/var/mobile/Containers/Shared` 目录项；[`init.c`](../../hackios-xnu-userland/userland/src/boot/init.c) 的 `mount_writable()` 遇到已存在目录返回 `EEXIST` 并提前终止，跳过了第 157～158 行 `/private/var/keybags/persona.kb` 的创建，导致 `usermanagerd` 反复崩溃退出、`SpringBoard` 无法完成初始化。
@@ -101,7 +104,12 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 - 现象：启动日志报 `slot: maintaining current Slot c`、`slot: LUN 4 not found`，或在 `attr_a=0x37`、`attr_b=0x7a` 时误判 `loader_slot=b`。
 - 根因：`UFSDxe` 为 UFS 逻辑单元生成的设备路径是 Vendor GUID 节点 `1.4[85193fd3...]`，不含 messaging UFS 子类型 `0x19`，[`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 的 `device_path_print()` 返回 `lun = 0xff`；[`loader_01_base_log_dt.inc`](../../hackios-xnu-kernel/xnuloader/loader_01_base_log_dt.inc) 的 `print()` 仅支持 `%s`、`%x`、`%d`，不支持 `%c`；`slot_detect()` 原先按 `(attr >> 48) & 0x0f` 比较优先级时把 bit 3（`tries_remaining` 最低位）算入其中，导致 `0x37 & 0x0f = 7` 低于 `0x7a & 0x0f = 10`。
-- 修复：[`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 的 `lun4_get_bio()` 改为先查 `boot_a` 分区所属 `unit`（默认 4），再匹配 `block_shared.part[i].unit == target_unit` 的整盘 `BlockIo` 句柄；所有槽位日志格式串统一改用 `%s`；`slot_detect()` 改为检查 bit 2（`0x04`，`active` 位）与 bit 7（`0x80`，`unbootable` 位）；`slot_maintain_current()` 将活动槽属性字节写为 `0x6f`（`priority=3, active=1, tries=7, successful=1, unbootable=0`），同时将非活动槽属性字节写为 `0x6a`（`priority=2, active=0, tries=5, successful=1, unbootable=0`），不置 bit 7（`unbootable`）。
+- 修复：
+
+  - [`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 的 `lun4_get_bio()` 改为先查 `boot_a` 分区所属 `unit`（默认 4），再匹配 `block_shared.part[i].unit == target_unit` 的整盘 `BlockIo` 句柄。
+  - 所有槽位日志格式串统一改用 `%s`。
+  - `slot_detect()` 改为检查 bit 2（`0x04`，`active` 位）与 bit 7（`0x80`，`unbootable` 位）。
+  - `slot_maintain_current()` 将活动槽属性字节写为 `0x6f`（`priority=3, active=1, tries=7, successful=1, unbootable=0`），同时将非活动槽属性字节写为 `0x6a`（`priority=2, active=0, tries=5, successful=1, unbootable=0`），不置 bit 7（`unbootable`）。
 
 ### 6.5 无人值守免按键拦截、屏幕 Panic 提示与四层恢复步骤
 
@@ -116,7 +124,10 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 - 现象：iOS 26 在 Core 1..7 上交互正常，但主机执行 `fastboot -s xnuloader getvar product` 或 `getvar result` 全部超时无应答；此时在屏幕五指长按 1.5 秒触发 `exit_hold_elapsed()` 退回 `xnuloader`，旧版镜像画面冻结在最后一帧 iOS 桌面且不自动重启。
 - 根因：
-  1. [`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `usb_poll_command()` 向 DWC3 提交的 Bulk OUT 接收缓冲长度为 511 字节（`USB->send(USB_EP_OUT, 511, usb_rx_buf)`），且 `oem_shell()` 限制命令长度不超过 119 字节（`sizeof(live->cmd) - 1`）。主机发送超过 511 字节的 `fastboot oem "sh ..."` 命令时，DWC3 返回 `UsbDeviceTransferStatusCompleteError`，`usb_notification()` 调用 `usb_stop_endpoint(1, ...)` 将 `usb_out_lost` 置为 1。在本次启动周期内 Core 0 不再投递 `USB_EP_OUT` 接收 TRB，而 Core 1..7 上的 iOS 26 仍独立运行并持续通过 `wdt_pet()` 刷新 `host_last_cmd`。
+  1. [`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `usb_poll_command()` 向 DWC3 提交的 Bulk OUT 接收缓冲长度为 511 字节（`USB->send(USB_EP_OUT, 511, usb_rx_buf)`），且 `oem_shell()` 限制命令长度不超过 119 字节（`sizeof(live->cmd) - 1`）。
+
+     - 主机发送超过 511 字节的 `fastboot oem "sh ..."` 命令时，DWC3 返回 `UsbDeviceTransferStatusCompleteError`，`usb_notification()` 调用 `usb_stop_endpoint(1, ...)` 将 `usb_out_lost` 置为 1。
+     - 在本次启动周期内 Core 0 不再投递 `USB_EP_OUT` 接收 TRB，而 Core 1..7 上的 iOS 26 仍独立运行并持续通过 `wdt_pet()` 刷新 `host_last_cmd`。
   2. 五指长按 1.5 秒触发 `loader_return()` 后，所有 iOS 核心关闭，最后一帧画面留在 `0xfc800000`；旧版 `boot_fallback_enter()` 未置 `UI.ready = 1` 且未对 `0xfc800000` 执行 `clean_dcache()`，同时 `boot_fallback_check()` 每 120 秒重置 `host_last_cmd`，在 `usb_out_lost == 1` 下无法接收主机命令也无法触发看门狗复位。
 - 约束与修复：
   1. 主机侧调用 `fastboot -s xnuloader oem "sh ..."` 时，单条命令总长必须控制在 119 字节以内（优先使用 `tools/k90auto/rsh.py`，其在发送前强制校验 `len(text) <= 119`），严禁发送超过 511 字节的 Fastboot 命令。
