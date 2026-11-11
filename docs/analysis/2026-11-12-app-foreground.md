@@ -1,6 +1,6 @@
 # 后台应用前台切换核查（2026-11-12）
 
-本批按[执行计划](../plan/2026-11-12-app-foreground.md)核查 S5。历史记录中的后台进程复用与重新启动结果不同；最新设置打开现场已出现进程启动和前台状态发布，截图仍未显示设置内容。同一开机的完整 assertion／scene 对照尚缺，根因待确认。
+本批按[执行计划](../plan/2026-11-12-app-foreground.md)核查 S5。最新固定采集轮中，设置冷启动后的两张截图已显示首页，进程和 scene 诊断可用。历史后台进程复用故障及此前黑底画面的根因仍待确认，完整 assertion／scene 对照尚缺。
 
 ## 1. 已有结果与当前边界
 
@@ -97,15 +97,15 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 
 ## 5. 验证状态
 
-用户态实现与测试已提交为 `48e62db`。最终产物及逐文件摘要保存在 Git 忽略的 `hackios-xnu-userland/out/s5-foreground-delivery/manifest.json`；当前设备尚未加载本批诊断。
+用户态实现与测试已提交为 `48e62db`。最终产物及逐文件摘要保存在 Git 忽略的 `hackios-xnu-userland/out/s5-foreground-delivery/manifest.json`；设备已完成一次设置冷启动采集，结果见 §9。
 
 | 项目 | 已完成 | 待验证 |
 |---|---|---|
-| `annsh process` | 7 项宿主测试成功，包含真实本进程／子进程／已退出 PID、查询失败、身份变化与端口释放；iOS arm64e 链接、签名检查成功 | K90 目标应用的权限、身份与计数 |
-| `ios-state.py` | 8 项宿主测试成功，覆盖 CLI、原查询顺序、普通失败保留、传输失败停止 | 与新 annsh 的设备组合 |
-| `ui.py` | 10 项宿主测试成功；旧版同套检查有 8 项失败；既有 tools 39 项、ui-health 8 项成功 | 现场 AX 及截图 |
-| scene 扩展 | 12 场景、68 项宿主检查成功；旧版同测有 34 项失败；沿用 `build.sh` 四源文件命令完成 arm64e 链接与签名检查 | SpringBoard 实际缓存对象与画面对照 |
-| LS／FBS identity | 7 项实际探针宿主检查及 12 项 ABI／异常辅助检查成功；缺失应用和错误指针 ABI 的消融检查均失败；arm64e 链接与签名检查成功 | iOS 查询权限、注册状态与进程身份对照 |
+| `annsh process` | 7 项宿主测试成功，包含真实本进程／子进程／已退出 PID、查询失败、身份变化与端口释放；iOS arm64e 链接与签名检查成功；设备 Preferences 身份与计数查询成功 | 后台复用失败阶段的计数与恢复调用 |
+| `ios-state.py` | 8 项宿主测试成功，覆盖 CLI、原查询顺序、普通失败保留、传输失败停止；设备组合已完成前后两阶段采集，普通查询失败被保留 | 后台复用失败阶段的完整状态 |
+| `ui.py` | 10 项宿主测试成功；旧版同套检查有 8 项失败；既有 tools 39 项、ui-health 8 项成功；现场图标前提和四张截图已取得 | Preferences 完整 AX 列表及多任务 |
+| scene 扩展 | 12 场景、68 项宿主检查成功；旧版同测有 34 项失败；沿用 `build.sh` 四源文件命令完成 arm64e 链接与签名检查；设备前台 scene 字段已与设置画面对照 | 后台实例复用的启动、恢复与 scene 回应 |
+| LS／FBS identity | 7 项实际探针宿主检查及 12 项 ABI／异常辅助检查成功，缺失应用和错误指针 ABI 的消融检查均失败；arm64e 链接与签名检查成功；iOS 查询保留两个不存在 selector 的错误，其余 LS／FBS 字段可读 | 两个 record inode getter 的版本差异、历史应用的注册身份 |
 | S5 行为 | 失败阶段与判据已整理 | 同一应用连续前后台切换的设备验收 |
 
 实现复核保留现有 annsh、rsh 和层树入口，进程信息没有在 LS 工具中重复查询。scene 与 SDF 共用 getter ABI 校验；尚缺的请求／完成记录先通过原生日志采集。三个目标产物独立构建，完整诊断候选已按 heap 基线装配，产物检查见 §8。
@@ -172,7 +172,7 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 | `candidate.bin` | 42,074,232 | `9389df359a8497e0fd2a4e8cd66e6a1f08057a1a3f215af53c9dcb5d7dbaf6c7` |
 | `manifest.json` | 120,652 | `6b8615901a641bea060c1f4387d9e3f55e46598dc3b560586415416e2a680ff5` |
 
-源产物与 APFS 回读文件均通过严格签名检查。XNUP 的 kernel、memsize、identity 与基线逐字节相同；AIR、CPU／GPU 参数和常驻启动卷保持基线内容，命令行只追加 §4.3 的两个日志参数。完整比较保存在同目录的 `payload-check.json` 和 `delivery.json`。当前未生成独立部署入口，也未执行设备命令。
+源产物与 APFS 回读文件均通过严格签名检查。XNUP 的 kernel、memsize、identity 与基线逐字节相同；AIR、CPU／GPU 参数和常驻启动卷保持基线内容，命令行只追加 §4.3 的两个日志参数。完整比较保存在同目录的 `payload-check.json` 和 `delivery.json`。候选已由唯一 device 执行一次采集，结果见 §9。
 
 ### 8.2 一次设置打开的采集范围
 
@@ -192,3 +192,35 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 截图目标时刻指宿主调用 `tour.take_shot()` 的时刻，设备采帧与面板呈现时间未测得。调用晚于计划 0.5 秒或错过时点会单独记录。`capture_complete` 仅表示计划截图及其调用窗口满足要求；`foreground_visibility` 保持 `unknown`，多任务保持 `not_covered`，画面结论由原图审阅补充。
 
 该入口只查询 SpringBoard 已安装的 layers 诊断。输出中的 window context 属于其本地窗口，Preferences 的 context 未必出现；无 hosted scene 的进程仍需原生日志与 `process PID`。基线缺少后台 Preferences 时，本轮覆盖设置冷启动尝试，进程是否创建由 after PID 与日志确认；历史后台复用场景继续待验。
+
+## 9. 设置冷启动的固定采集结果
+
+### 9.1 原图与时序
+
+`kernel-12377-codex-1112-cd14-s5-foreground` 轮使用 §8 的诊断候选与冻结脚本，先等待桌面稳定 60 秒，再执行采集。完整采集耗时 107.994 秒，四张图均满足计划调用窗口，未发生传输失败、超时或遗漏时点。原始资料位于该轮的 `docs/progress/evidence/k90auto/` 目录。
+
+四张 BGRA 原始图均已按 `1156×2510` 解码并实际打开原尺寸 PNG。下表的相对时间以点击命令返回为起点，记录宿主调用截图 API 至返回的区间；设备采帧与面板呈现时刻未测得。
+
+| 原始截图 | API 调用／返回相对时间 | 原图可见内容 |
+|---|---|---|
+| `shot-00744.raw` | `-45.234 / -44.321 s` | 桌面应用与 Dock 图标可见；天气、日历仍为上下浅色条，中间露出壁纸 |
+| `shot-01201.raw` | `+0.565 / +1.487 s` | 模糊过渡画面，状态栏和手势条可见，未见设置内容 |
+| `shot-01223.raw` | `+3.070 / +3.688 s` | 设置首页标题、账户区、列表和搜索栏可见 |
+| `shot-01296.raw` | `+10.062 / +10.984 s` | 设置首页内容继续可见 |
+
+本次诊断配置下的设置冷启动已显示内容。此前黑底画面未在这组采样中复现；诊断请求和日志会改变运行开销，当前无法解释两轮结果差异。原图审阅与文件摘要保存在 Git 忽略的 `docs/analysis/local/s5-foreground-1112/device-review/visual-review.json`；原始 `result.json` 中的 visibility 保留采集器输出 `unknown`。
+
+### 9.2 进程、身份与 scene
+
+- 基线未出现 Preferences；点击后查询到 PID 366，主程序为 `/Applications/Preferences.app/Preferences`，`user_stop_count=0`，`snapshot complete`。主程序路径的 dev／inode 与基线 identity 的当前路径 `stat` 一致。
+- SpringBoard 前后均为 PID 32，启动时间、audit token 和路径文件身份一致。
+- after 层树中，Preferences scene 为 `valid=1`、`active=1`、`content=2`、`layers=1`、`finishedLaunching=1`、`isPendingExit=0`、`taskState=2`、`isForeground=1`、`activityMode=0`。hosted context 与 scene 客户端 settings 中记录相同 context ID，页面内容已由原图确认。
+- after 完整状态查询在点击命令返回后 `+13.780～+41.817 s` 执行，AX 为 `+41.818～+59.533 s`，layers 命令为 `+59.534～+61.725 s`。这些字段描述后续查询阶段，无法还原最初过渡画面的状态。
+
+### 9.3 保留的采集缺口
+
+`app-identity` 返回 1 并保留有效 JSON。LS 的 System 分类、安装与有效状态、FBS 派生身份及路径 `stat` 均可读；`LSApplicationRecord` 的 `bundleInode`、`executableInode` 抛出 unrecognized selector，未获得这两个字段。当前结果不能用于比较 LS record 内部保存的 inode 与路径 inode。
+
+基线 layers 达到 1500 行并标记 `(cut)`；after 为 1493 行，含完整 end 标记。after AX 仅输出「设置」「搜索」两项，完整列表节点未覆盖。两阶段默认 `downloads` 查询均返回 1，其余状态命令的结果逐项保存在报告。
+
+本轮覆盖一次冷启动，后台实例复用、多任务和连续前后台切换仍待按执行计划验证。请求与回应的完整日志时序也尚未逐项核对。下一批先取得历史应用身份与后台启动前提，再对照相同 PID 的激活结果；本轮页面可见结果不用于结束 S5。
