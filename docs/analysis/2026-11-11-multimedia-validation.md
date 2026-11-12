@@ -886,7 +886,7 @@ direct 探针去掉第 45 节的锁查询，取得完整 `open-end`。原生打�
 
 `_LSDispatchWithTimeout` 超时后写入共享错误，已提交的 FBS 请求继续执行；晚到 completion 保留已有错误。这解释了返回 code 60 后仍出现 Safari 启动与前台布局。12.949221 秒中的排队、IPC 和启动耗时尚未分段；现有同步探针也未记录内部 FBS 回调时刻。
 
-最终日志在内核时间 255.703 秒记录 MobileSafari corpse，退出原因及其与 `oem stop` 的先后关系尚未确认。设备探针、内核前缀、日志墙钟和主机单调时间尚未校准，当前仅按各自时间域和快照顺序报告，未计算跨时间域的精确延迟。
+最终日志在内核时间 255.703 秒记录 `Lightweight corpse enqueued for MobileSafari`。该行仅记录轻量异常回溯入队，尚无进程退出结论，其与 `oem stop` 的先后关系也未建立。设备探针、内核前缀、日志墙钟和主机单调时间尚未校准，当前仅按各自时间域和快照顺序报告，未计算跨时间域的精确延迟。
 
 完整返回值、阶段计时和最终日志位于本地 `kernel-12377-codex-1112-cd16-safari-open-direct/`，静态分析位于 `codex-1112-safari-open-direct/rootcause/report.json`。下一轮保持单次原生调用与 30 秒进程期限，以已有解锁完成和 Home Screen 日志作为调用前提，继续核对请求、前台与页面事件。
 
@@ -908,7 +908,7 @@ direct 探针去掉第 45 节的锁查询，取得完整 `open-end`。原生打�
 
 `cameracaptured` 继续构建多条 CI 管线。日志仍记录 affineGPUMetal、EdgeDrawingLineDetector、软件闪光、Warp、CMIPost 与 ColourConstancy 的部分预热失败，真实传感器流与图像 DMA 尚未验收。同一 command buffer 内不同 usage copy wrapper 的写后读旧值限制保持第 36 节范围。
 
-本轮结束后，独立恢复记录确认 loader 空闲、常驻区为空和真实 LK 重试 7。原始结果位于本地 `kernel-12377-codex-1112-cd14-camera-combined/`，逐项数值、日志位置与画面检查见其 `run/combined-root-review.json`；组合包输入与 APFS 核对位于 `codex-1112-camera-combined-root/`。
+本轮最高 CPU 采样温度为 74.4°C，采样器记录两个覆盖缺口。独立恢复记录确认 loader 空闲、常驻区为空和真实 LK 重试 7。原始结果位于本地 `kernel-12377-codex-1112-cd14-camera-combined/`，逐项数值、日志位置与画面检查见其 `run/combined-root-review.json`；组合包输入与 APFS 核对位于 `codex-1112-camera-combined-root/`。
 
 ## 50. Iris 通用 STAGE 规则与重复会话
 
@@ -917,9 +917,9 @@ cd26 以第 46 节为基线，只将固定 STAGE1 改为原厂普通 AVC／HEVC 
 - 同一轮执行两次相同的 320×192 H.264，各提交、接受、回调和出帧 30，`hardware=1`、`software=0`，错误计数均为 0。原生与 rsh 退出码均为 0，探针耗时分别为 920 ms 和 278 ms；这两个耗时包含会话建立与测试程序工作，尚无持续播放性能结论。
 - 从软件参考 NV12 重新计算有效 Y／UV 区域的 FNV1a64，两次共 60 帧全部一致。两次都收到 minimum 6 的 PSC，发布 6 块 RAW。
 - 两个不同 wire session 分别完成输入 STOP、RAW STOP 与 CLOSE，应答的 session、type、port 和 packet ID 均匹配。`close done` 对应输入、内部和 RAW 缓冲释放、解除映射与 TLB 同步；第二次会话复用已清理槽位。
-- 13 步全部完成，最高 CPU 采样温度为 72.9°C。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 13 步全部完成，最高 CPU 采样温度为 72.9°C，采样器记录一个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 
-生产修改仅增加尺寸计算与 OPEN 属性，未增加会话状态或 ABI，已提交为内核仓 `37121a16`。实际源码通过 181 项 ASan／UBSan 场景、75 类消融及内核编译；20 组临界尺寸和 STAGE2 报文已有宿主覆盖。本轮样本计算结果仍为 STAGE1，STAGE2、HEVC、持续播放与去掉临时诊断后的真机结果仍待验证。
+生产修改仅增加尺寸计算与 OPEN 属性，未增加会话状态或 ABI，已提交为内核仓 `37121a16`。实际源码通过 181 项 ASan／UBSan 场景、75 类消融及内核编译；20 组临界尺寸和 STAGE2 报文已有宿主覆盖。本轮样本计算结果仍为 STAGE1，STAGE2、HEVC 和持续播放尚待验证；去掉临时诊断后的结果见第 52 节。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd26-iris-stage-rule/`；逐帧与释放核对见其 `run/iris-stage-rule-review.json` 和 `run/pixel-reference-comparison.json`，宿主检查位于 `codex-1112-iris-stage-rule/production-applied-check/`。
 
@@ -943,3 +943,41 @@ cd27 以第 47 节为基线，只将 VFE 版本寄存器 offset 从 `0xa00` 改�
 `dump.erofs` 仍报告缺少祖先 inode，路径显示 `(not found)`；上述目标 inode 与区段数据来自本轮已读取范围，原始 stderr 保留。当前每次 `cat` 取得约 28 KiB，完整读取这四个压缩文件约需 851 次命令，后续先核对一次 Android 只读提取与恢复流程。
 
 本轮原始记录位于本地 `kernel-12377-codex-1112-cd27-camera-vfe-version/`，寄存器核对见其 `run/camera-vfe-root-review.json`；HAL 区段核对见 `codex-1112-camera-native/metadata-v7/extent-review.json`。
+
+## 52. Iris 生产配置重复解码通过
+
+cd28 使用当前生产 Iris HFI、硬件和会话三个实现，其他 1,159 个内核对象保持 cd26 冻结版本。唯一变量为移除 Iris 临时诊断，包括逐帧 FSR 读取、逐项 PSC 打印、超时寄存器与页表采样，以及 OPEN 前的两条固件日志属性。生产的有限 HFI 日志、PSC 摘要和错误处理保留。
+
+- 两次相同的 320×192 H.264 请求各提交、接受、回调和出帧 30，均为硬件解码，错误、丢帧和空帧为 0。每次输出 2,764,800 字节，共 60 帧有效 Y／UV 区域的 FNV1a64 全部匹配重新计算的软件参考。
+- 两个 wire session 分别取得输入 STOP、RAW STOP 与 CLOSE 的匹配成功应答，随后记录 `close done`。结合本轮冻结源码，该分支要求输入、内部和 RAW 缓冲解除映射、TLB 同步与释放全部成功；本轮未记录逐页解除映射日志。
+- 两次探针耗时分别为 1,289 ms 和 273 ms，包含初始化与用户态加载，当前没有性能提升比例。移除临时诊断后，重复会话与内容校验仍通过。
+- 13 步完成，最高 CPU 采样温度为 75.6°C，采样器记录五个覆盖缺口，峰值仅覆盖已取得读数。独立收尾检查确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+本轮仍为 RAM 测试，完整部署镜像保持原版本。结论覆盖上述三个生产 Iris 实现和该 H.264 样本；其他尺寸、STAGE2、HEVC、低延迟、动态重配置与持续播放尚待验证。全局 PAS／SMMU 退出资源继续按复位要求处理。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd28-iris-production/`；独立核对见其 `run/iris-production-review.json`、`run/pixel-reference-comparison.json` 和 `run/loader-recovery/root-hard-check.json`。
+
+## 53. Safari 就绪后原生打开成功
+
+本轮保持第 48 节的内核、辅助盘、原生探针、URL、options 和单次调用，只增加调用前提：本轮日志已有 boot unlock done，最新 Main Display 布局为 Home Screen，前后两次 `ps` 中 SpringBoard、lsd 与 backboardd 的 PID 一致。三项条件在主机 helper 启动后 49.821417 秒满足，共享启动期限仍为 120 秒。
+
+- 日志仅有一次 `open-begin`，`openSensitiveURL:withOptions:error:` 返回 true，`error_present=0`。方法耗时 1.150740 秒，原生与 rsh 退出码均为 0，探针总耗时 1,158 ms。
+- 后置进程快照已有 MobileSafari、WebContent 和 Networking；三个就绪检查进程的 PID 保持一致。原生 FBS 布局记录 Safari 位于前台。
+- 后置日志窗口为 8.1443 秒，服务端完整请求记录仅包含主机健康检查，设备页面 GET 与 page-ready 均为 0。页面加载及媒体播放尚未验收。
+- 4 步完成，最高 CPU 采样温度为 72.5°C，采样器记录一个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+该结果支持开机就绪条件与第 48 节的超时有关，尚未确定旧轮排队、IPC 或回调处理中的具体等待。后续保持原生调用条件，按页面事件结束观察，并检查网络就绪和 WebKit 请求；原生接口成功、应用前台与页面完成分别记录。
+
+原始记录位于本地 `kernel-12377-codex-1112-cd16-safari-ready/`，完整核对见其 `run/safari-ready-review.json`。就绪控制器的 9 项测试覆盖 11 个模拟场景，包括旧 Home Screen 失效、未完成快照、PID 变化、期限耗尽和零重试。
+
+本轮实际链接的 `corpse.o`、冻结源码及最终内核指令已核对。`Lightweight corpse enqueued` 位于 `EXC_GUARD` 的轻量回溯分支，该分支收集回溯并加入 `thread_backtrace_queue` 后返回，没有终止 task；日志缺少 guard code、subcode 与调用来源，外层行为尚未确认。核对记录见本地 `codex-1112-safari-open-direct/rootcause/corpse-linked-inputs.json`。
+
+## 54. 本机相机 HAL 与完整 V5 模块提取
+
+通过一次 B 槽 Android 启动，以普通 adb 权限只读取得第 51 节的四个 HAL，以及 AAC OVX8000 wide_i 和 Sunny OV20B40 front_i 两个模块，共 36,393,206 字节。每个文件均核对手机端长度与 SHA-256，再与本地回读比较；前摄模块还与此前完整样本的 SHA-256 一致。
+
+提取和恢复共耗时 67.0857 秒，回程只执行一次既有恢复流程。独立检查确认 loader 空闲、常驻区为空，真实 LK 的 A 槽重试为 7；未改变 HAL 或传感器模块内容。
+
+完整后摄模块的 CRC、四个 section 和符号区边界检查通过，文件还与此前取得的前缀和恢复的数据片段逐字节一致。本机 `camera.qcom.sm8750.so` 依赖 `camera.qcom.so`；V5 的 `SensorDriverData::Load`、`SensorDriverDataClass::LoadModule` 和 `CreateProbeCmd` 定义已在后者定位，后续沿解析对象到探测命令核对字段。
+
+原始文件与命令记录位于本地 `codex-device-1111/android-camera-extraction/run/`，逐文件独立核对见其 `root-file-review.json`。HAL 与 V5 解析结果位于 `codex-1112-camera-identity/v5-schema/`，真实传感器流与图像 DMA 仍待实现和验证。
