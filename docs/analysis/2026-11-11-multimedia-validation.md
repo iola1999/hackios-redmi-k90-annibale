@@ -848,7 +848,7 @@ cd23 只调整第 43 节的 RAW 缓冲数量。OPEN 前保留初始 4 块，收�
 
 生产实现按成功分配数维护 `raw_count`，返回索引、取帧与重新入队均检查该数量；释放扫描全部槽位，覆盖映射失败后保留的资源。零数量、容量、DPB 实际字节数和 RAW IOVA 范围检查保留，重复或变化 PSC 仍拒绝。实际源码通过 160 项 ASan／UBSan 场景、64 类消融和三个内核单元编译，已与相机 CCI 读取修正合入内核仓 `496e356d`。
 
-cd23 仍包含 STAGE1 诊断设置，当前生产源码未包含该设置。后续需按原厂通用 STAGE 规则验证生产配置；连续播放、其他分辨率及其他格式尚未验收。
+cd23 仍包含 STAGE1 诊断设置；通用 STAGE 规则与重复会话结果见第 50 节。连续播放、其他分辨率及其他格式尚未验收。
 
 本轮原始结果位于本地 `kernel-12377-codex-1112-cd23-iris-raw-count/`；软件参考与逐帧对照位于 `codex-1112-iris-raw-count/reference-check/comparison.json`，生产检查位于同目录的 `production-applied-check/` 与 `production-applied-compile/`。
 
@@ -864,7 +864,9 @@ cd24 以第 44 节为基线，仅将 `CCI_IRQ_GLOBAL_CLEAR_CMD` 从 `0xc10` 修�
 
 后摄三次读取连续完成，诊断汇总为 `wide=0x5650`、revision `0x45`、slave `0x10`、bus 1。前摄仍读得 `0x300a/0x300b=0x56/0x20`。VFE 仍返回 0、`hw_dma=0`，真实图像尚未取得。
 
-本轮末尾读取后摄 V5 数据区，原生退出码为 0、耗时 227 ms，但 telemetry 插入一行 Base64 中间，rsh 输出缺少后半行，连续性校验失败后结束采集。四份原始日志均保留相同的前 20 字符和后 44 字符；合并后另存派生回复，598 行／28,704 字节通过严格连续性检查，七个 LZ4 extent 按预期解出 62,369 字节。原始回复与日志保持原样，后一条 HAL inode 读取仍未执行，metadata-v6 未生成。
+本轮末尾读取后摄 V5 数据区，原生退出码为 0、耗时 227 ms，但 telemetry 插入一行 Base64 中间，rsh 输出缺少后半行，连续性校验失败后结束采集。四份原始日志均保留相同的前 20 字符和后 44 字符；合并后另存派生回复，598 行／28,704 字节通过严格连续性检查，七个 LZ4 extent 按预期解出 62,369 字节。原始回复与日志保持原样。
+
+第 49 节的组合轮补取 HAL 目录 inode 后，两段回复写入新的 metadata-v6，范围与回读检查通过。`dump.erofs` 因缺少祖先 inode 输出错误；直接解析目标 inode 与 inline 目录，十条目录记录与 CLI 列表一致，已定位四个本机 CamX HAL 文件。原 CLI 失败记录保留，文件内容仍待提取。
 
 按 V5 schema 对齐解读，后摄 `sensorDriverData` 的 slaveAddress 为 `0x20`，ID 地址为 `0x300a`，expected ID 为 `0x5650`，mask 为 `0xffff`；本轮 `0x300a/0x300b=0x56/0x50` 与这组字段相符。本机 V5 生成 parser 尚未取得，字段偏移仍属 schema 对齐推断；当前只提取所需片段，完整后摄模块的 CRC 尚未校验。
 
@@ -880,4 +882,64 @@ direct 探针去掉第 45 节的锁查询，取得完整 `open-end`。原生打�
 
 本轮单次调用后结束，没有重试。最高 CPU 采样温度为 73.3°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7；HTTP 服务与控制进程均已退出。
 
-完整返回值、阶段计时和最终日志位于本地 `kernel-12377-codex-1112-cd16-safari-open-direct/`，静态分析位于 `codex-1112-safari-open-direct/rootcause/`。后续沿 LS、应用启动服务和 SpringBoard 的原生完成回调定位等待条件。
+静态调用路径为 `_LSSpringBoardCall` → `FBSOpenApplicationService`，默认 Mach endpoint 为 `com.apple.frontboard.systemappservices`，service identifier 为 `com.apple.frontboard.open`。应用打开路径经 `springBoardQueue` 提交异步请求，相关等待期限为 10 秒；该队列属于调用 LS 的进程，队列名称不足以确定 SpringBoard 主线程状态。
+
+`_LSDispatchWithTimeout` 超时后写入共享错误，已提交的 FBS 请求继续执行；晚到 completion 保留已有错误。这解释了返回 code 60 后仍出现 Safari 启动与前台布局。12.949221 秒中的排队、IPC 和启动耗时尚未分段；现有同步探针也未记录内部 FBS 回调时刻。
+
+最终日志在内核时间 255.703 秒记录 MobileSafari corpse，退出原因及其与 `oem stop` 的先后关系尚未确认。设备探针、内核前缀、日志墙钟和主机单调时间尚未校准，当前仅按各自时间域和快照顺序报告，未计算跨时间域的精确延迟。
+
+完整返回值、阶段计时和最终日志位于本地 `kernel-12377-codex-1112-cd16-safari-open-direct/`，静态分析位于 `codex-1112-safari-open-direct/rootcause/report.json`。下一轮保持单次原生调用与 30 秒进程期限，以已有解锁完成和 Home Screen 日志作为调用前提，继续核对请求、前台与页面事件。
+
+## 49. 相机 CI、MPS 与纹理修正组合验证
+
+组合辅助盘使用已分别验证的 CI stitching、read_write level 0、数组纹理、R16 别名与 process-owned IOSurface 只读输入修正。内核、启动参数和常驻启动卷保持 RW 基线；辅助盘仅替换 AIR 与两份 Metal 库，增加三个缺失探针。实际 APFS 回读确认 722 个既有文件内容一致，完整 bundle 签名通过。
+
+| 真机探针 | 组合结果 |
+|---|---|
+| read_write level 0 | 8 项、4,032 分量，写前／写后／回读错误均为 0 |
+| 数组纹理 | 5 项、2,184 分量，错误为 0 |
+| R16 与格式别名 | 22 项，像素、前后保护区与行 padding 检查通过 |
+| RG16 | 8 项，像素及保护区检查通过 |
+| CI stitching | 6 节点、5 函数、128 分量通过，label 检查通过 |
+| IOSurface wrapper | 两种布局各三个阶段，像素、保护区与 padding 错误均为 0 |
+| CI 与 wrapper 组合 | 128 分量通过，wrapped RG16 输入已执行 |
+
+该轮共执行 28 步，包含上述七个探针、原有相关回归、两张桌面截图及一条 HAL metadata 读取；原生与 rsh 退出码均符合预期，G2 数据错误对照返回 1。完整桌面与原尺寸截图显示图标可见；天气仍为整块浅白，日历仍为上下浅白、中间显示壁纸，小组件内容缺失。
+
+`cameracaptured` 继续构建多条 CI 管线。日志仍记录 affineGPUMetal、EdgeDrawingLineDetector、软件闪光、Warp、CMIPost 与 ColourConstancy 的部分预热失败，真实传感器流与图像 DMA 尚未验收。同一 command buffer 内不同 usage copy wrapper 的写后读旧值限制保持第 36 节范围。
+
+本轮结束后，独立恢复记录确认 loader 空闲、常驻区为空和真实 LK 重试 7。原始结果位于本地 `kernel-12377-codex-1112-cd14-camera-combined/`，逐项数值、日志位置与画面检查见其 `run/combined-root-review.json`；组合包输入与 APFS 核对位于 `codex-1112-camera-combined-root/`。
+
+## 50. Iris 通用 STAGE 规则与重复会话
+
+cd26 以第 46 节为基线，只将固定 STAGE1 改为原厂普通 AVC／HEVC 解码的尺寸规则：宽高各小于 1280，且按 16 向上取整后的宏块数小于 3600，使用 STAGE1；其余尺寸使用 STAGE2。OPEN 的 `coded_frames` 与 `low_latency` 使用原厂默认值 0，当前 AVC 输入检查仍拒绝隔行与尺寸变化；PSC 的 coded-frames 位含义须与 OPEN capability 分别处理。
+
+- 同一轮执行两次相同的 320×192 H.264，各提交、接受、回调和出帧 30，`hardware=1`、`software=0`，错误计数均为 0。原生与 rsh 退出码均为 0，探针耗时分别为 920 ms 和 278 ms；这两个耗时包含会话建立与测试程序工作，尚无持续播放性能结论。
+- 从软件参考 NV12 重新计算有效 Y／UV 区域的 FNV1a64，两次共 60 帧全部一致。两次都收到 minimum 6 的 PSC，发布 6 块 RAW。
+- 两个不同 wire session 分别完成输入 STOP、RAW STOP 与 CLOSE，应答的 session、type、port 和 packet ID 均匹配。`close done` 对应输入、内部和 RAW 缓冲释放、解除映射与 TLB 同步；第二次会话复用已清理槽位。
+- 13 步全部完成，最高 CPU 采样温度为 72.9°C。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+生产修改仅增加尺寸计算与 OPEN 属性，未增加会话状态或 ABI，已提交为内核仓 `37121a16`。实际源码通过 181 项 ASan／UBSan 场景、75 类消融及内核编译；20 组临界尺寸和 STAGE2 报文已有宿主覆盖。本轮样本计算结果仍为 STAGE1，STAGE2、HEVC、持续播放与去掉临时诊断后的真机结果仍待验证。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd26-iris-stage-rule/`；逐帧与释放核对见其 `run/iris-stage-rule-review.json` 和 `run/pixel-reference-comparison.json`，宿主检查位于 `codex-1112-iris-stage-rule/production-applied-check/`。
+
+## 51. VFE 版本地址真机复核与 HAL 元数据
+
+cd27 以第 47 节为基线，只将 VFE 版本寄存器 offset 从 `0xa00` 改为 `0x1000`，对应已提交的生产修正 `8b3ad685`。本机原厂 `camera.ko` 的 `vfe_lite98x_top_common_reg` 首项为 `0x1000`；设备树中的 IFE-lite 范围为 `0xad6d000+0x2800`，实际读取地址 `0xad6e000` 位于该范围内。
+
+- `s006.log` 两处初始化记录均读得 VFE-lite0 `0x20050000`，此前旧地址返回 0。CSID-lite0 仍为 `0x30000004`，初始化继续完成。
+- 主摄仍连续读得 ID `0x5650`、revision `0x45`，前摄为 `0x5620`。`camera_avtest` 正常退出，仅覆盖枚举与格式；`hw_dma=0`，没有真实图像输出。
+- 本轮 13 步完成，最高 CPU 采样温度为 73.3°C；采样器记录两个覆盖缺口，峰值仅限已取得的读数。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+末尾一条 HAL inode 读取取得 598 行／28,704 字节，连续性、Base64 与终止 offset 均通过检查；所需 28,672 字节写入新的 metadata-v7 并回读一致，metadata-v6 保持原样。四个 HAL 的逻辑范围和物理 extent 均连续，完整文件内容仍待提取。
+
+| HAL 文件 | 逻辑字节数 | 压缩字节数 | extent 数 |
+|---|---|---|---|
+| `camera.qcom.sm8750.so` | 16,272,168 | 11,427,840 | 2,790 |
+| `camera.qcom.so` | 10,156,616 | 7,401,472 | 1,807 |
+| `com.qti.chi.offline.so` | 645,104 | 401,408 | 98 |
+| `com.qti.chi.override.so` | 7,310,560 | 5,128,192 | 1,252 |
+
+`dump.erofs` 仍报告缺少祖先 inode，路径显示 `(not found)`；上述目标 inode 与区段数据来自本轮已读取范围，原始 stderr 保留。当前每次 `cat` 取得约 28 KiB，完整读取这四个压缩文件约需 851 次命令，后续先核对一次 Android 只读提取与恢复流程。
+
+本轮原始记录位于本地 `kernel-12377-codex-1112-cd27-camera-vfe-version/`，寄存器核对见其 `run/camera-vfe-root-review.json`；HAL 区段核对见 `codex-1112-camera-native/metadata-v7/extent-review.json`。
