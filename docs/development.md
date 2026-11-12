@@ -1,5 +1,7 @@
 # 开发指南
 
+构建、测试与发布的未完成事项见[工程待办](backlog/engineering.md)，其他文档见[文档入口](README.md)。
+
 本文说明怎样从源码构建内核、用户态与根盘，组装双系统引导镜像，以及怎样出 Release。只想体验的用户看[体验说明](user-guide.md)即可。接手、排查和真机操作前先读[排查与协作手册](plan/debugging-and-collaboration.md)。
 
 ## 1. 环境
@@ -146,6 +148,16 @@ gh release create vX.Y.Z out/release/hackios-k90-vX.Y.Z.tar.gz out/release/hacki
 ```
 
 不要勾选「pre-release」：GitHub 的 `releases/latest` 不返回预发布版本，体验说明里「下载最新版」会找不到文件。项目的实验性质写在发布说明里。
+
+### 发布后的本地清理
+
+发布验证完成、相关构建进程结束后，按以下范围清理发布克隆：
+
+- 可清理 `hackios-xnu-kernel/ios26/` 下的 `rootfs/`、`cryptex/`、`cryptex-app/`、`23G90__iPhone18,3/`、`cryptex-app.dmg`、`rootfs.slt`、`system.manifest`、`var.skel` 和 `.done-*`。
+- 保留该目录的脚本、`hackios-xnu-kernel/out/ipsw/v57/26/` 中的三个原始镜像、源码、工具链、发布包与校验文件。
+- 下次构建前执行 `bash hackios-xnu-kernel/ios26/fetch.sh`，脚本会重新提取并检查系统文件。
+
+三个原始镜像可在同一文件系统的工作区之间使用硬链接，共享文件按只读输入使用。提取目录由构建脚本删改，继续在各构建目录独立准备。发布构建会写入用户态和打包输出，正式发布继续使用第 1 步的新克隆，保留日常调试工作区的输入和产物。
 
 ## 11. 版本号
 

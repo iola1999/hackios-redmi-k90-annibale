@@ -2,6 +2,8 @@
 
 调研日期 2026-11-05。只做了静态分析与已有日志的读取，没有构建、没有对设备发命令。凡标「推断」的结论没有在设备上验证过。地址均为 23G90 共享缓存未滑动前的地址，用 `hackios-xnu-kernel/tools/dsc/dsc.py` 可复查。
 
+视频播放与硬件解码的后续事项见[多媒体待办](../backlog/multimedia.md)。
+
 ## 1. 结论摘要
 
 - H.264 的软件解码器在系统里，而且已经解出了画面：fp1 轮打开测试页后约 1 秒，backboardd 收到一张 `'420v'`、640×360 的 IOSurface（与测试视频同尺寸），我们的 Metal 驱动拒绝把这种两平面 YCbCr 格式做成纹理，同一张 surface 被拒绝至少 16384 次。黑屏、时间停在 0、随后 `err=3` 的直接原因很可能是合成这一步（推断，见 §2.2）。
@@ -154,19 +156,7 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
 
 ## 6. 建议顺序（成本低、收益先到的在前）
 
-0. 诊断一轮，不改代码：
-   - 测试页换成支持 Range 的服务器，先用 `curl --range 0-99` 确认只回 100 字节。
-   - 给 `com.apple.mediaplaybackd`、`com.apple.videocodecd` 开 OSLOG，backboardd 保持安静，控制台能留下播放器的错误码。
-   - 写一个 `vt_test`：带 `com.apple.videotoolbox.decode-in-process` 权限和不带各跑一次，对 `h264.mp4` 的样本做 `VTDecompressionSession` 解码，记录帧数、`UsingHardwareAcceleratedVideoDecoder`、每帧 CPU 时间。§3.3 的估算可以换成实测。
-1. YCbCr 两平面合成（`420v`／`420f`）。按 `annibaledrawable.m` 列的三项实现：`kAnnibaleSurface` 报每个平面的偏移与行长，Gallium 侧拆成 R8＋R8G8 两个平面，着色器里做 YCbCr→RGB。CoreAnimation 对 500 号格式的采样期待 RGB 还是 YCbCr 原值，要先看它的着色器确认（未核对）。
-   - 备选：在 mediaplaybackd 里把解码输出改成 `'BGRA'`，让 VideoToolbox 做格式转换，合成器就能用。转换可能走 VideoToolbox 的 Metal 计算核，同样会碰到 YCbCr 纹理，风险未评估。
-2. 调软件解码线程：`ThreadCountH264SWDecoder`、`com.apple.VideoProcessing` 的 `threading`／`max-threads`；看情况试 `cpus=7`。
-3. VP9 软件解码：在 MobileSafari 里打开 WebKit 内部开关 `SWVPDecodersAlwaysEnabled`，确认 GPU 进程注册了 libwebrtc 的 VP9 解码器，webm 能出帧（依赖第 1 步）。
-4. Iris 硬件解码：
-   - 先取 K90 自己的 vpu35 固件。
-   - 在内核里上电、加载固件、起 HFI，用一个命令行工具把 H.264 裸流解成 NV12 文件，验证固件、电源和 SMMU。这一步与 iOS 无关。
-   - 再做 VideoToolbox 插件，注入 videocodecd 与 com.apple.WebKit.GPU。
-5. AV1：Safari 只认硬件 AV1，等第 4 步；软件 AV1 收益低。
+软件解码、YUV 合成与 Iris 会话的后续实测见[多媒体验证结果](2026-11-11-multimedia-validation.md)。网页播放、硬件输出及后续格式研究统一记录在[多媒体待办](../backlog/multimedia.md)。
 
 ## 7. 来源
 

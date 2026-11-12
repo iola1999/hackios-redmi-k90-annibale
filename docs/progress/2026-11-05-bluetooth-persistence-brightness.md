@@ -34,4 +34,4 @@
 
 - 跨开机保留数据：loader v19 使用硬件 `crc32x` 后，410～415 MB 的 `/private/var` 归档写入加回读校验耗时 4.6～5.3 秒；Android B 槽日常运行与 `gsi_tool status` 不受影响；不带 `etc/var.seed` 启动时 `init` 直接从 `dsu_store` 连续跨轮（`slot 0 -> slot 1 -> slot 0`，generation 1～3）恢复桌面、设置、Wi-Fi 与蓝牙设备缓存。
 - 面板背光调节：`DCS_DEFAULT = 4` 默认启用后，无需额外启动参数即可按系统尼特数经 DSI0 调节面板 DBV 并由 `0x52` 回读确认，手势帧率（`cc-pull` 94.4、`swipe-left` 98.1 帧／秒）与开启前基线一致。
-- 蓝牙：WCN7850 的 `BTFW.HAMILTON.2.0.1` 收到 `0x204a` 后会禁用传统 LE 扫描命令，内核代答 `0x204a` 后 `bluetoothd` 稳定运行并完成 BLE 扫描与设置页展示。后续配对、3 Mbaud 提速与蓝牙音频留在下一阶段。
+- 蓝牙：WCN7850 的 `BTFW.HAMILTON.2.0.1` 收到 `0x204a` 后会禁用传统 LE 扫描命令，内核代答 `0x204a` 后 `bluetoothd` 稳定运行并完成 BLE 扫描与设置页展示。配对与蓝牙音频的剩余验收见[平台待办](../backlog/platform.md)。

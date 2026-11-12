@@ -1,5 +1,7 @@
 # 2026-11-06 开机后实测问题与后续跟进清单
 
+本文保留问题分析与已有结果；未完成事项集中在[待办目录](../backlog/README.md)。
+
 本文记录 2026-11-06 至 11-07 期间 `boot_a` 独立双系统引导进入 iOS 26 桌面后，真机交互实测问题的根因定位与修复记录。当前验收状态以[11-08 复核](../analysis/2026-11-08-issue-reassessment.md)与[进度表](2026-10-23-tracking.md)为准。
 
 ## 1. 11-06 实测问题的根因、修复与验证
@@ -25,7 +27,9 @@
 
 - **现象**：早期「设置 → 通用 → 关于本机」中总容量显示为 `0 KB`、可用 `2.61 GB`；初次接入 `darwin_var` 分区块数后显示为总容量 `129 GB`、可用 `128.22 GB`（未扣除系统卷与 Cryptex 占用，且按二进制 120 GiB 换算成十进制 129 GB）。
 - **根因**：iOS 的 `storagekitd` 与 `Preferences` 通过 `IOKit` `IOMedia`（`disk0` 的 `Size` 属性）、`statfs()` 与 `getattrlistbulk`（`VOL_ATTR_CAPABILITIES`）按十进制字节（`1 GB = 10^9 B`）计算整机共享 APFS 容器的总容量与可用容量；128 GB iPhone 17 的容器总容量为 `128,000,000,000` 字节，可用容量为容器总容量减去 System 卷（9.76 GB）、OS Cryptex（5.26 GB）、App Cryptex（14.68 MB）、Preboot／Recovery（0.54 GB，小计 15.57 GB）以及 `/private/var` 实际已用数据块。
-- **修复**：在 [`AnnibaleBT.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/AnnibaleBT.cpp) 与 [`annibale_ufs.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs.c) 中将 `disk0` 容量设为 `128,000,000,000` 字节；在 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 与 [`apfs_vfsops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vfsops.c) 中统一由 `annibale_container_total_bytes()` 与 `annibale_container_free_bytes()` 上报 `/` 与 `/private/var` 的 `statfs` 及 `vfs_getattr`，总容量显示为 `128 GB`，初始可用容量约 `112.4 GB` 并随文件写入实时递减。
+- **修复**：
+  - 在 [`AnnibaleBT.cpp`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/AnnibaleBT.cpp) 与 [`annibale_ufs.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs.c) 中将 `disk0` 容量设为 `128,000,000,000` 字节。
+  - 在 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 与 [`apfs_vfsops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vfsops.c) 中统一由 `annibale_container_total_bytes()` 与 `annibale_container_free_bytes()` 上报 `/` 与 `/private/var` 的 `statfs` 及 `vfs_getattr`，总容量显示为 `128 GB`，初始可用容量约 `112.4 GB` 并随文件写入实时递减。
 
 ### 1.3 设置页一级列表图标全部缺失
 
@@ -49,7 +53,10 @@
 - **现象**：打开日历（`MobileCal`）弹出通知权限请求框，点击「允许」后关闭再重新打开日历，仍每次重复弹出同一权限申请。
 - **根因**：
   1. 对比 `/var/mobile/Library/UserNotifications/Library.plist` 与 `/var/mobile/Library/BulletinBoard/VersionedSectionInfo.plist` 发现：`Library.plist` 已登记 `com.apple.mobilecal`，但 `VersionedSectionInfo.plist` 缺少 `com.apple.mobilecal` 的 `UNCSectionInfo` 记录。
-  2. 通过 [`dsc.py`](../../hackios-xnu-kernel/tools/dsc/dsc.py) 反汇编 `UserNotificationsCore`（`+[UNCNotificationSourceDescription sourceDescriptionWithBundleIdentifier:]` `0x1de17a668`、`-[UNCNotificationSourceDescription setSystemPropertiesFromDictionary:]` `0x1de17b0f4`）与 `UserNotificationsServer`（`_queue_createDataProviderWithNotificationSourceDescription:withCompletion:` `0x29959624c`）查明：`sourceDescriptionWithBundleIdentifier:@"com.apple.mobilecal"` 首先在 `/System/Library/UserNotifications/Bundles/` 下查找 `com.apple.mobilecal.bundle`。裁剪版系统盘缺少该目录后回退读取 `/Applications/MobileCal.app/Info.plist`，而系统应用的 `UNUserNotificationCenter` 字典存放在 `/System/Library/UserNotifications/Bundles/com.apple.mobilecal.bundle/Info.plist` 中，主应用 `Info.plist` 不含该键，`setSystemPropertiesFromDictionary:` 计算出 `useDefaultDataProvider = NO`，导致 `_queue_createDataProviderWithNotificationSourceDescription:withCompletion:` 打印 `"Do not register notification settings for an app that is using a custom data provider"` 并中止，未写入 `VersionedSectionInfo.plist`。
+  2. 通过 [`dsc.py`](../../hackios-xnu-kernel/tools/dsc/dsc.py) 反汇编 `UserNotificationsCore`（`+[UNCNotificationSourceDescription sourceDescriptionWithBundleIdentifier:]` `0x1de17a668`、`-[UNCNotificationSourceDescription setSystemPropertiesFromDictionary:]` `0x1de17b0f4`）与 `UserNotificationsServer`（`_queue_createDataProviderWithNotificationSourceDescription:withCompletion:` `0x29959624c`）查明以下调用过程：
+     - `sourceDescriptionWithBundleIdentifier:@"com.apple.mobilecal"` 首先在 `/System/Library/UserNotifications/Bundles/` 下查找 `com.apple.mobilecal.bundle`。
+     - 裁剪版系统盘缺少该目录后回退读取 `/Applications/MobileCal.app/Info.plist`，而系统应用的 `UNUserNotificationCenter` 字典存放在 `/System/Library/UserNotifications/Bundles/com.apple.mobilecal.bundle/Info.plist` 中，主应用 `Info.plist` 不含该键。
+     - `setSystemPropertiesFromDictionary:` 计算出 `useDefaultDataProvider = NO`，导致 `_queue_createDataProviderWithNotificationSourceDescription:withCompletion:` 打印 `"Do not register notification settings for an app that is using a custom data provider"` 并中止，未写入 `VersionedSectionInfo.plist`。
 - **修复**：
   - 在 [`ios26/full-system.py`](../../hackios-xnu-userland/ios26/full-system.py) 中保留 `System/Library/UserNotifications/` 下的 647 个通知配置 plist／strings 文件，并在 [`userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 与 [`userland/src/boot/init.c`](../../hackios-xnu-userland/userland/src/boot/init.c) 中挂载 `/System/Library/UserNotifications`；双系统部署直接挂载原版未裁剪 `os.dmg` 时自带完整通知 Bundle。
   - 从 [`userland/src/inject/ax.m`](../../hackios-xnu-userland/userland/src/inject/ax.m) 移除通知授权方法交换代码。
@@ -64,7 +71,10 @@
    - **修复**：在 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_battery.c) 中结合 USB 控制器链路状态、PMIC `usbin` 与 `pmic_glink` VBUS 在线检测上报外部电源与充电状态。
 3. **系统内滑动关机后画面停在最后一帧**：
    - **根因**：iOS 关机进入 `halt_all_cpus(FALSE)` 调用 `loader_return()` 退回 RAM 中的 `xnuloader`，而 `MiniIOMobileFramebufferQuiesce()` 将最后一帧拷回主帧缓冲并把混合器亮度恢复为 `DIM_ALPHA_FULL`（100%），面板背光保持常亮。
-   - **修复**：在 [`MiniFramebufferDim.inc`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferDim.inc) 与 [`MiniFramebufferFlip.inc`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferFlip.inc) 新增 `dim_poweroff()` 与 `MiniIOMobileFramebufferPowerOff()` 清零双帧缓冲并关闭 OLED 背光；在 [`42-osfmk%arm64%machine_routines.c.patch`](../../hackios-xnu-kernel/xnu26/patches/42-osfmk%arm64%machine_routines.c.patch) 的 `halt_all_cpus()` 中依次执行持久化同步、外设停机与 `MiniIOMobileFramebufferPowerOff()`；在 [`annibale_threads.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_threads.c) 增加 `kern.annibale.halt` sysctl，并在 [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject/inject_sb26.c) 拦截关机选择器执行 `sync()` 与 `kern.annibale.halt=1`。
+   - **修复**：
+     - 在 [`MiniFramebufferDim.inc`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferDim.inc) 与 [`MiniFramebufferFlip.inc`](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniFramebufferFlip.inc) 新增 `dim_poweroff()` 与 `MiniIOMobileFramebufferPowerOff()` 清零双帧缓冲并关闭 OLED 背光。
+     - 在 [`42-osfmk%arm64%machine_routines.c.patch`](../../hackios-xnu-kernel/xnu26/patches/42-osfmk%arm64%machine_routines.c.patch) 的 `halt_all_cpus()` 中依次执行持久化同步、外设停机与 `MiniIOMobileFramebufferPowerOff()`。
+     - 在 [`annibale_threads.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_threads.c) 增加 `kern.annibale.halt` sysctl，并在 [`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject/inject_sb26.c) 拦截关机选择器执行 `sync()` 与 `kern.annibale.halt=1`。
 4. **切槽引发 LK `ValidateSlotGuids` 报错（`Failed to load/authenticate boot image: Device Error`）**：
    - **根因**：反编译 `abl_a.img` 中的 `LinuxLoader.efi` 查明，`FindBootableSlot`（`sub_1D1B8`）内的 `ValidateSlotGuids` 比较 `boot_<slot>` 与 `abl_<slot>` 的 16 字节 `PartitionTypeGUID`：高通 A/B GPT 中活动槽位各分区具有独立的 `PartitionTypeGUID`，非活动槽位共用 `77036cd4-03d5-42bb-8ed1-37e5a88baa34`；若两者相同则打印 `"ValidateSlotGuids: BootableSlot %s does not have valid guids"` 并返回 `EFI_DEVICE_ERROR`。`xnuloader` 原先切槽仅改写 GPT 属性位而未交换 `_a`／`_b` 分区的 `PartitionTypeGUID`。
    - **修复**：在 [`loader_06a_screen_ui.inc`](../../hackios-xnu-kernel/xnuloader/loader_06a_screen_ui.inc) 中新增 `gpt_swap_ab_type_guids()` 与 `slot_apply_active()`，在维护或切换活动槽位时检查目标槽位 `PartitionTypeGUID`，若持有非活动 GUID 则同步交换 `_a`／`_b` 分区的 `PartitionTypeGUID` 并重算主备 GPT CRC32。
@@ -78,7 +88,8 @@
 2. **原版未裁剪 iOS 26.6.2（`23G90`）三容器镜像 UFS 直挂**：
    - 在 [`userdata-dual-carve.py`](../../hackios-xnu-kernel/tools/userdata-dual-carve.py) 中将 `darwin` 分区默认大小设为 `16 GiB`；在 [`init_mount.inc`](../../hackios-xnu-userland/userland/src/boot/init_mount.inc) 与 [`init.c`](../../hackios-xnu-userland/userland/src/boot/init.c) 中支持按块偏移（`0`、`2382336`、`3666944`）直接从 `/dev/ufs_darwin` 挂载原版 `os.dmg`、`systemos.dmg` 与 `appos.dmg`（共 14.002 GiB），并通过 `bindfs` 将 `/annibale/lib/AnnibaleMetal.bundle` 叠加到 `/System/Library/Extensions/AnnibaleMetal.bundle`。
 3. **文件系统属性与数据容器初始化**：
-   - 在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 与 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 中补齐 `rn_dataprotect_class`、`va_addedtime`、`VOL_CAP_FMT_PERSISTENTOBJECTIDS`、`VOL_CAP_FMT_CLONE_MAPPING` 与 `VOL_CAP_INT_RENAME_SWAP`；在 [`apfs_vnops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c) 中返回 `PROTECTION_CLASS_D`，并移除 [`inject_posterboard.c`](../../hackios-xnu-userland/userland/src/inject/inject_posterboard.c) 的 `NSURL` 钩子。
+   - 在 [`ramfs.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs.c) 与 [`ramfs_getattr.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_getattr.inc) 中补齐 `rn_dataprotect_class`、`va_addedtime`、`VOL_CAP_FMT_PERSISTENTOBJECTIDS`、`VOL_CAP_FMT_CLONE_MAPPING` 与 `VOL_CAP_INT_RENAME_SWAP`。
+   - 在 [`apfs_vnops.c`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c) 中返回 `PROTECTION_CLASS_D`，并移除 [`inject_posterboard.c`](../../hackios-xnu-userland/userland/src/inject/inject_posterboard.c) 的 `NSURL` 钩子。
    - 在 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject/inject_app.c) 中自动创建容器下的 `Documents`、`Library/Preferences`、`Library/Caches` 与 `tmp` 子目录。
 
 ### 1.8 主屏大尺寸小组件卡片黑底与 `nir_lower_fb_read` 图层索引修复
@@ -141,19 +152,33 @@
    - 在 [`annibale_torch.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_torch.c) 中对 `0x0018` 寄存器传输丢弃增加重试；在 [`annibale_haptic.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_haptic.c) 中清除 `0x10` Boost UVLO 故障并配置 `0xf246` 升压寄存器。
    - 引入 Darwin 平台基于 UUID 路径的 ir3 磁盘缓存补丁（[`0015-ir3-disk-cache-darwin-uuid.patch`](../../hackios-xnu-userland/tools/mesa/rebase-26/0015-ir3-disk-cache-darwin-uuid.patch)）；后续实测开启后第二次开机解锁全黑，默认保持关闭，见[ir3 磁盘缓存跨开机实测](../analysis/2026-11-09-ir3-disk-cache.md)。
 2. **SpringBoard 崩溃修复、多颜色附件清屏掩码与应用安装收敛（R3～R5）**：
-   - **SpringBoard HFA 寄存器签名与 `CATransaction` 修复**：`SpringBoardHome` 在后台线程调用 `-[SBCalendarIconImageProvider iconLayerWithInfo:traitCollection:options:]` 时，`struct SBIconImageInfo`（4 个 `double`）作为 ARM64 同质浮点聚合体（HFA）通过 `d0..d3` 传参，而 [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject/inject_sb26_airdrop.inc) 原先将其声明为 `void *` 占用 `x2` 导致参数错位，且在后台线程无事务调用 `[new_layer setContents:]` 触发 `CA_ASSERT_MAIN_THREAD_TRANSACTIONS` `abort()`。修正 HFA 结构体签名并包裹 `[CATransaction begin]`／`[CATransaction commit]` 后崩溃消除。
+   - **SpringBoard HFA 寄存器签名与 `CATransaction` 修复**：
+     - `SpringBoardHome` 在后台线程调用 `-[SBCalendarIconImageProvider iconLayerWithInfo:traitCollection:options:]` 时，`struct SBIconImageInfo`（4 个 `double`）作为 ARM64 同质浮点聚合体（HFA）通过 `d0..d3` 传参。
+     - [`inject_sb26_airdrop.inc`](../../hackios-xnu-userland/userland/src/inject/inject_sb26_airdrop.inc) 原先将其声明为 `void *` 占用 `x2` 导致参数错位，且在后台线程无事务调用 `[new_layer setContents:]` 触发 `CA_ASSERT_MAIN_THREAD_TRANSACTIONS` `abort()`。
+     - 修正 HFA 结构体签名并包裹 `[CATransaction begin]`／`[CATransaction commit]` 后崩溃消除。
    - **Metal 与 AIR 8 颜色附件清屏掩码**：在 [`annibalemetal.m`](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal.m) 与 [`air_metal.c`](../../hackios-xnu-userland/tools/mesa/air/air_metal.c) 中遍历全部 8 个颜色附件，将每个附件的 `MTLLoadActionClear` 编码至 `draw->discard` 高 8 位并按位设置 `PIPE_CLEAR_COLOR0 << i` 与动态 `colormask`，修复 `iconservicesagent` 在 3 颜色附件模式下附件 1、2 未清屏导致的图标灰底问题。
    - **应用安装与卸载**：注册第三方应用时将 `IsDeletable` 设为 `@YES`，收敛后台 `watch` 仅监听暂存目录（消除开机轮询解压导致的 `ramfs` 膨胀），并预装 `TrollStore.app` 与 `trollstorehelper`。
    - **loader 切槽保护**：在 [`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `oem android` 中校验 `kernel_resources_held`，内核未完全停止时拒绝切槽。
 3. **外设驱动骨架、小米 MCA `pmic_glink` 充电对齐与按需自动解锁（R6～R7，内核 `39f0e46`、`b8a5926`，用户态 `9ff8901`、`732d49d`）**：
-   - 新增 SM8750 CAMSS（[`annibale_camera.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera.c)）、LPASS ADSP（[`annibale_adsp.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_adsp.c)）、麦克风（[`annibale_mic.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_mic.c)）、环境光与接近传感器（[`annibale_sensors.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_sensors.c)）及 MPSS 基带（[`annibale_modem.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_modem.c)、[`annibale_qmi.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_qmi.c)）驱动代码。
+   - 新增以下驱动代码：
+     - SM8750 CAMSS（[`annibale_camera.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera.c)）。
+     - LPASS ADSP（[`annibale_adsp.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_adsp.c)）。
+     - 麦克风（[`annibale_mic.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_mic.c)）。
+     - 环境光与接近传感器（[`annibale_sensors.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_sensors.c)）。
+     - MPSS 基带（[`annibale_modem.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_modem.c)、[`annibale_qmi.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_qmi.c)）。
    - 对照 Android 15 `qcom_subpmic.ko` 遥测，在 [`annibale_battery.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_battery.c) 中修正 `PMIC_RTR_ADSP_APPS`（owner `0x800a`）属性 ID：`0x2019`（`input_suspend = 0`）、`0x2003`（`chg_enable = 1`）、`0x2008`（`input_current_limit = 2500 mA`）、`0x2005`（`charge_current = 3000 mA`），并放开 `spmi_read_reg()` 只读观察窗读取与 `glink_q_write()` 队列余量等待。
    - 在 [`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py) 中默认设置 `touch_lat=0` 与 `gpu_log=0`，移除后台 `framewatch` 周期全线程栈转储；[`inject_sb26.c`](../../hackios-xnu-userland/userland/src/inject/inject_sb26.c) 改为仅在启动参数含 `autounlock=1` 时自动解锁，日常启动默认停留在锁屏界面。
 4. **ABL `LoadImageAndAuthVB2` 回退根因、4K 扇区 `modem_a` 固件读取与注入库签名修复（R8，内核 `07f0efb9`、`fa20d390`）**：
-   - **`boot_a` AVBf／AVB0 校验回退 Android**：反汇编 `LinuxLoader.efi` 的 `LoadImageAndAuthVB2`（`0x3a6d4`）与 `avb_vbmeta_image_verify`（`0x44744`）查明，`boot_a` 末尾 `0x05ffffc0` 的 `AVBf` 页脚指向 `vbmeta_offset = 0x022b9000`；该处 `"AVB0"` 头被早期 51.3 MiB 大镜像覆盖后返回码为 `2`（转成槽位校验返回码 `6` `ERROR_INVALID_METADATA`），不在解锁放行掩码 `0x39`（`{0, 3, 4, 5}`）内，导致 ABL 调用 `HandleActiveSlotUnbootable(0)` 将 `boot_a` 标为 `unbootable` 并切回 B 槽；同时无 AVB 属性时 ABL 检查 `boot.img` 偏移 `0x2c` 的 `os_version != 0`。在 [`reseal-loader-img.py`](../../hackios-xnu-kernel/tools/reseal-loader-img.py) 中传入 `--os_version 15.0.0 --os_patch_level 2026-02` 并恢复 `boot_a` 偏移 `0x022b9000` 的 `AVB0` 块后解决，详见[引导目标切换 SOP §4](device-boot-target-sop.md#4-陷阱均为实测)。
+   - **`boot_a` AVBf／AVB0 校验回退 Android**：
+     - 反汇编 `LinuxLoader.efi` 的 `LoadImageAndAuthVB2`（`0x3a6d4`）与 `avb_vbmeta_image_verify`（`0x44744`）查明，`boot_a` 末尾 `0x05ffffc0` 的 `AVBf` 页脚指向 `vbmeta_offset = 0x022b9000`。
+     - 该处 `"AVB0"` 头被早期 51.3 MiB 大镜像覆盖后返回码为 `2`（转成槽位校验返回码 `6` `ERROR_INVALID_METADATA`），不在解锁放行掩码 `0x39`（`{0, 3, 4, 5}`）内，导致 ABL 调用 `HandleActiveSlotUnbootable(0)` 将 `boot_a` 标为 `unbootable` 并切回 B 槽。
+     - 同时无 AVB 属性时 ABL 检查 `boot.img` 偏移 `0x2c` 的 `os_version != 0`。
+     - 在 [`reseal-loader-img.py`](../../hackios-xnu-kernel/tools/reseal-loader-img.py) 中传入 `--os_version 15.0.0 --os_patch_level 2026-02` 并恢复 `boot_a` 偏移 `0x022b9000` 的 `AVB0` 块后解决，详见[引导目标切换 SOP §4](device-boot-target-sop.md#4-陷阱均为实测)。
    - **4K 扇区 + VFAT LFN `modem_a` 固件读取与 TrustZone SMC 互斥**：修复 [`annibale_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 的 `annibale_ufs_fat16_fw_read()` 支持 4096 字节逻辑扇区与 VFAT LFN 长文件名，从 `modem_a` 成功读取 `adsp_dtb.mdt` 与 `adsp.mdt`；在 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 导出 `adreno8_init_done`，令 `annibale_adsp_boot_thread()` 等待 Adreno 830 完成初始化后再发起 TrustZone PAS SMC 调用，消除并发 `SMC_EBUSY` 导致 GPU 退回软件渲染的问题。
    - **注入库签名与启动早期崩溃修复**：[`package.py`](../../tools/k90auto/package.py) 改为每次从源码编译并 ad-hoc 签名 `libannibale.dylib`、`libannibale-media.dylib` 与 `libannibale-app.dylib`；修复 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject/inject_app.c) 在 `Foundation` 初始化前调用 `NSUserDefaults` 导致的早期崩溃，并从 [`inject_cellular.inc`](../../hackios-xnu-userland/userland/src/inject/inject_cellular.inc) 移除因共享缓存 `__LINKEDIT` `fileoff` 无符号减法下溢触发 `SIGSEGV` 的 `rebind_image_symbols()`。
-   - **相机 V57 格式匹配与硬件时钟对时**：在 [`camera_device.c`](../../hackios-xnu-userland/userland/src/services/camera_device.c) 与 [`camera_device_stream.inc`](../../hackios-xnu-userland/userland/src/services/camera_device_stream.inc) 中补齐 `SIFREnabled`、`FrontEndScalerOutputWidth` 与 `'x420'` 像素格式（`camera_avtest` 实测匹配后摄 30、前摄 24 种格式）；在 [`annibale_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 的 `annibale_ufs_sync_rtc()` 中结合 PMK8550 硬件秒计数器与 Android `persist /time/ats_*` 偏移初始化系统时间。
+   - **相机 V57 格式匹配与硬件时钟对时**：
+     - 在 [`camera_device.c`](../../hackios-xnu-userland/userland/src/services/camera_device.c) 与 [`camera_device_stream.inc`](../../hackios-xnu-userland/userland/src/services/camera_device_stream.inc) 中补齐 `SIFREnabled`、`FrontEndScalerOutputWidth` 与 `'x420'` 像素格式（`camera_avtest` 实测匹配后摄 30、前摄 24 种格式）。
+     - 在 [`annibale_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 的 `annibale_ufs_sync_rtc()` 中结合 PMK8550 硬件秒计数器与 Android `persist /time/ats_*` 偏移初始化系统时间。
 
 ## 3. 持续跟进与复核入口
 

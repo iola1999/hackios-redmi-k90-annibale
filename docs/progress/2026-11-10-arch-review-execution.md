@@ -40,11 +40,24 @@
    - `0x1ae9c74bc` 选择首选输出端口：`_preferredPreviewOutput`（`+0x9a8`）设为 `"PrimaryScaler"`（`0x1e6e5edc8`），`_preferredVideoOutput`（`+0x9b0`）设为 `"SecondaryScaler"`（`0x1e6e5ede0`），`_stillImageOutput`（`+0x988`）设为 `"StillImage"`（`0x1e6e5ede8`）。
    - `0x1ae9c79f4` 构建 `VideoOutputHandlers` 字典：在 `0x1ae9c7b08..0x1ae9c7b38` 检查 `(1 << _deviceType) & 0x1e7ffc`（广角相机 `_deviceType == 2` 恒命中），**无条件向 `VideoOutputHandlers` 字典加入 `"Depth"`（`0x1e6e5eda8`）的 `PixelBufferHandler`**，再调用 `setProperty:kFigCaptureStreamProperty_VideoOutputHandlers`。若驱动不接受 `"Depth"` 或缺少后续阶段所需的属性配置，`configure:` 无法进入缓冲池分配阶段。
    - `0x1ae9ac204` 在 `0x1ae9ac284` 调用 `copyProperty:kFigCaptureStreamProperty_VideoOutputConfigurations`，遍历 `0..21` 输出槽位读取各输出字典的 `BufferPoolBytesPerRowAlignmentRequirement`（`0x1e6e5ecf0`，存入 `slot + 0x6c`）与 `BufferPoolPlaneAlignmentRequirement`（`0x1e6e5ed00`，存入 `slot + 0x70`），同时读取 `SupportedOutputs` 中各输出的 `SupportedPixelFormats`、`SashimiRawPixelFormat`（`0x1e6e5ea38`）、`SushiRawPixelFormat`（`0x1e6e5ea40`）。
-   - `0x1ae99fccc..0x1ae9a0b20` 按需调用 `0x1aee31d04`（`PreLTMThumbnailConfiguration`）、`0x1aee31e4c`（`LTMThumbnailConfiguration`）、`0x1aee321d4`（`PostColorProcessingThumbnailConfiguration`）、`0x1aee3231c`（`WeightSegmentMapConfiguration`）、`0x1aee32630`（`LightSourceMaskConfiguration`）、`0x1aee327bc`（`KeypointDescriptorDataConfiguration`）、`0x1aee328dc`（语义掩码 `HumanFullBodiesMaskConfiguration`／`HumanHairMaskConfiguration`／`HumanSkinsMaskConfiguration`／`SkyMaskConfiguration`），从 `VideoOutputConfigurations[@"Metadata"]` 读取上述 10 项子配置字典的 `Width`、`Height`、`PixelFormat`、`DataBufferSize`、`BufferPoolBytesPerRowAlignmentRequirement`、`BufferPoolPlaneAlignmentRequirement`、`BufferPoolCountForCaptureStream` 构建 `BWVideoFormatRequirements`。若缺少任一子字典，对应辅助函数返回 `nil` 并终止节点配置。
+   - `0x1ae99fccc..0x1ae9a0b20` 按需调用以下辅助函数：
+
+     - `0x1aee31d04`（`PreLTMThumbnailConfiguration`）。
+     - `0x1aee31e4c`（`LTMThumbnailConfiguration`）。
+     - `0x1aee321d4`（`PostColorProcessingThumbnailConfiguration`）。
+     - `0x1aee3231c`（`WeightSegmentMapConfiguration`）。
+     - `0x1aee32630`（`LightSourceMaskConfiguration`）。
+     - `0x1aee327bc`（`KeypointDescriptorDataConfiguration`）。
+     - `0x1aee328dc`（语义掩码 `HumanFullBodiesMaskConfiguration`／`HumanHairMaskConfiguration`／`HumanSkinsMaskConfiguration`／`SkyMaskConfiguration`）。
+
+   - 构建 `BWVideoFormatRequirements` 时，从 `VideoOutputConfigurations[@"Metadata"]` 的上述 10 项子配置字典读取 `Width`、`Height`、`PixelFormat`、`DataBufferSize`、`BufferPoolBytesPerRowAlignmentRequirement`、`BufferPoolPlaneAlignmentRequirement`、`BufferPoolCountForCaptureStream`。
+   - 若缺少任一子字典，对应辅助函数返回 `nil` 并终止节点配置。
 2. **阶段 2：`-[BWMultiStreamCameraSourceNode allocateOrReuseBufferPoolsFromSourceNode:]`（`0x1aea19998`）**：
    - `BWGraph` 完成全图格式协商后调用该方法。
    - `0x1aea199d0` 调用 `0x1aea1af70` -> `0x1aee38068` -> `0x1aea1e274` -> `0x1ae9afc70`（及 `0x1ae9d3610`、`0x1ae9c9544`）：根据各 `BWNodeOutput` 协商后的 `resolvedVideoFormat` 构建包含 `"PrimaryScaler"`、`"SecondaryScaler"`、`"StillImage"` 等输出字典（含 `"Width"`、`"Height"`、`"CropRect"`、`"PixelFormat"`、`"MaxOutputFrameRate"`）的字典 `x21`，在 `0x1aea1e574` 首次调用 `[stream setProperty:kFigCaptureStreamProperty_VideoOutputConfigurations value:x21]`。
-   - 紧接着在 `0x1aea199f8..0x1aea19a0c` 调用 `[stream copyProperty:kFigCaptureStreamProperty_VideoOutputConfigurations]`，并在 `0x1aea19b80..0x1aea1a630` 遍历已启用输出槽位：从驱动返回的 `VideoOutputConfigurations[outputID]` 中读取 `"BufferPoolCountForCaptureStream"`（`0x1e6e5ecf8`，在 `0x1aea19eec` 读取）与 `BWNodeOutput` 的 `retainedBufferCount` 相加作为容量 `capacity`（`x20`），调用 `-[BWPixelBufferPool initWithVideoFormat:capacity:name:...]`（`0x1af2103c0`）创建 `BWPixelBufferPool`。若驱动未在 `VideoOutputConfigurations[outputID]` 中提供非零 `"BufferPoolCountForCaptureStream"` 且下游 `retainedBufferCount == 0`，池容量为 `0` 会导致 `BWPixelBufferPool` 创建返回 `nil`（`0x1aea1ac38`）并中止。
+   - 紧接着在 `0x1aea199f8..0x1aea19a0c` 调用 `[stream copyProperty:kFigCaptureStreamProperty_VideoOutputConfigurations]`，并在 `0x1aea19b80..0x1aea1a630` 遍历已启用输出槽位。
+   - 从驱动返回的 `VideoOutputConfigurations[outputID]` 中读取 `"BufferPoolCountForCaptureStream"`（`0x1e6e5ecf8`，在 `0x1aea19eec` 读取）与 `BWNodeOutput` 的 `retainedBufferCount` 相加作为容量 `capacity`（`x20`），调用 `-[BWPixelBufferPool initWithVideoFormat:capacity:name:...]`（`0x1af2103c0`）创建 `BWPixelBufferPool`。
+   - 若驱动未在 `VideoOutputConfigurations[outputID]` 中提供非零 `"BufferPoolCountForCaptureStream"` 且下游 `retainedBufferCount == 0`，池容量为 `0` 会导致 `BWPixelBufferPool` 创建返回 `nil`（`0x1aea1ac38`）并中止。
    - 池创建成功后，在 `0x1aea1a5b4..0x1aea1a628` 生成仅含 `@{ @"BufferPool": cvPixelBufferPool, @"RetainedBufferCount": @(N) }` 的字典并在 `0x1aea1aba0` **第二次调用 `[stream setProperty:kFigCaptureStreamProperty_VideoOutputConfigurations]`**。若驱动的 `setProperty:VideoOutputConfigurations` 直接用新字典覆盖旧字典而非按字段合并，会丢失首次写入的 `"Width"`、`"Height"`、`"PixelFormat"`、`"CropRect"`，导致后续缩放或重配置读取失败。
 3. **阶段 3：`-[BWMultiStreamCameraSourceNode prepareForCurrentConfigurationToBecomeLive]`（`0x1aea24618`）**：
    - 调用父类准备方法并初始化内部同步状态。
@@ -76,7 +89,9 @@
    - 在 SM8750 上，前置环境光传感器 `gls6151` 所在的 QUPv3 SE12 时钟默认关闭（`out/s1110/verify1.log` 第 247 行：`gls6151 (0x31, SE12 clk=0) ... lux=150`），`annibale_sensors.c` 仅返回静态占位的 `als_lux = 150`（`source_flags = ANNIBALE_SENSOR_SRC_DEFAULT`）。
    - `input26_service.c`（第 623 行）无条件向 `IOHIDEventSystem` 注册了 `"Annibale ambient light sensor"`（`HID_USAGE_APPLE_ALS`），使 `CoreBrightness` 的 `-[BrightnessSystemInternal isAlsSupported]`（`0x1e26ab14c`，读取 `"BLControlAlsSupported"`）判定设备具备环境光传感器。
    - 同时，`input26_service.c` 的 `create_als_event()`（第 178 行）调用 `IOHIDEventSetIntegerValue(event, FIELD_ALS_ILLUMINANCE, (CFIndex)lux)` 写入 `0xc000a` 字段；而 `IOKit` 中 `kIOHIDEventFieldAmbientLightSensorIlluminance` 是 16.16 定点数，直接写入整数 `150` 被 `CoreBrightness` 解析为 `150 / 65536.0 = 0.0022888 lux`（接近全黑）。
-   - 开机解锁亮屏时，`SpringBoard` 调用 `BKAmbientLightSensorEnableAutoBrightness`（`verify1.log` 第 6540 行：`DisplayAutoBrightnessActive = 1`），`CoreBrightness` 立即根据虚拟 ALS 的低照度在后台把内部亮度（即控制中心滑块位置 `[CBDisplayModuleiOS + 0x150]`）自动渐变到 `0.150717`（15.07%，对应 `32.477 nits`、`panel_v = 474`，见 `verify1.log` 第 8088～8232 行 `brightness change:0.0695523 .. 0.150717 reason:BrightnessSystemDidChange`），并通过 `backboardd`（`0x100088af0`）与 `BackBoardServices`（`BKSSpringBoardDefaults` `0x1869aa5a8`）写入 `com.apple.springboard` 的 `SBBacklightLevel2` 偏好。
+   - 开机解锁亮屏时，`SpringBoard` 调用 `BKAmbientLightSensorEnableAutoBrightness`（`verify1.log` 第 6540 行：`DisplayAutoBrightnessActive = 1`）。
+   - `CoreBrightness` 立即根据虚拟 ALS 的低照度在后台把内部亮度（即控制中心滑块位置 `[CBDisplayModuleiOS + 0x150]`）自动渐变到 `0.150717`（15.07%，对应 `32.477 nits`、`panel_v = 474`，见 `verify1.log` 第 8088～8232 行 `brightness change:0.0695523 .. 0.150717 reason:BrightnessSystemDidChange`）。
+   - `CoreBrightness` 通过 `backboardd`（`0x100088af0`）与 `BackBoardServices`（`BKSSpringBoardDefaults` `0x1869aa5a8`）写入 `com.apple.springboard` 的 `SBBacklightLevel2` 偏好。
 2. 内核滑块窗口过滤单向丢弃 `CoreBrightness` 渐变，造成物理面板与控制中心滑块脱节：
    - 提交 `0e0f19bb` 在 `MiniAppleARMBacklight.cpp` 中加入了 `if (value_key == NULL && (bl.user_until == 0 || now > bl.user_until)) return;` 过滤，在非触摸滑块窗口期直接丢弃了 `IOMFBBrightnessLevel` 更新（`out/diag-2039/boot-opt1/boot2.log` 与 `verify1.log` 持续打印 `framebuffer update outside slider window ignored`）。
    - 结果 DSI 物理面板停留在 `400 nits`（100%），而 `CoreBrightness` 与控制中心滑块已被虚拟 ALS 自动拉低到 `14%～15%`（`29.155～32.477 nits`）。
@@ -155,4 +170,4 @@
    - `set()` 兼容 iOS 26 `wifid`/`configd` 下发的其余配置项（`25`、`383`、`471`、`473`、`481`、`483`、`485`、`512`、`539`、`542`、`543`、`544`、`545`、`547`、`548`、`572`、`582`）并返回 `0`。
    - `give_network()` 与 `ANNIBALE_STA_LINK` 在 `bss->rssi == 0` 时统一回退为 `-55` dBm，`noise` 回退为 `-95` dBm，`snr` 设为 `40`。
 2. 在 `hackios-xnu-userland/userland/src/inject/inject_sb26.c` 的周期刷新步进（`sb26_stepped_refresh_step`，`+3s..+110s`）中检查 `SBWiFiManager.sharedInstance`：当 `isAssociated` 为真且 `isPrimaryInterface` 为假时，调用 `[wifiMgr _primaryInterfaceChanged:YES]` 触发主接口重评估，并记录 `isPowered`、`isAssociated`、`isPrimaryInterface`、`signalStrengthBars`、`signalStrengthRSSI` 读数。
-3. 产物与提交：内核提交 `8c62d586`..`e7d652b4`（登记为 `12377-s1110-v6`，SHA-256 `610b90a7676ef54e3a150223946cc535eb207a17a244b9f0b26e90087bbf00aa`），用户态提交 `bad0a1a`..`32ffefa`（`root_sha256` `e79915ca85dcb9cfffa06e1e64d715efb590757475f366db3ce3ff25a5d1d2c8`），单测 `test-annibale-apple80211-events.py`、`test_challenger_m6_backlight.py`、`test-audio-plugin.py`、`test-camera-device-ios26.py` 全部通过；当前真机停留在上一轮 iOS 桌面，待设备切回 `xnuloader` 后执行合并轮真机复核。
+3. 产物与提交：内核提交 `8c62d586`..`e7d652b4`（登记为 `12377-s1110-v6`，SHA-256 `610b90a7676ef54e3a150223946cc535eb207a17a244b9f0b26e90087bbf00aa`），用户态提交 `bad0a1a`..`32ffefa`（`root_sha256` `e79915ca85dcb9cfffa06e1e64d715efb590757475f366db3ce3ff25a5d1d2c8`），单测 `test-annibale-apple80211-events.py`、`test_challenger_m6_backlight.py`、`test-audio-plugin.py`、`test-camera-device-ios26.py` 全部通过。剩余真机验收见[平台待办](../backlog/platform.md)。

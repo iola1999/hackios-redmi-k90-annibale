@@ -45,4 +45,6 @@
 
 ## 4. 真机验证与剩余问题
 
-mm1～mm4 出现启动 panic；mm5 采样约 408 秒，未捕获 panic，主动停止后恢复 loader 空闲态。音频提交与本地视频播放通过，扬声器实际出声待确认。Iris 硬件未就绪，相机仍输出软件测试帧；P010／BT.2020 与界面交互尚未验收。各轮结果、产物和接续检查见[多媒体验证结果](../analysis/2026-11-11-multimedia-validation.md)。
+mm1～mm4 出现启动 panic；mm5 采样约 408 秒，未捕获 panic，主动停止后恢复 loader 空闲态。该轮音频提交与本地视频播放通过，Iris 硬件尚未就绪，相机仍输出软件测试帧。后续硬解会话、相机枚举及 P010／BT.2020 结果见[多媒体验证结果](../analysis/2026-11-11-multimedia-validation.md)。
+
+播放、硬解、相机与扬声器听感验收见[多媒体待办](../backlog/multimedia.md)，界面交互见[图形待办](../backlog/graphics.md)。

@@ -28,15 +28,28 @@ args = sys.argv[1:]
 with pathlib.Path(os.environ["FAKE_HISTORY"]).open("a") as stream:
     stream.write(json.dumps(args) + "\n")
 if args == ["devices"]:
-    serial = "TEST-K90" if state.get("reboot") and not state.get("return_reboot") else "xnuloader"
-    print(serial + "\tfastboot")
+    if state.get("reboot") and not state.get("return_reboot"):
+        sequence = config.get("lk_devices", [["TEST-K90"]])
+        step = state.get("lk_enumerations", 0)
+        found = sequence[min(step, len(sequence) - 1)]
+        state["lk_enumerations"] = step + 1
+    else:
+        found = config.get("initial_devices", ["xnuloader"])
+    if state.get("return_reboot") and config.get("autostart_on_enumeration") and not state.get("cold_reset"):
+        state["autostart"] = True
+    for serial in found:
+        print(serial + "\tfastboot")
+    state["enumerated"] = found
+    state_path.write_text(json.dumps(state))
     sys.exit(0)
 assert args[:2] in (["-s", "xnuloader"], ["-s", "TEST-K90"]), args
 serial, command = args[1], args[2:]
+assert serial in state.get("enumerated", []), "command before enumeration"
 if command[0] == "getvar":
     key = command[1]
     if key == "product":
         value = config.get("lk_product", "annibale") if serial == "TEST-K90" else "xnuloader"
+    elif key == "is-userspace": value = config.get("is_userspace", "no")
     elif key == "build-id": value = "test-build"
     elif key == "ramdisk-protocol": value = config.get("protocol", "1")
     elif key == "ramdisk-state": value = config.get("ramdisk", "idle 0 0 300000000")
@@ -53,12 +66,17 @@ if command[0] == "getvar":
             if state.get("fetched"): value = config.get("final_state", value)
     else: raise AssertionError(key)
     if state.get("return_reboot"):
+        if config.get("return_autostart") and key != "product" and not state.get("recovery") and not state.get("cold_reset"):
+            state["autostart"] = True
         option, default = {"product": ("return_product", "xnuloader"),
             "build-id": ("return_build", "test-build"), "ramdisk-protocol": ("return_protocol", "1"),
             "ramdisk-state": ("return_ramdisk", "idle 0 0 300000000"),
             "max-download-size": ("return_maximum", "0x03700000"),
             "result": ("return_state", "idle")}[key]
         value = config.get(option, default)
+        if state.get("autostart"):
+            if key == "result": value = config.get("stop_state", "hung-held 100 0") if state.get("stopped") else "running 0 0"
+            elif key == "ramdisk-state": value = "ready 400000 400000 300000000"
     print("(bootloader) " + key + ": " + value, file=sys.stderr)
 elif command[0] == "stage":
     if config.get("stage_failed"):
@@ -66,6 +84,19 @@ elif command[0] == "stage":
     else:
         assert pathlib.Path(command[1]).read_bytes() == b"synthetic preparation payload"
 elif command == ["oem", "run"]: state["run"] = True
+elif command == ["oem", "recovery"]:
+    assert serial == "xnuloader" and state.get("return_reboot")
+    if config.get("recovery_failed"):
+        print("FAILED (remote: recovery refused)", file=sys.stderr)
+    elif state.get("autostart"):
+        print("FAILED (remote: kernel resources are unavailable for recovery)", file=sys.stderr)
+    else:
+        state["recovery"] = True
+elif command == ["oem", "stop"]:
+    assert serial == "xnuloader" and state.get("autostart")
+    state["stopped"] = True
+elif command == ["oem", "log"]:
+    assert serial == "xnuloader" and state.get("stopped")
 elif command[0] == "get_staged":
     assert state.get("run")
     pathlib.Path(command[1]).write_text(config["log"])
@@ -78,7 +109,11 @@ elif command == ["set_active", "a"]:
 elif command == ["reboot"]:
     if serial == "xnuloader":
         assert state.get("fetched")
-        state["reboot"] = True
+        if state.get("return_reboot"):
+            assert state.get("stopped")
+            state.update(cold_reset=True, autostart=False, recovery=False)
+        else:
+            state["reboot"] = True
     else:
         assert state.get("active")
         state["return_reboot"] = True
@@ -90,7 +125,8 @@ state_path.write_text(json.dumps(state))
 
 
 class RebootTests(unittest.TestCase):
-    def invoke(self, config=None, digest=SHA256, explicit_serial=False, return_loader=False):
+    def invoke(self, config=None, digest=SHA256, explicit_serial=False, return_loader=False,
+               discover_serial=False, ignored_output=True):
         config = {"log": GOOD_LOG, **(config or {})}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -102,25 +138,47 @@ class RebootTests(unittest.TestCase):
             payload = root / "payload.bin"
             payload.write_bytes(PAYLOAD)
             output = root / "run"
+            if discover_serial:
+                subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+                (root / ".gitignore").write_text("run/\n" if ignored_output else "")
             history = root / "history.jsonl"
             env = dict(os.environ, PATH=str(bins) + os.pathsep + os.environ["PATH"],
-                       ANDROID_SERIAL="TEST-K90", FAKE_STATE=str(root / "state.json"),
+                       ANDROID_SERIAL="TEST-K90", K90_STOP_WAIT="1", FAKE_STATE=str(root / "state.json"),
                        FAKE_HISTORY=str(history), FAKE_CONFIG=json.dumps(config))
+            env.pop("LOADER_IMAGE", None)
             argv = [sys.executable, str(HERE / "reboot-lk.py"), str(output),
                     "--payload", str(payload), "--sha256", digest]
             if explicit_serial:
                 env.pop("ANDROID_SERIAL")
                 argv += ["--serial", "TEST-K90"]
+            if discover_serial:
+                env.pop("ANDROID_SERIAL", None)
             if return_loader:
                 argv += ["--return-loader"]
             process = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=15)
             result = json.loads((output / "result.json").read_text())
+            serial_config = output / "device.json"
+            if "serial_config" in result:
+                self.assertEqual(Path(result["serial_config"]), serial_config.resolve())
+                self.assertEqual(json.loads(serial_config.read_text()), {"serial": result["serial"]})
+            elif discover_serial:
+                self.assertFalse(serial_config.exists())
             commands = [json.loads(line) for line in history.read_text().splitlines()] if history.exists() else []
             records = [json.loads(line) for line in (output / "commands.jsonl").read_text().splitlines()] if commands else []
-            self.assertEqual(len(records), len(commands))
+            recorded_commands = []
             for record in records:
                 self.assertTrue({"argv", "rc", "stdout", "stderr", "seconds", "started_monotonic", "started_unix"} <= record.keys())
                 self.assertGreaterEqual(record["seconds"], 0)
+                if record["argv"][0] == "fastboot":
+                    recorded_commands.append(record["argv"][1:])
+                else:
+                    self.assertEqual(Path(record["argv"][1]).name, "recover-loader.py")
+                    recovered = json.loads((Path(record["argv"][2]) / "commands.json").read_text())
+                    for item in recovered:
+                        self.assertTrue({"argv", "rc", "output", "seconds"} <= item.keys())
+                        self.assertEqual(item["argv"][0], "fastboot")
+                        recorded_commands.append(item["argv"][1:])
+            self.assertEqual(recorded_commands, commands)
             return process, result, commands
 
     def refusal(self, config=None, digest=SHA256, before_stage=False):
@@ -205,6 +263,72 @@ class RebootTests(unittest.TestCase):
         self.assertTrue(result["reboot_sent"])
         self.assertFalse(result["lk_entered"])
 
+    def test_discovery_identifies_only_lk_and_saves_local_config(self):
+        for return_loader in (False, True):
+            with self.subTest(return_loader=return_loader):
+                process, result, commands = self.invoke(discover_serial=True, return_loader=return_loader)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                self.assertEqual(result["serial"], "TEST-K90")
+                self.assertTrue(result["lk_entered"])
+                self.assertIn("serial_config", result)
+                self.assertIn(["-s", "TEST-K90", "getvar", "is-userspace"], commands)
+                self.assertEqual(result["loader_returned"], return_loader)
+
+    def test_discovery_waits_for_nonempty_enumeration(self):
+        for sequence in ([[], ["TEST-K90"]], [[""], ["TEST-K90"]],
+                         [["xnuloader"], [], ["TEST-K90"]]):
+            with self.subTest(sequence=sequence):
+                process, result, commands = self.invoke({"lk_devices": sequence}, discover_serial=True)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                self.assertTrue(result["lk_entered"])
+                self.assertTrue(all(c == ["devices"] or c[:2] in
+                                    (["-s", "xnuloader"], ["-s", "TEST-K90"]) for c in commands))
+
+    def test_discovery_refuses_ambiguous_devices_before_queries(self):
+        for found in (["TEST-K90", "OTHER"], ["TEST-K90", "TEST-K90"], ["xnuloader", "TEST-K90"]):
+            with self.subTest(found=found):
+                process, result, commands = self.invoke({"lk_devices": [found]}, discover_serial=True)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertFalse(result["lk_entered"])
+                self.assertFalse(any(c[:2] == ["-s", "TEST-K90"] for c in commands))
+
+    def test_discovery_refuses_other_initial_devices_before_preparation(self):
+        process, result, commands = self.invoke({"initial_devices": ["xnuloader", "OTHER"]}, discover_serial=True)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertFalse(result["reboot_sent"])
+        self.assertEqual(commands, [["devices"]])
+
+    def test_discovery_requires_ignored_output_before_device_commands(self):
+        process, result, commands = self.invoke(discover_serial=True, ignored_output=False)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertFalse(result["reboot_sent"])
+        self.assertEqual(commands, [])
+
+    def test_discovery_rejects_wrong_product_or_userspace_fastboot(self):
+        for config in ({"lk_product": "other"}, {"is_userspace": "yes"}):
+            with self.subTest(config=config):
+                process, result, commands = self.invoke(config, discover_serial=True, return_loader=True)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertFalse(result["lk_entered"])
+                self.assertFalse(any("set_active" in c for c in commands))
+
+    def test_configured_serial_rejects_userspace_fastboot(self):
+        for explicit_serial in (False, True):
+            with self.subTest(explicit_serial=explicit_serial):
+                process, result, commands = self.invoke({"is_userspace": "yes"},
+                                                        explicit_serial=explicit_serial, return_loader=True)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertFalse(result["lk_entered"])
+                self.assertIn(["-s", "TEST-K90", "getvar", "is-userspace"], commands)
+                self.assertFalse(any("set_active" in c for c in commands))
+
+    def test_explicit_serial_waits_for_exact_match(self):
+        process, result, commands = self.invoke({"lk_devices": [["OTHER"], ["TEST-K90"]]}, explicit_serial=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(result["serial"], "TEST-K90")
+        self.assertNotIn("serial_config", result)
+        self.assertFalse(any(c[:2] == ["-s", "OTHER"] for c in commands))
+
     def test_roundtrip_restores_exhausted_a_and_verifies_fresh_loader(self):
         for config in ({}, {"slot": "b", "reboot_lost_reply": True}, {"return_lost_reply": True},
                        {"state": "idle 0 0", "return_state": "idle 0 0"}):
@@ -227,6 +351,50 @@ class RebootTests(unittest.TestCase):
                 self.assertNotEqual(process.returncode, 0)
                 self.assertFalse(result["reboot_sent"])
                 self.assertFalse(any(c[-1:] == ["reboot"] or "set_active" in c for c in commands))
+
+    def test_return_checks_idle_before_locking_recovery(self):
+        process, result, commands = self.invoke(return_loader=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertTrue(result["loader_returned"])
+        recovery = commands.index(["-s", "xnuloader", "oem", "recovery"])
+        self.assertEqual(commands[recovery - 1], ["-s", "xnuloader", "getvar", "result"])
+        self.assertEqual(commands[recovery + 1], ["-s", "xnuloader", "getvar", "build-id"])
+
+    def test_failed_recovery_cannot_report_fresh_loader(self):
+        process, result, commands = self.invoke({"recovery_failed": True}, return_loader=True)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertFalse(result["loader_returned"])
+        self.assertEqual(commands[-1], ["-s", "xnuloader", "oem", "recovery"])
+
+    def test_return_handles_resident_running_before_first_query(self):
+        for config in ({"autostart_on_enumeration": True}, {"return_autostart": True}):
+            with self.subTest(config=config):
+                process, result, commands = self.invoke(config, return_loader=True)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                self.assertTrue(result["loader_returned"])
+                self.assertIn("return_runtime_recovery", result)
+                self.assertEqual(commands.count(["-s", "xnuloader", "oem", "stop"]), 1)
+                self.assertEqual(sum(c[-1:] == ["reboot"] for c in commands), 3)
+                stop = commands.index(["-s", "xnuloader", "oem", "stop"])
+                self.assertNotIn(["-s", "xnuloader", "oem", "recovery"], commands[:stop])
+                reset = len(commands) - 1 - commands[::-1].index(["-s", "xnuloader", "reboot"])
+                self.assertTrue(any(c[2:3] == ["get_staged"] for c in commands[stop:reset]))
+
+    def test_returned_runtime_is_preserved_before_recovery(self):
+        for state in ("returned 100 0", "returned-held 100 0"):
+            with self.subTest(state=state):
+                process, result, commands = self.invoke({"return_state": state}, return_loader=True)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertFalse(result["loader_returned"])
+                self.assertNotIn(["-s", "xnuloader", "oem", "recovery"], commands)
+                self.assertNotIn(["-s", "xnuloader", "oem", "ramdisk", "none"], commands)
+
+    def test_return_keeps_running_resources_without_reset(self):
+        process, result, commands = self.invoke({"autostart_on_enumeration": True,
+                                                 "stop_state": "running 0 0"}, return_loader=True)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertFalse(result["loader_returned"])
+        self.assertEqual(sum(c[-1:] == ["reboot"] for c in commands), 2)
 
     def test_unverified_b_prevents_slot_change(self):
         for config in ({"b_successful": "no"}, {"b_unbootable": "yes"}, {"b_successful": ""}):

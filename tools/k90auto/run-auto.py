@@ -271,8 +271,8 @@ def frame_progress(path):
             "max_gap_seconds": round(max(gaps), 3) if gaps else 0.0, "quiet_seconds": quiet}
 
 
-# Seconds after `oem sh` at which the log is read into cmd-SEQ.log: a built-in answers within the
-# first, a program annsh spawns is killed after 15 s.
+# Initial command snapshots after `oem sh`. Native calls can outlast these reads;
+# rsh.py also checks the latest periodic snapshot for its command's completion.
 CMD_FOLLOW_SECONDS = (2, 5, 10, 18)
 command_reads = []      # (host time due, seq)
 
@@ -433,7 +433,7 @@ def teardown():
         call(["get_staged", run / f"{name}-serial.log"], 40, False)
         if name not in ("returned", "returned-held", "hung", "hung-held"):
             return name, False
-        if re.fullmatch(re.escape(name) + r"(?: [0-9]+ 0)?", variable("result", check=False)) is None:
+        if re.fullmatch(re.escape(name) + r"(?: [0-9a-fA-F]+ 0)?", variable("result", check=False)) is None:
             return "unknown", False
         # the reset below clears what the kernel kept for the host, so it is saved first, as NAME.bin
         for label, (address, length) in fetch_regions().items():
@@ -445,6 +445,11 @@ def teardown():
         staged = call(["oem", "recording"], 8, False) if name == "returned" else None
         if staged and staged["rc"] == 0 and "FAILED" not in staged["output"]:
             call(["get_staged", run / "outbox.bin"], 300, False)
+        if os.environ.get("LOADER_IMAGE"):
+            recovery = subprocess.run([sys.executable, str(Path(__file__).with_name("recover-loader.py")),
+                                       str(run / "loader-recovery")], capture_output=True, text=True)
+            (run / "loader-recovery.log").write_text(recovery.stdout + recovery.stderr)
+            return name, recovery.returncode == 0
         reply = call(["reboot"], 10, False)
         return name, reply["rc"] == 0 and "FAILED" not in reply["output"]
     return state(), False

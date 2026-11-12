@@ -17,7 +17,7 @@
 
 ```sh
 # 主机上，工作区根目录
-git clone -b loader-v17 --recurse-submodules https://github.com/iola1999/hackios-mu-silicium.git hackios-xnu-kernel/Mu-Silicium
+git clone -b k90-port --recurse-submodules https://github.com/iola1999/hackios-mu-silicium.git hackios-xnu-kernel/Mu-Silicium
 
 # 容器内
 cd /work/hackios-xnu-kernel/Mu-Silicium
@@ -26,22 +26,24 @@ bash /work/tools/fixup-mu-nasm.sh      # 用容器的 nasm 代替 NuGet 依赖�
 python3 build_uefi.py -d annibale
 ```
 
-- 产物是 `Build/annibalePkg/RELEASE_CLANGPDB/FV/SILICIUM_UEFI.fd`（3 MiB）。v17 里的 FD 就是 `loader-v17` 状态按上面步骤构建的产物。重新构建的 FD 与已有产物不逐字节相同：EDK2 产物带构建时的信息，FV 又经过压缩。2026-11-05 在 `loader-v16` 的干净副本上重建过一次，与 v16 里的 FD 不逐字节相同。
+- 产物是 `Build/annibalePkg/RELEASE_CLANGPDB/FV/SILICIUM_UEFI.fd`（3 MiB）。复现历史 v17 镜像时，源码选择 `loader-v17` 标签；其中的 FD 由该状态按上面步骤构建。重新构建的 FD 与已有产物不逐字节相同：EDK2 产物带构建时的信息，FV 又经过压缩。2026-11-05 在 `loader-v16` 的干净副本上重建过一次，与 v16 里的 FD 不逐字节相同。
 - 工具链是 CLANGPDB，Mu 的 tools_def 没有 GCC5 定义。
 - FD 加载地址 `0xA7100000`、大小 `0x300000`，写在 `Resources/Configs/annibale.toml`，与 `hackios-xnu-kernel/common/devices/annibale.conf` 一致。
 
 ## 3. 装配 loader 镜像
 
-在 `hackios-xnu-kernel/` 目录执行：
+在 `hackios-xnu-kernel/` 目录执行，先将 `BUILD_ID` 设为本轮构建所用源码提交的完整 40 位小写十六进制值：
 
 ```sh
-EXTRA_CFLAGS=-DDIRECT_PHONE_PLAT BUILD_ID=a48c7fbac8fb64e1e8cafe2cf4efc4c79dbae767 xnuloader/build.sh
-python3 xnuloader/mkpayload.py -o out/loader-payload-v16.bin loader.efi=xnuloader/loader-phone.efi --identity v57 --usb
+EXTRA_CFLAGS=-DDIRECT_PHONE_PLAT BUILD_ID="${BUILD_ID:?填写本轮源码提交}" xnuloader/build.sh
+python3 xnuloader/mkpayload.py -o out/loader-payload.bin loader.efi=xnuloader/loader-phone.efi --identity v57 --usb
 PATH="$(brew --prefix llvm)/bin:$PATH" UEFI_TARGET=annibale FD_BASE=0xA7100000 FD_SIZE=0x300000 PAYLOAD_BASE=0xF0000000 PAYLOAD_CAP=0x03700000 \
-  python3 mkxnuimg.py -p out/loader-payload-v16.bin -o out/handoff-loader-v17.img
+  python3 mkxnuimg.py -p out/loader-payload.bin -o out/handoff-loader.img
 ```
 
-- 第一步生成 `xnuloader/loader-phone.efi`。`BUILD_ID` 必须是 40 位小写十六进制的源码提交，装好后由 `fastboot getvar build-id` 读出。`a48c7fb` 是 v16 的源码提交，v17 沿用同一个 loader，此后 `xnuloader/` 没有改动。`tools/k90auto/cycle.py` 按 build-id 是否含 `a48c7fb`（`LOADER_BUILD`）判断驻留的 loader；build-id 只标识 loader，区分不了 v16 和 v17 的 FD。2026-11-05 这样重建的 `loader.efi` 与 v16 里的那份只差 PE 头里 3 字节的链接时间戳。`xnuloader/` 改动后，`BUILD_ID` 改填当时的提交，并同步 `cycle.py` 的 `LOADER` 与 `LOADER_BUILD`。
+- 第一步生成 `xnuloader/loader-phone.efi`。`BUILD_ID` 的格式要求见 [`xnuloader/build.sh`](../../hackios-xnu-kernel/xnuloader/build.sh)，装好后由 `fastboot getvar build-id` 读出，并与本轮构建记录核对。build-id 只标识 loader，UEFI FD 需另行核对文件摘要。
+- `cycle.py` 通过 `recover-loader.py` 恢复空闲 loader。显式指定 `LOADER_IMAGE=FILE` 或设置 `CYCLE_CHECKPOINT=1` 时执行 LK 检查点；每轮检查 `slot-retry-count:a`，低于 3 时也执行检查点。参数和恢复要求见[真机调试手册 §1](../plan/device-test-playbook.md#1-槽位假设与当前启动方式)。
+- 历史 v16 使用 `a48c7fb` 的 loader 源码，v17 沿用同一个 loader，build-id 无法区分两版 FD。2026-11-05 重建的 `loader.efi` 与 v16 里的那份只差 PE 头里 3 字节的链接时间戳。
 - `mkxnuimg.py` 发现 `Mu-Silicium/BootShim` 时按给定地址重编 BootShim，需要 clang 和 `llvm-objcopy`（macOS 上由 Homebrew 的 llvm 提供）；DTB 取 `Mu-Silicium/Resources/DTBs/annibale.dtb`。
 - 设 `PAYLOAD_CAP=0x03700000` 时编出 368 字节的严格版 shim，v17 起使用；`common/build.sh annibale` 从 `annibale.conf` 带上同一个值。不设时编出 176 字节的 shim，与 v6～v16 相同。
 - 2026-11-05 去掉 `PAYLOAD_CAP`、用 v16 的载荷和本地 `loader-v16` 状态的 FD 重建 v16，kernel 段（BootShim、FD、XNUP 容器）和 DTB 与 v16 逐字节相同，只有 gzip 压缩流和头部 id 不同。

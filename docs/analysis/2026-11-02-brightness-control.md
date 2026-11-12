@@ -2,11 +2,11 @@
 
 本文回答控制中心和设置里的亮度滑块怎样调到 K90 面板的真实亮度。只读调研：读了 iOS 26 共享缓存（`23G90__iPhone18,3`，下文地址都是未滑动地址）、本仓库源码、Android 设备树和参考仓库 dada 的内核补丁，没有操作设备，也没有构建。`DTS:行号` 是解压后的 `docs/analysis/data/annibale.dts.gz`。
 
+本文的源码状态与推断对应 11-02 调研，11-05 的 DCS 与系统滑块实测见第 9 节。后续单位与持久化修复见[多媒体验证结果](2026-11-11-multimedia-validation.md)，剩余验收见[平台待办](../backlog/platform.md)。
+
 ## 1. 需要用户决定的事
 
-1. 是否给面板发 DCS 命令。真实调光要经 DSI 给面板发 `0x51`；发错的包可能让面板驱动芯片卡住，我们没有面板的上电序列和 DSC 配置，卡住后只能重启手机恢复。方案只发 `0x51` 和 `0x53` 两种命令。2026-11-05 用户选择调面板背光，由系统里的亮度设置控制，默认打开、不用开机参数，排期见[后续工作](../plan/2026-11-05-next-work.md) §3。
-2. 亮度上限。面板的 `max-level` 是 0x3fff，出厂上限是 0x1a5e，0x1a5e 以上推测是高亮（HBM）区间。建议先以 0x1a5e 为上限，HBM 以后再说。
-3. 不发 DCS 时的退路是整体压暗画面，只能变暗，低亮度下渐变会有色阶。已用显示控制器的混合器做成试用开关 `fb_dim=1`（§9）。
+DCS 调光已接入系统亮度滑块并默认开启，见第 9 节。实测采用 `0x1a5e` 为面板 DBV 上限；设备树的 `max-level` 为 `0x3fff`，正常亮度与 HBM 的分界尚未确认。当前亮度与持久化验收见[平台待办](../backlog/platform.md)。
 
 ## 2. 结论
 
@@ -40,7 +40,7 @@
 
 ## 5. 从内核发 DCS 命令
 
-下表的寄存器偏移凭主线 msm 的 `dsi.xml.h` 和下游 `dsi_ctrl_reg.h` 回忆得出，本地没有来源，第 2 步上机时先只读核对：
+下表是 11-02 按主线 msm 的 `dsi.xml.h` 和下游 `dsi_ctrl_reg.h` 回忆整理的寄存器偏移，调研时没有本地来源。后续真机读数与实际采用的测试模式 FIFO 路径见第 9 节。
 
 | 偏移 | 寄存器 | 用途 |
 |---|---|---|
@@ -65,24 +65,17 @@
 
 ## 7. 实施顺序
 
-| 步 | 内容 | 成功判据 | 设备 |
-|---|---|---|---|
-| 1 | 不重编：跑 `mg_test DeviceSupportsFrameSynchronousBrightness`，在 backboardd 日志里找 `Built in display/backlight` | 知道逐帧同步路径开没开，确认「没找到背光」的现状 | 是 |
-| 2 | 新文件（`MiniIOMobileFramebuffer.cpp` 已超过 AGENTS.md §2 的行数上限）：`AppleARMBacklight` 服务，带 `backlight-control`、`brightness{5, 0x1a5e, 0x35a}`、`BrightnessMilliNits`；它和 IOMobileFramebuffer 的 `setProperties` 只记日志；只读打印 §5 的 DSI0 寄存器。不给面板发任何命令 | 拖动滑块时日志里有键、值和频率；看到 `BLOCK_DMA_WITHIN_FRAME` 的状态和 bootloader 的 DMA 缓冲地址 | 是 |
-| 3 | boot-arg 打开时发一次 `51 03 5A`，缓冲在 splash 区末尾 | DMA_DONE 置位，`ACK_ERR`、`STATUS` 干净，INTF1 帧计数继续走，人或摄像头确认亮度变化 | 是，需要人看 |
-| 4 | 把第 2 步接到第 3 步：`brightness` 直接作为面板亮度值，尼特按线性换算；夹在范围内，每帧最多写一次，写完更新 `value` 和 `BrightnessMilliNits.value` | 滑块从低拖到高时亮度跟着变，面板和帧计数正常 | 是 |
-| 5 | 可选：`53 28` 渐变、HBM。自动亮度需要环境光传感器，现在没有 | | 是 |
+`AppleARMBacklight`、IOMFB 属性接收、DCS 发送与回读已完成，调用单位、寄存器读数及滑块实测见第 9 节。后续亮度单位与持久化修复见[多媒体验证结果](2026-11-11-multimedia-validation.md)，低亮度跨重启、滑块与面板一致性及闪烁验收见[平台待办](../backlog/platform.md)。
 
 ## 8. 风险与未知
 
 - 面板卡住只能重启恢复。
-- DSI 寄存器偏移没有本地来源，要上机核对。
-- DSI 的 DMA 能否经 SMMU 取到内存不知道。不经 DMA 的发法（DSI 测试模式 FIFO）见 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 7 项，寄存器偏移来自 SM8850，要在 SM8750 上核对。
+- 直接使用显示 SMMU 的 DMA 路径在本轮调研时尚未验证，后续采用测试模式 FIFO，SM8750 实测见第 9 节；参考来源见 [11-05 上游对照](2026-11-05-upstream-lessons.md) §1 第 7 项。
 - 正常亮度与 HBM 的分界不知道。
 - CoreBrightness 要的属性比本文最初列的多，见第 9 节。
 - iOS 会因温度压低亮度：dada 遇到过电池温度报 43～45 °C 时 iOS 把屏幕压到接近全黑，它的处理是把报给 iOS 的温度设上限（dada 补丁第 24812 行）。
 
-最有用的第一个真机实验是第 2 步：一次构建，不给面板发命令，就能看到 iOS 实际走哪条属性路径、用什么单位，以及 DSI 的 DMA 是否可用；`mg_test` 可以放在同一轮里跑。
+剩余验证见[平台待办](../backlog/platform.md)。
 
 ## 9. 实测（2026-11-05）
 

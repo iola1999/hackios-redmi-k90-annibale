@@ -13,6 +13,7 @@ Usage: python3 tools/test-loader-sample-series.py
 Every check prints one PASS line; the first failure prints the recorded call log and exits 1.
 """
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -27,9 +28,16 @@ FAKE_FASTBOOT = r'''#!/usr/bin/env bash
 printf '%s\t%s\t%s\n' "$(date +%s.%N)" "$$" "$*" >> "${FAKE_CALLS:?}"
 mode="${FAKE_MODE:?}"
 case "$*" in
-*" devices")
+devices)
 	printf 'xnuloader\t fastboot\n' ;;
 *" getvar result")
+	case "$mode" in
+		timeout_result) exec sleep 2 ;;
+		failed_result) printf 'result query failed\n'; exit 1 ;;
+		rejected_result) printf 'result: running 0 0\nFAILED (query rejected)\n'; exit 0 ;;
+		missing_result) printf 'OKAY\n'; exit 0 ;;
+		empty_result) printf 'result:\nOKAY\n'; exit 0 ;;
+	esac
 	printf 'result: running 0 0\n' ;;
 *"oem log")
 	if [ "$mode" = silent_log ]; then
@@ -91,6 +99,19 @@ def recorded(calls):
 
 
 def main():
+    spec = importlib.util.spec_from_file_location("loader_sample_series", SCRIPT)
+    sampler = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sampler)
+    cases = [
+        ([], "no samples recorded"),
+        ([{"at": 30, "result_ok": True}], "no samples at or after +180s"),
+        ([{"at": 180, "result_ok": True}, {"at": 210, "result_ok": False}], "1/2 answered"),
+        ([{"at": 180, "result_ok": True}, {"at": 210, "result_ok": True}], "2/2 answered"),
+        ([{"at": 180, "result_ok": False}, {"at": 210, "result_ok": False}], "0/2 answered"),
+    ]
+    for rows, expected in cases:
+        check(expected in sampler.verdict(rows), f"verdict records {expected}")
+
     with tempfile.TemporaryDirectory() as name:
         tmp = Path(name)
         fake = tmp / "fastboot"
@@ -135,16 +156,29 @@ def main():
         staged = [row for row in rows if "get_staged" in row[2]]
         check(not staged, "a silent channel never starts an upload")
         check("the rest of this sample is skipped" in out, "the sample is recorded as skipped")
-        first_of_second = None
-        seen_first = False
-        for row in rows:
-            if " getvar result" in row[2]:
-                if seen_first:
-                    first_of_second = row[2]
-                    break
-                seen_first = True
-        check(first_of_second is None or first_of_second.endswith("devices"),
+        check([row[2] for row in rows] == [
+                  "-s xnuloader getvar result", "-s xnuloader oem log", "devices",
+                  "-s xnuloader getvar result", "-s xnuloader oem log"],
               "the next sample probes the bus with a fresh client first")
+
+        for mode in ("timeout_result", "failed_result", "rejected_result", "missing_result", "empty_result"):
+            out, calls, log_dir, _took = run(tmp, mode, [
+                "--times", "0,1", "--shot-at", "0,1", "--var-cap", "0.1"])
+            check([row[2] for row in recorded(calls)] == [
+                      "-s xnuloader getvar result", "devices", "-s xnuloader getvar result"],
+                  f"{mode}: no log, upload or screenshot follows the failed query")
+            check("the rest of this sample is skipped" in out,
+                  f"{mode}: query failure is reported as skipped")
+            check(not list(log_dir.glob("log-*.txt")) and not list(log_dir.glob("screen-*.raw")),
+                  f"{mode}: no sample artifacts were fetched")
+
+        out, calls, log_dir, _took = run(tmp, "successful_result", ["--times", "0", "--shot-at", "0"])
+        check([row[2] for row in recorded(calls)] == [
+                  "-s xnuloader getvar result", "-s xnuloader oem log",
+                  f"-s xnuloader get_staged {log_dir / 'log-000.txt'}",
+                  "-s xnuloader oem screenshot",
+                  f"-s xnuloader get_staged {log_dir / 'screen-000.raw'}"],
+              "a valid query keeps the log and screenshot collection order")
 
         # a file from an earlier round is not counted as this round's bytes
         stale = log_dir_path = None

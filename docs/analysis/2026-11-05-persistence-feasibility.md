@@ -2,6 +2,8 @@
 
 用户希望 iOS 的设置、加入过的 Wi-Fi 和装上的应用在重启后保留，前提是不刷写、不调整 Android 原有分区。本文记录可行性分析与 2026-11-05 的实测结果。
 
+当前持久化的后续事项见[系统与持久化待办](../backlog/system.md)。
+
 ## 1. 结论
 
 - 现有代码已经能把 `/private/var` 打包成一份带校验的归档（`var_store save`），也能在开机时把归档展开回去（`var_store load`，开机种子走的就是这条路）。缺的是归档存放的位置。
@@ -32,19 +34,13 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 
 ## 4. 风险与需要的决定
 
-- 写入落在 userdata 分区上。扩展区算错会写坏 Android 的用户数据，后果无法撤销。写之前至少要做三项核对：每次开机重新解析 `lp_metadata`；槽位开头的扇区与电脑上记录的系统盘哈希一致（`dsu.py record` 已经按 MiB 记了 SHA-1）；写入范围不越过槽位末尾和系统盘之后的约定起点。
-- 在 Android 里丢弃 DSU 之后，那片扇区会还给文件系统。loader 找不到 `lp_metadata` 时必须不写，这一条要有离线测试。
-- 用户说过暂不刷写、调整 Android 原有分区。DSU 槽位是 Android 自己的 DSU 安装程序分配的文件，不改分区表，也不改分区大小，写入发生在 userdata 分区里这个文件的扇区上。2026-11-05 用户要求做跨开机保留，先评估影响（§6），暂不改动。
-- 第一步可以只读：loader 解析并打印槽位尾部的范围、读出尾部第一个扇区，确认全是零。这一步不写闪存，可以先做。
+- 写入落在 userdata 分区上。扩展区算错会写坏 Android 的用户数据，后果无法撤销。原方案的范围校验至少包含三项条件：每次开机重新解析 `lp_metadata`；槽位开头的扇区与电脑上记录的系统盘哈希一致（`dsu.py record` 已经按 MiB 记了 SHA-1）；写入范围不越过槽位末尾和系统盘之后的约定起点。
+- 在 Android 里丢弃 DSU 之后，那片扇区会还给文件系统。loader 找不到 `lp_metadata` 时必须不写。
+- 2026-11-05 的分析以不刷写、不调整 Android 原有分区为前提。DSU 槽位是 Android 自己的 DSU 安装程序分配的文件，不改分区表，也不改分区大小，写入发生在 userdata 分区里这个文件的扇区上。
 
 ## 5. 实施顺序（确认后）
 
-| 步 | 内容 | 判据 |
-|---|---|---|
-| 1 | loader 只读：打印槽位尾部的扩展区，读出尾部开头 | 范围在槽位内，内容全零 |
-| 2 | loader 写路径：复用 `loader_03_ufs_block_watch.inc` 的写与回读，目标改为 DSU 尾部，范围检查放在写函数里 | 离线测试覆盖越界、`lp_metadata` 缺失、哈希不符三种拒绝 |
-| 3 | 停轮时保存：`var_store watch` 的归档经内核交给 loader 写入尾部两个槽位之一 | 回读一致，日志有槽位号与 CRC |
-| 4 | 开机读入：loader 读尾部最新的有效槽位，`var_store load` 展开 | 重启后设置项、加入过的 Wi-Fi、装上的应用还在 |
+当前 `/private/var` 由内核直接读写 UFS `darwin_var`，部署与实测见[根文件系统 §5](rootfs-strategy.md#5-数据盘挂载与恢复)。后续设置读回与异常复位验证见[系统与持久化待办](../backlog/system.md)。
 
 ## 6. DSU 的写入与对 Android 的影响
 
@@ -80,6 +76,11 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 - 只读核对（`kernel-12377-st2-r1`）：loader 报 `dsu: dsu_store: 4096 MB from 12288 MB of the DSU slot (1048576 blocks of 4096)`，`var_store show` 读出 `slot 0: empty`、`slot 1: empty`。
 - 硬件 CRC-32 加速（loader v19）：`loader_02_platform_cpu_ufs_survey.inc` 的 `ufs_crc32()` 原为软件逐位循环，在停轮 30 秒时限内只写完 28,672 块（`st2-r2`）。改为 ARMv8 `crc32x`／`crc32b` 指令后（`handoff-loader-v19.img`），`kernel-12377-st2-r3` 在 5,300 毫秒内把 `/private/var`（28,724 条目、410,694,656 字节、CRC `0x2c8947ea`）写进 `slot 0`（写入 99,244 块，跳过相同的 1,024 块）。
 - Android 侧验证：`st2-r3` 写入后切回 Android（B 槽）运行 2 小时，`gsi_tool status` 仍为 `installed`／`disabled`，系统界面与用户数据正常，重装含 `bluetoothd` 的新系统盘后 `system_gsi` 扩展区增至 166 段（loader v19 将 `LP_EXTENTS_MAX` 扩到 1024）。
-- 跨开机从闪存展开与双槽轮换（`kernel-12377-st3-r1`、`kernel-12377-st4-r2`）：不带 `etc/var.seed`（`--seed ""`）启动，`st3-r1` 的 `init` 直接从 `/dev/rufs_dsu_store` 的 `slot 0`（generation 1）展开 11,580 个目录、5,260 个文件（405,602,769 字节）和 61 个符号链接，首个 SpringBoard 显示全部 15 个主屏图标，Wi-Fi 自动连上已保存网络，停轮时在 5,000 毫秒内把 `generation 2`（27,695 条目，408,117,728 字节，CRC `0xfa947c2e`）写入 `slot 1`（写入 97,591 块，跳过 2,048 块）；随后的 `st4-r2` 从 `slot 1`（generation 2）展开 11,216 个目录、4,935 个文件与 85 个符号链接，`bluetoothd` 直接从磁盘恢复上一次缓存的 `'other devices'` 表，停轮时在 4,620 毫秒内把 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`）轮换写回 `slot 0`（写入 100,250 块，跳过 1,024 块）。
+- 跨开机从闪存展开与双槽轮换（`kernel-12377-st3-r1`、`kernel-12377-st4-r2`）：
+
+  - 不带 `etc/var.seed`（`--seed ""`）启动，`st3-r1` 的 `init` 直接从 `/dev/rufs_dsu_store` 的 `slot 0`（generation 1）展开 11,580 个目录、5,260 个文件（405,602,769 字节）和 61 个符号链接，首个 SpringBoard 显示全部 15 个主屏图标，Wi-Fi 自动连上已保存网络。
+  - `st3-r1` 停轮时在 5,000 毫秒内把 `generation 2`（27,695 条目，408,117,728 字节，CRC `0xfa947c2e`）写入 `slot 1`（写入 97,591 块，跳过 2,048 块）。
+  - 随后的 `st4-r2` 从 `slot 1`（generation 2）展开 11,216 个目录、4,935 个文件与 85 个符号链接，`bluetoothd` 直接从磁盘恢复上一次缓存的 `'other devices'` 表。
+  - `st4-r2` 停轮时在 4,620 毫秒内把 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`）轮换写回 `slot 0`（写入 100,250 块，跳过 1,024 块）。
 
 

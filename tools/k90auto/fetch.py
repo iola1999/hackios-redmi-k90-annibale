@@ -24,8 +24,15 @@ def main():
     round_dir, path, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
     data = bytearray()
     while True:
-        answer = subprocess.run([sys.executable, str(HERE / "rsh.py"), round_dir, "cat", path, str(len(data))],
-                                capture_output=True, text=True).stdout
+        before = len(data)
+        result = subprocess.run([sys.executable, str(HERE / "rsh.py"), round_dir, "cat", path, str(before)],
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"fetch: rsh failed at offset {before} with exit {result.returncode}", file=sys.stderr)
+            print(result.stdout, end="", file=sys.stderr)
+            print(result.stderr, end="", file=sys.stderr)
+            return 1
+        answer = result.stdout
         size = after = None
         for line in answer.splitlines():
             m = re.match(r"\s*cat (\d+) (\S+)$", line)
@@ -33,7 +40,11 @@ def main():
                 if int(m.group(1)) != len(data):
                     print(f"fetch: expected offset {len(data)}, got {m.group(1)}: the console dropped a line")
                     return 1
-                data += base64.b64decode(m.group(2))
+                try:
+                    data += base64.b64decode(m.group(2), validate=True)
+                except ValueError as error:
+                    print(f"fetch: invalid base64 at offset {len(data)}: {error}")
+                    return 1
                 continue
             m = re.match(r"\s*cat end (\d+) next (\d+)$", line)
             if m:
@@ -41,8 +52,14 @@ def main():
         if size is None or after != len(data):
             print(f"fetch: no end line for offset {len(data)}:\n{answer[-400:]}")
             return 1
-        if len(data) >= size:
+        if len(data) > size:
+            print(f"fetch: received {len(data)} bytes, exceeding declared file size {size}")
+            return 1
+        if len(data) == size:
             break
+        if len(data) == before:
+            print(f"fetch: no progress at offset {before}, declared file size {size}")
+            return 1
     out.write_bytes(bytes(data))
     print(f"fetch: {path}: {len(data)} bytes to {out}")
     return 0

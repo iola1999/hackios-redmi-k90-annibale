@@ -30,5 +30,6 @@
 - boot：`out/widget-render-1108/widget-trace/tmua-air-candidate/boot-direct.img`
 - boot SHA-256：`6b0ba5d33676ec2878c12099ee839ce3e5853c714844af9737595d9b00706a65`
 - 严格签名、辅助盘逐记录比较和 `run.py --verify-only` 已通过。
-- 下一轮需要取得同一 fragment 的完整 AIR，并用真实 `air2nir` decode 检查实际输入、输出与 framebuffer fetch。
-- 候选尚未进行真机验证，当前没有生产渲染修复。
+- 本轮候选尚未进行真机验证，没有生产渲染修复。
+
+目标 AIR 的采集、解码与渲染验收见[图形待办](../backlog/graphics.md)。

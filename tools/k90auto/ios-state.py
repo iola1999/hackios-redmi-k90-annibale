@@ -2,7 +2,7 @@
 """Collect read-only iOS state through the running round's existing rsh channel.
 
 usage: tools/k90auto/ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]
-       [--output FILE]
+       [--process PID] [--output FILE]
 
 The default report includes ps, trollstorehelper list, /Applications and the standard IPA/download staging
 directories. trollstorehelper list covers user-installed bundles; use trollstorehelper open and the home screen to check
@@ -28,7 +28,7 @@ DEFAULT_COMMANDS = (
 )
 
 
-def collect(round_dir, extra_ls=(), sysctls=(), thread_pids=(), output=None):
+def collect(round_dir, extra_ls=(), sysctls=(), thread_pids=(), output=None, *, process_pids=()):
     run = round_dir / "run"
     if not run.is_dir() or (run / "reboot.json").exists():
         raise RuntimeError(f"{run} is not a running round")
@@ -38,6 +38,7 @@ def collect(round_dir, extra_ls=(), sysctls=(), thread_pids=(), output=None):
     for pid in thread_pids:
         commands.append((f"threads:{pid}", ("threads", str(pid))))
         commands.append((f"thread_dump:{pid}", ("dump", str(pid))))
+    commands.extend((f"process:{pid}", ("process", str(pid))) for pid in process_pids)
 
     report = {
         "round_dir": str(round_dir),
@@ -72,16 +73,28 @@ def collect(round_dir, extra_ls=(), sysctls=(), thread_pids=(), output=None):
     return report, destination
 
 
+def positive_pid(value):
+    try:
+        pid = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("PID must be an integer from 1 to 2147483647") from None
+    if not 1 <= pid <= 2147483647:
+        raise argparse.ArgumentTypeError("PID must be an integer from 1 to 2147483647")
+    return pid
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("round_dir", type=Path)
     parser.add_argument("--ls", dest="extra_ls", action="append", default=[], metavar="PATH")
-    parser.add_argument("--sysctl", action="append", default=[], metavar="NAME")
+    parser.add_argument("--sysctl", dest="sysctls", action="append", default=[], metavar="NAME")
     parser.add_argument("--threads", action="append", type=int, default=[], metavar="PID")
+    parser.add_argument("--process", dest="processes", action="append", type=positive_pid, default=[], metavar="PID")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     try:
-        report, _ = collect(args.round_dir, args.extra_ls, args.sysctls, args.threads, args.output)
+        report, _ = collect(args.round_dir, args.extra_ls, args.sysctls, args.threads, args.output,
+                            process_pids=args.processes)
     except (OSError, RuntimeError) as error:
         parser.exit(2, f"ios-state: {error}\n")
     return 2 if report["status"] == "transport_failed" else 0

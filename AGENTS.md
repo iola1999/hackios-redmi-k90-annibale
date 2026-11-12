@@ -1,6 +1,6 @@
 # AGENTS.md — hackios-redmi-k90-annibale 工作区约定
 
-HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，计划见 `docs/plan/`。
+HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，文档入口见 [docs/README.md](docs/README.md)，未完成事项与候选方向见[待办目录](docs/backlog/README.md)。
 
 ## 1. 文档写作约定（必须遵守）
 
@@ -14,7 +14,11 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 8. **禁止巨型段落与堆砌长句**。一个段落只说一件事，控制在 3～5 句以内；正文单段超过约 500 字符即视为需要拆分。一段里有两个以上独立事实点（判据、时刻、哈希、计数、归属、待办）时，必须拆成列表、表格或子小节，一项一行。不要用逗号、分号、破折号把多个独立事实串成一个长句。理由：巨型单行段落无法扫读、无法定位、无法按点引用，diff 审阅也读不出改了什么。
 9. **事实分层存放**。哈希链、mtime、grep 计数、命令原文这类取证细节写进所属小节或专门的实测数据小节，正文只留结论加指针（文档路径或提交哈希）。同一事实只在一份文档展开，其余位置引用，不重复抄写。
 10. **过程记录即时清理**。已撤销的结论、已被取代的排期、已结案的待核，删除其过程叙述，只留一行结果与出处。「谁在何时说了什么、后来发现不对」这类日记式往来不入库；确有留存价值的教训提炼成规则写进对应手册，原始往来留在提交说明或不入库的本地记录里。
-11. **文档按用途分类，不混装**。plan 放前瞻计划与常设规则，analysis 放结论与实测数据，progress 放一轮一事的记录。progress 文档不得膨胀成跨轮取证档案；跨轮共用的判据、身份规则与校验记录写进 analysis 或归档文档，progress 只留本轮结果与指针。
+11. **文档按用途分类，不混装**。backlog 集中未完成事项、候选方向与验收条件，plan 放已选批次的执行安排、架构决策与常设规则，analysis 放结论与实测数据，progress 放一轮一事的记录。progress 文档不得膨胀成跨轮取证档案；跨轮共用的判据、身份规则与校验记录写进 analysis 或归档文档，progress 只留本轮结果与指针。
+12. **入口与职责明确。** 全项目专题入口维护在 [docs/README.md](docs/README.md)，AGENTS.md 只保留工作约束与必读操作入口。工具用法放在工具旁的 README，跨仓流程放在顶层开发指南；同一事实只在负责它的文档展开。
+13. **区分现行说明与历史记录。** 操作手册引用当前脚本和参数来源，阶段分析注明适用版本、日期及验证范围。新结果更新当前专题和进度摘要，历史记录保留当轮事实并链接后续结果；可变默认值与源码哈希优先引用来源。
+14. **新增与移动先核对现有用途。** 同主题内容优先更新已有文档，独立问题再新建并加入文档入口。移动文件或修改标题前，检查顶层及子模块中的链接、脚本和章节引用；导入的上游资料保留原格式与来源，生成文档通过对应脚本更新。
+15. **提交前运行文档检查。** `python3 tools/check-docs.py` 只读检查顶层及两个代码子模块的跟踪 Markdown：检查 Markdown 内联链接、引用式链接的本地目标和锚点，以及从顶层 README 到各文档的可达性；顶层另检查二级标题编号、硬换行和长段落。支持范围见[文档入口](docs/README.md#11-放置与检查)。显式传入文件可检查新文档。事实、命令适用范围、隐私与变更归属仍需人工审阅；改动启动参数来源后另运行 `python3 tools/bootargs.py --check`。
 
 ## 2. 代码行数约定（必须遵守）
 
@@ -57,27 +61,36 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 - **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需调用 `idalib-mcp` 做伪代码反编译、交叉引用与调用流分析）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
 - **明确禁止的做法。** 不得用方法交换（swizzling）强改 UI 视图背景色或伪造通知／权限授权返回值；不得在渲染管线编译失败时回退为固定纯色管线掩盖着色器错误；不得针对单个应用硬编码环境变量绕过通用容器目录初始化；不得用用户态定时轮询打包脚本代替内核块设备直写持久化。
-- **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区（[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)）：`darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex（支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`），`darwin_var`（`/dev/ufs_darwin_var`）由内核直写块持久化层（`ANNFS001`，`ramfs_disk.inc`）直接读写物理块并以双 32 MiB 乒乓元数据槽位实时落盘。内核 `IOKit`（`disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`）、`devfs`（`/dev/disk*`）与 `statfs`（`/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`，总容量按 128 GB 容器十进制口径计算并扣除系统卷、Cryptex 与 `/private/var` 实际已用空间）与 iPhone 真机保持一致。
+- **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区，见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。
+  - `darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex，支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`。
+  - `darwin_var`（`/dev/ufs_darwin_var`）由内核直写块持久化层（`ANNFS001`，`ramfs_disk.inc`）直接读写物理块，并以双 32 MiB 乒乓元数据槽位实时落盘。
+  - 内核 `IOKit` 拓扑为 `disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`；`devfs` 的 `/dev/disk*` 节点与 iPhone 真机保持一致。
+  - `statfs` 的 `/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`；总容量按 128 GB 容器十进制口径计算，扣除系统卷、Cryptex 与 `/private/var` 实际已用空间。
 - **子 Agent 与团队成员模型选择。** 派发复杂排查、反汇编分析、内核／驱动编码或 Teamwork 成员任务时，指定使用高能力模型（`inherit`／Gemini 4 Argon 或 `pro`）。
 
 ## 7. 其他
 
-- 过程记录写 `docs/progress/`（按日期命名），规划写 `docs/plan/`，调研/实测数据写 `docs/analysis/`。
+- 未完成事项集中写[待办目录](docs/backlog/README.md)，已选批次的安排与常设手册写 `docs/plan/`，调研／实测数据写 `docs/analysis/`，过程记录写 `docs/progress/`（按日期命名）。原分析与实测保留，来源文档链接到对应待办主题。
 - `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
 - 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 的陷阱。
 - 从源码构建与出 Release 见[开发指南](docs/development.md)；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
-- 双系统分区规划、在线缩容、写入系统盘、刷入双启动 `xnuloader`、Android／iOS 切换及 Android 系统内 OTA 影响见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。引导目标切换细节见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)：`xnuloader` 启动时按 `boot_a`／`boot_b` 里的镜像识别自身槽位（`loader_slot`）与另一侧 Android 槽位（`android_slot`，判据见 `hackios-xnu-kernel/xnuloader/slot_choice.h`），只有一侧是 loader 镜像时才维护或切换槽位，切槽时同步交换 LUN 4 与 LUN 0 上 `_a`／`_b` 分区的 `PartitionTypeGUID`；从 LK 用 `fastboot boot` 启动完整的 loader 镜像可以临时进 loader，单独的 handoff 载荷不行；枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
+- 双系统分区规划、在线缩容、写入系统盘、刷入双启动 `xnuloader`、Android／iOS 切换及 Android 系统内 OTA 影响见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。引导目标切换细节见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。
+  - `xnuloader` 启动时按 `boot_a`／`boot_b` 镜像识别自身槽位（`loader_slot`）和另一侧 Android 槽位（`android_slot`），判据见 `hackios-xnu-kernel/xnuloader/slot_choice.h`。
+  - 只有一侧是 loader 镜像时才维护或切换槽位；切槽同步交换 LUN 4 与 LUN 0 上 `_a`／`_b` 分区的 `PartitionTypeGUID`。
+  - 从 LK 用 `fastboot boot` 启动完整 loader 镜像可以临时进入 loader，单独的 handoff 载荷不行。枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
 - loader 镜像与其中 UEFI 的构建见 [annibale UEFI 与 loader 镜像构建](docs/analysis/annibale-uefi-build.md)，UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支，克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
 - USB 命令超时、内核停止或重启后身份变化，先看[USB 恢复与减少人工按键的调试经验](docs/analysis/2026-10-25-usb-recovery-lessons.md)。判断无应答前检查 stdout、stderr 与实际耗时，区分驻留 loader、LK 与 Android；请求按键前记录当前轮软件恢复失败的结果，同一待用户动作合并提示。同一设备的命令串行执行，异常后的资源保留规则继续遵守。
 - Android 通知栏、手势条消失或 SystemUI 反复崩溃时，先看 [系统界面修复记录](docs/analysis/2026-10-23-android-systemui-recovery.md)。该文档也记录早期 userdata 尾部暂存的风险、备份边界和 loader USB 日志读取方法；系统卷从 UFS `darwin` 按需读取，启动卷和辅助盘的职责、当前验证范围见[根文件系统](docs/analysis/rootfs-strategy.md)。设备上的实际启动路径需结合 loader、载荷和切根日志确认。
 - 接手、排查、构建和真机操作前阅读 [项目排查与协作手册](docs/plan/debugging-and-collaboration.md)，按其中的前提、操作、成功条件和失败处理执行。旧文档与新结果有差异时核对源码、产物和实测时间，设备当前状态重新读取。
-- 硬件资料：设备树资源见[硬件资源图谱](docs/analysis/annibale-hw-map.md)；触摸报告模式、TLMM 地址、BQ 电量、充电状态与 CPU 拓扑见[桌面交互案例](docs/analysis/2026-10-24-interactive-runtime.md)。硬件调试文件的读取也可能访问寄存器，操作前核对范围及恢复方式。
-- GPU：A830 的启动阶段、成功判据与关键修复见[A830 命令执行](docs/analysis/2026-10-24-a830-command-startup.md)，GPU 桌面、LPAC 路由与 Mesa CCHE 失效见 [GPU 桌面记录](docs/progress/2026-10-26-gpu-desktop-acceleration.md)。
-- iOS 26 桌面：解锁、着色器编译与 GPU 挂起的修复见[可用桌面记录](docs/progress/2026-10-30-ios26-usable-desktop.md)；开机次序与处理器占用见[开机次序与性能](docs/progress/2026-10-31-boot-order-and-performance.md)；近期开机后视觉、亮度、通知权限、Wi-Fi、充电、关机与持久化问题见[11-06 问题与跟进清单](docs/plan/2026-11-06-issues-and-followup.md)。
-- 帧率与 120 Hz：手势帧率的卡点见 [120 Hz 手势瓶颈](docs/analysis/2026-11-01-120hz-gesture-bottleneck.md) 与 [GPU 升频之后的长帧](docs/analysis/2026-11-02-120hz-after-gpu-clock.md)。
 - 反汇编与反编译分析：查 iOS 26 `dyld_shared_cache` 框架反汇编与虚表槽位用 `hackios-xnu-kernel/tools/dsc/dsc.py`（用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)）；需要查看 Hex-Rays 伪代码、函数级数据流或分析系统守护进程（如 `wifid`、`lsd`、`backboardd`、`coreaudiod`）、`dyld_shared_cache` 分片、引导程序（如 `LinuxLoader.efi`）与固件模块时，按需使用 `idalib-mcp`（先 `idb_list`／`idb_open` 打开目标二进制，再用 `decompile`、`analyze_function`、`xrefs_to`、`lookup_funcs` 做反编译分析）。
+- 硬件、图形、桌面、性能和系统服务的专题见[文档入口](docs/README.md)。硬件调试文件的读取也可能访问寄存器，操作前核对范围及恢复方式。
 - 经验文档优先记录排查方法、底层原理、判断依据和验收边界；已由代码或工具链解决的问题简短提及，具体命令集中在当前操作手册。
 - 从会话整理经验的可复用指令见 [经验整理 Prompt](docs/plan/experience-review-prompt.md)，整理方式调整后同步更新该文档。
 - 原始日志、截图、转储和本轮产物清单保存在 `.gitignore` 覆盖的本地调试目录，文字结论与必要的日志摘录写进 Markdown；提交前检查父仓库及各子模块的变更归属。
-- 进度与队列的唯一入口是 [进度表](docs/plan/2026-10-23-tracking.md)：保持简练（一项一行），细节写进各条目链接的专门文档，不要把展开内容堆回进度表。
-- **禁止一切目录递归的 shell 检索。** 仓库内不用 `grep -r`／`grep -R`／`rg` 对目录做检索，`docs/`、`out/`、`.git` 与任何含二进制的目录都在禁止范围内。做法只有三种：用检索工具（它按文件读、结果有界）；指名具体文件（`grep -n <模式> <文件>`，一次一个或几个明确文件）；需要跨文件时先 `git ls-files` 拿到白名单再逐文件读，或用 python 逐文件扫描。理由：`docs/progress/evidence/` 有 65 GB，单个文件可达数百 MB 且几乎没有换行，递归一次就能把整份文件当一行读进内存。`| head -N` 不构成保护：匹配数不足时 grep 拿不到 SIGPIPE。
+- 每批调试、构建或发布结束后及时清理已不用的临时文件、重复镜像和中间产物，容器卷与独立发布目录同样适用。清理前核对脚本引用、符号链接、挂载和运行进程；保留当前调试输入、可复现基线、未结问题的日志与转储、分区备份，以及下次发布所需的源码、工具链和原始输入。用途无法确认的文件先保留；按实际占用核算清理结果，硬链接和稀疏文件单独核对。
+  - 复制源码树、根目录和镜像时用 APFS 克隆（`cp -c`、`ditto --clone`）或硬链接；候选根目录只放本轮改动的文件，其余引用基线。
+  - 一批工作提交后删除这一批的源码副本、构建目录（`BUILD/`、`build/`）和中间根目录，保留日志、结果 JSON、截图和实际上机的载荷。
+  - 超过 50 MB 的构建日志在这一批结束后用 `zstd -19 --rm` 压缩。
+  - `/tmp` 下挂载的镜像用完即用 `diskutil eject` 卸载；镜像文件删除后，挂载期间仍占用磁盘空间。
+  - 每次清理的删除、压缩和克隆清单记录在 `out/cleanup-<日期>/`。
+- 项目状态与已完成里程碑集中在[进度表](docs/plan/2026-10-23-tracking.md)，选任务与未完成事项集中在[待办目录](docs/backlog/README.md)。进度表保持简练，待办按主题记录下一步与验收，技术分析和实测只在专题文档展开。上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)。

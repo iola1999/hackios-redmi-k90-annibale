@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -25,7 +26,8 @@ spec.loader.exec_module(summary)
 FAKE_FASTBOOT = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
 args = sys.argv[1:]
-if args[:2] == ["-s", "xnuloader"]:
+lk_target = args[:2] == ["-s", "test-android"]
+if args[:2] in (["-s", "xnuloader"], ["-s", "test-android"]):
     args = args[2:]
 with pathlib.Path(os.environ["FB_LOG"]).open("a") as stream:
     stream.write(json.dumps(args) + "\n")
@@ -43,10 +45,18 @@ if args == ["devices"]:
     seen_path = pathlib.Path(os.environ["FB_DEVICES"])
     seen = int(seen_path.read_text()) if seen_path.exists() else 0
     seen_path.write_text(str(seen + 1))
-    say("" if (not os.environ.get("FB_NO_GAP") and seen == 0) else "xnuloader\tfastboot")
+    gap = state_path.with_name("reset-sent").exists() and not os.environ.get("FB_NO_GAP") and seen == 0
+    say("test-android\tfastboot" if state == "lk" else "" if gap else "xnuloader\tfastboot")
 elif args[:1] == ["getvar"]:
     key = args[1]
-    if key == "product":
+    if lk_target:
+        active = state_path.with_name("lk-active").exists()
+        values = {"product": "annibale", "is-userspace": "no", "current-slot": "a" if active else "b",
+                  "slot-retry-count:a": "7" if active else "5", "slot-unbootable:a": "no",
+                  "slot-successful:a": "no", "slot-successful:b": "yes",
+                  "slot-unbootable:b": os.environ.get("FB_B_UNBOOTABLE", "no")}
+        say(key + ": " + values[key])
+    elif key == "product":
         product_key = "FB_PRODUCT_AFTER_STOP" if state_path.with_name("stopped").exists() else "FB_PRODUCT"
         say("product: " + os.environ.get(product_key, "xnuloader"))
     elif key == "result":
@@ -89,6 +99,23 @@ elif args[:2] == ["oem", "stop"]:
         state_path.with_name("stop-reads").write_text(str(delay))
     else:
         state_path.write_text(os.environ["FB_AFTER_STOP"])
+elif args == ["oem", "recovery"] and os.environ.get("LOADER_IMAGE") and not state.startswith("idle"):
+    say("FAILED (remote: kernel resources are unavailable for recovery)")
+elif args == ["oem", "android"]:
+    if os.environ.get("FB_ANDROID_REFUSED") or not state.startswith("returned "):
+        say("FAILED (remote: kernel resources are unavailable for Android)")
+    else:
+        state_path.write_text("lk")
+        say("OKAY")
+elif lk_target and args == ["set_active", "a"]:
+    state_path.with_name("lk-active").touch()
+    say("OKAY")
+elif lk_target and args[:1] == ["boot"]:
+    state_path.with_name("reset-sent").touch()
+    state_path.write_text("idle")
+    pathlib.Path(os.environ["FB_RAMDISK"]).write_text("idle 0 0 0")
+    pathlib.Path(os.environ["FB_DEVICES"]).write_text("0")
+    say("OKAY")
 elif args == ["oem", "ramdisk"]:
     pathlib.Path(os.environ["FB_RAMDISK"]).write_text("staging 0 0 0")
 elif args[:1] == ["stage"]:
@@ -104,6 +131,7 @@ elif args[:1] == ["reboot"]:
     if "FB_REBOOT_RC" in os.environ:
         say("FAILED (remote: reset refused)")
         sys.exit(int(os.environ["FB_REBOOT_RC"]))
+    state_path.with_name("reset-sent").touch()
     state_path.write_text(os.environ.get("FB_AFTER_REBOOT", "idle"))
     pathlib.Path(os.environ["FB_RAMDISK"]).write_text("idle 0 0 0")
 elif args[:2] == ["oem", "sh"]:
@@ -252,6 +280,57 @@ class CommandBoundsTests(unittest.TestCase):
                 self.assertEqual(sent, [["oem", "sh", command]] if allowed else [])
 
 
+class RshTests(unittest.TestCase):
+    def invoke(self, snapshots, output_wait=2):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            run = base / "run"
+            run.mkdir()
+            (run / "cmd-7.log").write_text("annsh 7 start\nannsh 7| waiting\n")
+            for name, body in snapshots.items():
+                (run / name).write_text(body)
+
+            def reply():
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    requests = list(run.glob("cmd-request-*.txt"))
+                    if requests:
+                        name = requests[0].name.replace("cmd-request-", "cmd-reply-").replace(".txt", ".json")
+                        (run / name).write_text(json.dumps({"seq": 7, "rc": 0, "output": "(bootloader) 7"}))
+                        return
+                    time.sleep(0.01)
+
+            worker = threading.Thread(target=reply)
+            worker.start()
+            try:
+                result = subprocess.run([sys.executable, str(HERE / "rsh.py"), str(base), "echo", "hi"],
+                                        env=dict(os.environ, RSH_OUTPUT_TIMEOUT=str(output_wait)),
+                                        capture_output=True, text=True, timeout=8)
+            finally:
+                worker.join(timeout=6)
+            self.assertFalse(worker.is_alive())
+            return result
+
+    def test_late_native_completion_in_periodic_snapshot(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                result = self.invoke({"s037.log": f"annsh 7| finished\nannsh 7 exit {status} 24035 ms\n"})
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertIn("finished", result.stdout)
+                self.assertIn(f"exit {status} after 24035 ms", result.stderr)
+
+    def test_snapshot_number_is_compared_as_an_integer(self):
+        result = self.invoke({"s999.log": "annsh 8 exit 9 1 ms\n",
+                              "s1000.log": "annsh 7| latest\nannsh 7 exit 0 24035 ms\n"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("latest", result.stdout)
+
+    def test_another_sequence_cannot_complete_the_request(self):
+        result = self.invoke({"s037.log": "annsh 8| other\nannsh 8 exit 0 24035 ms\n"}, output_wait=1)
+        self.assertEqual(result.returncode, 3)
+        self.assertNotIn("other", result.stdout)
+
+
 class RunAutoTests(unittest.TestCase):
     """run-auto.py against a loader stand-in: what the teardown leaves behind, and what it stages."""
 
@@ -266,6 +345,7 @@ class RunAutoTests(unittest.TestCase):
                      "hackios-xnu-kernel/userland", "run-dir"):
             (root / path).mkdir(parents=True, exist_ok=True)
         shutil.copy(HERE / "run-auto.py", root / "tools/k90auto/run-auto.py")
+        shutil.copy(HERE / "recover-loader.py", root / "tools/k90auto/recover-loader.py")
         for name, body in (("fastboot", FAKE_FASTBOOT), ("adb", "#!/bin/bash\nexit 0\n")):
             (root / "bin" / name).write_text(body)
             (root / "bin" / name).chmod(0o755)
@@ -395,7 +475,7 @@ class RunAutoTests(unittest.TestCase):
                 self.assertFalse(any(command[:2] == ["oem", "stage"] for command in sent))
 
     def test_incomplete_return_status_does_not_reset(self):
-        for state in ("returned 12 1", "returned 12 0 extra", "returned bad 0", "hung-held 0 bad"):
+        for state in ("returned 12 1", "returned 12 0 extra", "returned not-hex 0", "hung-held 0 bad"):
             with self.subTest(state=state):
                 result, summary, sent, files = self.teardown_case(FB_AFTER_STOP=state)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -408,6 +488,42 @@ class RunAutoTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(summary["reset"])
         self.assertTrue(summary["ready_for_next_run"])
+
+    def test_hexadecimal_return_status_can_reset(self):
+        result, summary, sent, files = self.teardown_case(FB_AFTER_STOP="returned 10ab 0")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(summary["ready_for_next_run"])
+        self.assertIn(["reboot"], sent)
+
+    def test_loader_image_teardown_uses_identified_lk_and_returns_idle(self):
+        result, summary, sent, files = self.teardown_case(
+            FB_AFTER_STOP="returned 10ab 0", LOADER_IMAGE="test-loader-only.img", ANDROID_SERIAL="test-android")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(summary["ready_for_next_run"])
+        self.assertIn(["oem", "android"], sent)
+        self.assertIn(["getvar", "slot-unbootable:b"], sent)
+        self.assertIn(["boot", "test-loader-only.img"], sent)
+        self.assertNotIn(["reboot"], sent)
+        self.assertFalse(any(command[:1] == ["flash"] for command in sent))
+        self.assertIn("loader-recovery", files)
+
+    def test_loader_image_teardown_stops_after_refused_native_transition(self):
+        result, summary, sent, files = self.teardown_case(
+            FB_AFTER_STOP="returned 10ab 0", LOADER_IMAGE="test-loader-only.img", ANDROID_SERIAL="test-android",
+            FB_ANDROID_REFUSED="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertFalse(summary["ready_for_next_run"])
+        self.assertFalse(summary["reset"])
+        self.assertNotIn(["reboot"], sent)
+        self.assertFalse(any(command[:1] in (["boot"], ["set_active"], ["flash"]) for command in sent))
+
+    def test_loader_image_teardown_preserves_unbootable_b(self):
+        result, summary, sent, files = self.teardown_case(
+            FB_AFTER_STOP="returned 10ab 0", LOADER_IMAGE="test-loader-only.img", ANDROID_SERIAL="test-android",
+            FB_B_UNBOOTABLE="yes")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertFalse(summary["ready_for_next_run"])
+        self.assertFalse(any(command[:1] in (["boot"], ["set_active"], ["reboot"], ["flash"]) for command in sent))
 
     def test_reboot_failure_is_not_reported_as_acknowledged(self):
         for code in ("0", "1"):

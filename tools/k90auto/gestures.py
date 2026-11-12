@@ -126,27 +126,41 @@ def main():
                   f"{still} gaps over {FRAME_PAUSE} ms left out; {drawn}")
         pulls = found.get("cc-pull", {}).get("rows")
         if pulls:
-            report_pulls([r for r in pulls if len(r[2]) >= 2], each)
+            report_pulls(pulls, each)
 
 
 def report_pulls(pulls, each):
     """One row per Control Center pull, then the acceptance check: which pulls reached the iOS 16.5
-    floor, how many the paired count, and the longest interval inside any of the windows."""
-    fps = [1000 * len([i for i in ivs if i < FRAME_PAUSE]) / sum(i for i in ivs if i < FRAME_PAUSE)
-           for _, _, ivs in pulls]
+    floor, how many the paired count, and the longest interval inside any of the windows.
+    Pulls with fewer than two intervals or no measurable animation duration make the sample insufficient."""
+    fps = []
+    gaps = 0
     for n, (frames, span, ivs) in enumerate(pulls, 1):
         moving = [i for i in ivs if i < FRAME_PAUSE]
+        duration = sum(moving)
+        rate = 1000 * len(moving) / duration if len(ivs) >= 2 and duration > 0 else None
+        fps.append(rate)
+        gaps += len(ivs) - len(moving)
         if each:
-            print(f"  pull {n}: {frames} frames, {span:4.0f} ms, {len(ivs) - len(moving)} gap(s) over "
-                  f"{FRAME_PAUSE} ms, {fps[n - 1]:4.1f} fps, longest {max(ivs):5.0f} ms")
+            rate_text = f"{rate:4.1f}" if rate is not None else "n/a"
+            longest = f"{max(ivs):5.0f} ms" if ivs else "n/a"
+            print(f"  pull {n}: {frames} frames, {span:4.0f} ms, {len(ivs) - len(moving)} gap(s) >= "
+                  f"{FRAME_PAUSE} ms, {rate_text} fps, longest {longest}")
     total = len(pulls)
-    at55 = sum(f >= CC_TARGET_FPS for f in fps)
-    median = statistics.median(fps)
-    worst = max(max(ivs) for _, _, ivs in pulls)
-    verdict = "pass" if at55 == total and median >= CC_TARGET_MEDIAN and worst <= CC_TARGET_GAP else "fail"
-    print(f"  pulls: {total}, fps " + " ".join(f"{f:.1f}" for f in fps) +
-          f"; at least {CC_TARGET_FPS}: {at55} of {total}, median {median:.1f}, longest interval "
-          f"{worst:.0f} ms; target every pull at {CC_TARGET_FPS}, median {CC_TARGET_MEDIAN}, "
+    measured = [f for f in fps if f is not None]
+    at55 = sum(f >= CC_TARGET_FPS for f in measured)
+    median = statistics.median(measured) if measured else None
+    worst = max((max(ivs) for _, _, ivs in pulls if ivs), default=None)
+    if not pulls or len(measured) != total:
+        verdict = "insufficient samples"
+    else:
+        verdict = "pass" if at55 == total and median >= CC_TARGET_MEDIAN and worst <= CC_TARGET_GAP else "fail"
+    median_text = f"{median:.1f}" if median is not None else "n/a"
+    worst_text = f"{worst:.0f} ms" if worst is not None else "n/a"
+    fps_text = " ".join(f"{f:.1f}" if f is not None else "n/a" for f in fps) or "n/a"
+    print(f"  pulls: {total}, fps {fps_text}"
+          f"; at least {CC_TARGET_FPS}: {at55} of {total}, median {median_text}, {gaps} gaps >= "
+          f"{FRAME_PAUSE} ms, longest interval {worst_text}; target every pull at {CC_TARGET_FPS}, median {CC_TARGET_MEDIAN}, "
           f"{CC_TARGET_GAP} ms -> {verdict}")
 
 

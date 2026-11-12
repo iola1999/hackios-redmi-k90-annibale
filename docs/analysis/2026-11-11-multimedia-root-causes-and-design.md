@@ -18,7 +18,7 @@
 | 相机图提交 | `BWMultiStreamCameraSourceNode` 建图返回 `-12780` | `SoftISP = true` 触发缺失的 22 键 Raw 缓冲池校验；流缺少 `ModuleInfo`、`TuningParameters` 与 `FaceDetectionConfiguration` | 用户态 `camera_device.c`、`camera_device_stream.inc` |
 | 相机硬件通路 | 前后置物理传感器探测失败，`CAMIOC_G_INFO` 标志位反置 | 缺少 `CAM_CPAS`、`gcc_camera_*` 时钟、7 路 PMIC 电源轨、`apps_smmu` 幂等旁路与前置 QUPv3 SE9 I2C 控制器驱动 | 内核 `annibale_camera.c`、`annibale_camera_hw.inc` |
 | 视频 YUV 合成 | 10-bit P010（`x420`／`xf20`）导入失败，BT.2020 矩阵缺失，format `500` 尺寸校验过严 | `annibaledrawable.m` 未映射 `R16Unorm`／`RG16Unorm` 双平面，`annibalemetal_yuv.inc` 拒收 `0x10` 用途标志且缺少 `matrix == 9` | 用户态 Metal 驱动与 `air` 着色器层 |
-| 视频硬件解码 | `/dev/annibale-iris` 仅返回不支持，高码率 H.264／HEVC 依赖 CPU 软解 | 缺少 SM8750 Iris v3.5（`vpu35_4v.mbn`，PAS `9`）电源时钟、双 SMMU 上下文块、HFI Gen2 队列协议及 `videocodecd` 的 arm64e `VideoToolbox` 插件 | 内核 `annibale_iris*.c`、用户态 `videotoolbox_iris.c` |
+| 视频硬件解码 | `/dev/annibale-iris` 仅返回不支持，高码率 H.264／HEVC 依赖 CPU 软解 | 缺少 SM8750 Iris v3.5（`vpu35_4v.mbn`，PAS `9`）电源时钟、两条 SMMU SID 路由、HFI Gen2 队列协议及 `videocodecd` 的 arm64e `VideoToolbox` 插件 | 内核 `annibale_iris*.c`、用户态 `videotoolbox_iris.c` |
 
 ## 2. 音频播放：HAL 目录遮蔽、FeatureFlags、时钟精度、AudioReach 异步流水线与 TFA9866 功放
 
@@ -124,27 +124,27 @@ iOS 系统播放器（`AVSampleBufferDisplayLayer`／`FigVideoQueue`）向 CoreA
 | `videocc` 时钟与 GDSC | `PLL0`（`0x0000`，`L=0x25`）、`MVS0_CMD_RCGR`（`0x8000`）、`MVS0C_GDSCR`（`0x8034`）、`MVS0_GDSCR`（`0x8068`）、`MVS0C_CBCR`（`0x804c`）、`MVS0_CBCR`（`0x807c`） | 先开 `MVS0C`（控制面）GDSC 与存储保持位 `0x8040`，再开 `MVS0`（核面）GDSC 与 `0x8074`，使能分支与 freerun 时钟，最后写入 `sun_reg_preset_table` |
 | `apps_smmu` Stage-1 | 非像素上下文 `cb-ns`（`SID 0x1940`，IOVA `0x25800000..0xe0000000`）与像素上下文 `cb-ns-pxl`（`SID 0x1947`，IOVA `0x00100000..0xe0000000`） | 建立 Stage-1 页表；在 `SID 0x1940` 额外映射设备区 QTimer `0x17421000 -> 0xffade000` 与 QDSS `0x00508000 -> 0xffadf000` |
 | PAS 固件引导 | TZ SMC `qcom_scm_pas_init_image`／`mem_setup`／`auth_and_reset`（PAS ID `9`） | 将 `vpu35_4v.mbn` 的 `PT_LOAD` 段装载到 `0x9c300000` 并清零 BSS 段（`PH[11,13,15,17,19]`），验签释放复位 |
-| HFI 握手机制 | `0x0a0064`（队列基址 IOVA）、`0x0a0068`（`0x300000`）、`0x0a0054`（UC 区基址）、`0x0a0060`（SFR IOVA）、`0x0a0024`（`0xffade000`）、`0x0a0028`（`0x2000`）、`0x0b0078`（`1`）、`0x0a0050`（`1`）、`0x0a0048`（`1`） | 轮询 `0x0a004c` bit 0 置位且 bits `[3:1] == 0`，随后写 `0x0a0148 = 1`、`0x0a0168 = 0` 完成 HFI 命令／消息／调试三队列建链 |
+| HFI 握手机制 | `0x0a0064`（队列基址 IOVA）、`0x0a0068`（`0x300000`）、`0x0a0054`（UC 区基址）、`0x0a005c`（SFR IOVA）、`0x0a0024`（`0xffade000`）、`0x0a0028`（`0x2000`）、`0x0b0078`（`1`）、`0x0a0050`（`1`）、`0x0a0048`（`1`） | 轮询 `0x0a004c` bit 0 置位且 bits `[3:1] == 0`，随后写 `0x0a0148 = 1`、`0x0a0168 = 0` 完成 HFI 命令／消息／调试三队列建链 |
 
 ### 4.3 HFI Gen2 解码会话与 `videocodecd` 的 arm64e `VideoToolbox` 插件
 
-内核驱动按职责拆分为三个文件（单文件均在 1200 行以内），分别对应 `annibale_iris.c`（字符设备 `/dev/annibale-iris` 与 ioctl 会话生命周期）、`annibale_iris_hw.c`（RPMh、GCC／`videocc`、`apps_smmu` 双 Stage-1 页表与 PAS `9` 固件装载）、`annibale_iris_hfi.c`（HFI Gen2 数据包封装、系统初始化、H.264 `codec=1`／HEVC `codec=2` 解码会话配置、内部暂存缓冲分配与线性 `NV12` `color_format=2` 帧收发）。
+内核驱动按职责拆分为三个文件（单文件均在 1200 行以内），分别对应 `annibale_iris.c`（字符设备 `/dev/annibale-iris` 与 ioctl 会话生命周期）、`annibale_iris_hw.c`（RPMh、GCC／`videocc`、`apps_smmu` Stage-1 映射与 PAS `9` 固件装载）、`annibale_iris_hfi.c`（HFI Gen2 数据包封装、系统初始化、H.264 `codec=1`／HEVC `codec=3` 的原生 HFI 解码会话配置、内部暂存缓冲分配与线性 `NV12` `color_format=1` 帧收发；公共 ioctl 的 HEVC 标识保留为 `2`）。
 
-为兼容带 B 帧重排的 MP4／HLS 流，`struct iris_decode_frame` 将 64 位 `in_tag` 写入 `hfi_buffer.timestamp` 并随输出 `HFI_BUFFER_RAW` 透传回 `out_tag`，同时支持 `IRIS_FRAME_DRAIN`（发送 `HFI_CMD_DRAIN` 并等待 `HFI_INFORMATION_END_OF_DRAIN`）与 `IRIS_FRAME_POLL` 排空 DPB 延迟帧。用户空间输入长度、分辨率与会话槽位在 ioctl 边界执行越界检查，文件描述符关闭时自动按进程 PID 回收会话与 SMMU 页表映射。
+为兼容带 B 帧重排的 MP4／HLS 流，`struct iris_decode_frame` 将 64 位 `in_tag` 写入 `hfi_buffer.timestamp` 并随输出 `HFI_BUFFER_RAW` 透传回 `out_tag`，通过 `IRIS_FRAME_DRAIN` 发送 `HFI_CMD_DRAIN`，匹配命令应答与 drain-last，使用 `IRIS_FRAME_POLL` 读取延迟帧。用户空间输入长度、分辨率与会话槽位在 ioctl 边界执行越界检查。文件描述符关闭后按进程 PID 查找会话，仅在已启动端口 STOP、会话 CLOSE 和 TLB 同步均确认成功后释放页面；失败后保留页面与槽位。
 
 用户态新增 `hackios-xnu-userland/userland/src/inject/videotoolbox_iris.c`（构建为 `libannibale-vt.dylib`），经扩容至 4096 字节的 `kern.annibale.inject`（`09-bsd%kern%kern_exec.c.patch`）注入 `videocodecd`、`mediaserverd`、`com.apple.WebKit.GPU`、`video_decode_test` 与 `video_player_test`。
 
 - 构造函数调用 `IRIS_IOC_GET_INFO` 探测 `/dev/annibale-iris`；仅在返回 `IRIS_INFO_HW_READY` 时调用 `VTRegisterVideoDecoderWithInfo` 注册 `'avc1'`、`'hvc1'` 与 `'hev1'` 硬解器（声明 `IsHardwareAccelerated = kCFBooleanTrue`），硬件未就绪或固件缺失时不注册硬解组件，保留 `VideoToolbox` 原生软解路径。
 - 静态核对 `23G90__iPhone18,3` 的 `VideoToolbox`（`0x1903bc894`）确认 `_VTDecoderSessionCreatePixelBuffer` 采用三参数签名 `(session, frameRef, &pixelBuffer)` 并转发至 `_VTDecoderSessionCreatePixelBufferWithOptions`，`CMBaseClass`（版本 1）与 `VTDecompressionBackendClass`（版本 2）函数表均按 iOS 26 arm64e 指针认证鉴别器签名。
-- 解码会话解析 `CMFormatDescription` 提取 `avcC`／`hvcC` 参数集（SPS／PPS／VPS），在首个同步帧前拼接 Annex-B 参数集并将长度前缀 NALU 转换为起始码字节流送入 `/dev/annibale-iris`，按 `out_tag` 匹配在途 `VTDecodeFrameRef`（保留原始 PTS 与 `sourceFrameRefCon`），在 `finishDelayedFrames` 中经 `IRIS_FRAME_DRAIN`／`IRIS_FRAME_POLL` 排空重排帧并写入 `CVPixelBufferPool` 分配的 `'420v'` `IOSurface` 缓冲回调给 `VTDecompressionSession`。
+- 解码会话解析 `CMFormatDescription` 提取 `avcC`／`hvcC` 参数集（SPS／PPS／VPS），在首个同步帧前拼接 Annex-B 参数集并将长度前缀 NALU 转换为起始码字节流送入 `/dev/annibale-iris`，按 `out_tag` 匹配在途整数 `VTDecodeFrameRef`（保留原始 PTS 与 `sourceFrameRefCon`，token 按原值送回且不执行 CF 引用计数），在 `finishDelayedFrames` 中经 `IRIS_FRAME_DRAIN`／`IRIS_FRAME_POLL` 排空重排帧并写入 `CVPixelBufferPool` 分配的 `'420v'` `IOSurface` 缓冲回调给 `VTDecompressionSession`。
 
 ## 5. 背光同步收尾与工程复杂度控制
 
-除上述三条多媒体主线外，`MiniAppleARMBacklight.cpp` 的 `bl_take()` 已将 `slider_moved` 判定前移至 `nits != NULL` 分支之前，收到 `s16 <= 0` 或 `value == 0` 的锁屏熄屏通知时只下发面板关光指令，保留 `last_millinits` 与 `ramfs_backlight_save` 中的用户亮度记忆。顶层仓库与 `hackios-xnu-kernel/xnuloader/` 中关于 Fastboot 119／511 字节命令边界及退回态 USB 冷复位恢复的修改同步保留并通过单测。
+`MiniAppleARMBacklight.cpp` 的 `bl_take()` 按字段区分亮度单位：`DisplayBrightness.NitsPhysical`／`Nits` 使用普通 nits，IOMFB 与 NVRAM 字段使用 16.16。滑块位置记录交互与保存用途，面板亮度采用原生 nits 或面板值；收到 `s16 <= 0` 或 `value == 0` 的锁屏熄屏通知后下发关光指令，保留 `last_millinits` 与 `ramfs_backlight_save` 中的用户亮度记忆。用户报告的物理闪烁仍待真机复核，时间点与宿主检查见[多媒体验证结果 §7](2026-11-11-multimedia-validation.md#7-手电筒亮度与相机的新反馈)。顶层仓库与 `hackios-xnu-kernel/xnuloader/` 中关于 Fastboot 119／511 字节命令边界及退回态 USB 冷复位恢复的修改同步保留并通过单测。
 
-跨模块改动在共享基础设施、文件规模、能力上报与测试门禁四个维度收敛复杂度。
+跨模块修改复用已有资源管理与构建入口，检查结果按实际覆盖范围记录。
 
-- 共享基础设施合一。相机、音频功放、ADSP 与 Iris VPU 共用互斥序列化的 `annibale_rpmh.c`，消除重复的 CMD_DB 查找与 TCS 轮询实现。
+- 共享基础设施。相机、音频功放、ADSP 与 Iris VPU 共用互斥序列化的 `annibale_rpmh.c`，消除重复的 CMD_DB 查找与 TCS 轮询实现。
 - 遵守 1200 行文件上限。`annibale_camera.c` 拆出 `annibale_camera_hw.inc`，Iris 驱动按设备入口、硬件上电与 HFI 协议拆为三文件，本次涉及的全部源码文件均在 1200 行以内。
 - 真实能力上报。相机 `CAMIOC_G_INFO` 与 `videotoolbox_iris` 均按真实硬件就绪状态上报，移除无消费者的投机字段，不伪造硬解标志或掩盖硬件错误。
-- 宿主单测与构建先行。在触碰真机前完成背光、引导安全、任务缓存、音频插件与传输、金属与着色器 YUV、相机契约、根盘切换及 Iris／VideoToolbox 共 13 组宿主单测与内核／用户态全量构建打包，再按 [AGENTS.md](../../AGENTS.md) §5 无人值守门禁核查真机状态。
+- 宿主检查与构建。背光、引导安全、任务缓存、音频插件与传输、Metal 与着色器 YUV、相机契约、根盘切换及 Iris／VideoToolbox 的检查结果见[多媒体验证结果](2026-11-11-multimedia-validation.md)。真机起轮与收尾按 [AGENTS.md](../../AGENTS.md) §5 核验；宿主、设备初始化与用户可用行为分别验收。

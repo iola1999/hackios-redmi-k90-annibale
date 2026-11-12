@@ -121,23 +121,32 @@ def device_present(tool, min_gap):
 
 def sample(args, tool, at_seconds, elapsed, recorder):
     """One sample. A call that did not answer ends the sample; nothing is retried."""
-    row = {"at": at_seconds, "wall": utc(), "skipped": False}
+    row = {"at": at_seconds, "wall": utc(), "skipped": False,
+           "log_ok": False, "log_bytes": 0, "log_tail": [],
+           "shot_ok": None, "shot_bytes": 0}
 
     rc, body, took, timed_out = call([tool, "-s", SERIAL, "getvar", "result"],
                                      args.var_cap, args.min_gap)
-    row["result_ok"] = not timed_out and rc == 0
+    result = field(body, "result")
+    row["result_ok"] = not timed_out and rc == 0 and bool(result) and "FAILED" not in body
     row["result_took"] = took
-    row["result"] = field(body, "result") if row["result_ok"] else "(no answer)"
+    row["result"] = result if row["result_ok"] else "(no valid result)"
     recorder.append("[%s] +%ss getvar result: %s in %.2fs -> %r"
-                    % (utc(), at_seconds, "answered" if row["result_ok"] else "SILENT",
+                    % (utc(), at_seconds, "answered" if row["result_ok"] else "failed",
                        took, row["result"]))
+    if not row["result_ok"]:
+        row["skipped"] = True
+        row["shot_ok"] = False if at_seconds in args.shot_at else None
+        row["drift"] = time.monotonic() - elapsed - at_seconds
+        recorder.append("[%s] +%ss the rest of this sample is skipped after getvar failure "
+                        "(rc=%d, timed_out=%s); the next sample probes the bus with a fresh client"
+                        % (utc(), at_seconds, rc, timed_out))
+        return row
 
     rc, body, took, timed_out = call([tool, "-s", SERIAL, "oem", "log"],
                                      args.log_cap, args.min_gap)
     log_ok = not timed_out and rc == 0 and "FAILED" not in body
     row["log_ok"] = log_ok
-    row["log_bytes"] = 0
-    row["log_tail"] = []
     if log_ok:
         target = args.log_dir / ("log-%03d.txt" % at_seconds)
         # a file left by an earlier round would pass target.exists() and report its size
@@ -161,8 +170,6 @@ def sample(args, tool, at_seconds, elapsed, recorder):
         recorder.append("[%s] +%ss the rest of this sample is skipped, and the next sample "
                         "probes the bus with a fresh client" % (utc(), at_seconds))
 
-    row["shot_ok"] = None
-    row["shot_bytes"] = 0
     if at_seconds in args.shot_at:
         if row["skipped"]:
             row["shot_ok"] = False
@@ -191,17 +198,14 @@ def sample(args, tool, at_seconds, elapsed, recorder):
 
 
 def verdict(rows):
-    live = [row for row in rows if row["result_ok"]]
+    if not rows:
+        return "no samples recorded"
     later = [row for row in rows if row["at"] >= 180]
-    if not live:
-        return "the loader never answered: the channel is silent from the first sample"
-    if all(row["result_ok"] for row in later):
-        return ("the loader answered at +180s and later: the loader is alive; a frozen picture "
-                "is the kernel's, not the USB channel's")
-    if not any(row["result_ok"] for row in later):
-        return ("the loader answered up to +%ds and was silent from +180s on: the channel died "
-                "before the last samples" % live[-1]["at"])
-    return "mixed: the channel answered some samples and was silent at others"
+    if not later:
+        return "%d/%d recorded samples answered; no samples at or after +180s" % (
+            sum(row["result_ok"] for row in rows), len(rows))
+    return "recorded samples at or after +180s: %d/%d answered" % (
+        sum(row["result_ok"] for row in later), len(later))
 
 
 def execute(args, tool):
@@ -235,7 +239,7 @@ def execute(args, tool):
     lines = ["", "== samples =="]
     for row in rows:
         lines.append("+%ds %-9s %-14s log=%d shot=%s"
-                     % (row["at"], "answered" if row["result_ok"] else "SILENT",
+                     % (row["at"], "answered" if row["result_ok"] else "failed",
                         row["result"], row["log_bytes"],
                         "-" if row["shot_ok"] is None else ("ok" if row["shot_ok"] else "failed")))
     lines.append("")

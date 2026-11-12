@@ -27,7 +27,6 @@
 | sb26 | 日历图标 `iconLayerWithInfo:traitCollection:options:` | 图标图层取不到时的替代图层 | 待评估：渲染层的替代路径 |
 | sb26 | `SBApplication`、`SBIcon`、`FBSBundleInfo`、`LSBundleRecord`、`LSApplicationProxy` 的显示名，`CFBundleCopyBundleLocalizations` | 从 `InfoPlist.loctable` 取中文名 | 待评估：审查 §12.4 的语言问题 |
 | sb26 | `MGCopyAnswer` | 设置与 SpringBoard 查询 `airdrop`、`airdrop-p2p` 时返回真 | 待评估：替换了 MobileGestalt 的回答，与上面的 `awdl0` 一项一起处理 |
-| sb26 | `SBApplicationController` 卸载方法、`isDeletable`、`isUninstallSupported` | 桌面删除应用改由本项目的安装器处理 | 待评估：应用管理 |
 | sb26 | `inject_sb26_rate.c`、`inject_sb26_layers.c` | 帧率与图层导出 | 诊断 |
 | media | `BWFigCaptureDeviceVendor` 等相机类 | 提供 FigCaptureDevice | 供应商类替换 |
 | app | `posix_spawn`、文件复制、网络任务完成回调 | 记录应用退出原因与网络任务结果后调用原实现 | 诊断 |

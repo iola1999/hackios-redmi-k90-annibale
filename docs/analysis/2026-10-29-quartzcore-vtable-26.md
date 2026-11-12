@@ -2,6 +2,8 @@
 
 本文用 `hackios-xnu-kernel/tools/dsc/` 解析 iOS 26（23G90，`iPhone18,3`）的 dyld 共享缓存，给 [`inject.c`](../../hackios-xnu-userland/userland/src/inject/inject.c) 里的虚表常量找 iOS 26 的对应值，并读 `CA_HEARTBEAT_RATE` 所在的函数。结论都来自缓存文件与静态反汇编，没有真机验证。
 
+后续虚表核查见[图形与显示待办](../backlog/graphics.md)。
+
 槽位一律写成「vtable + 0x10 + offset」里的 offset，与 `inject.c` 的 `VSLOT` 一致。
 
 ## 1. 结论
@@ -128,7 +130,9 @@ idalib 打不开主缓存文件，`/usr/bin/dyld_info` 对主缓存报 `file not
 
 ## 8. 未完成
 
-- `is_ready`：0xe0 指向 `0x183f4fdfc` 只是推断，要在真机上读 `AppleCLCDDisplay` 对象的虚表确认。
+后续研究与验收见[图形与显示待办](../backlog/graphics.md)，本节保留静态分析的范围。
+
+- `is_ready`：0xe0 指向 `0x183f4fdfc` 只是推断，尚无真机 `AppleCLCDDisplay` 对象的虚表读数。
 - `GLESContext` 上 `inject.c` 用的三个槽（`function_supported` 0x378、`function_uniform` 0x388、`compile_shader` 0x060）没有重定位。16.5 的 `function_supported`（`0x1884a9308`）靠 `cmp w9,#0x59` 加字节跳转表分派，26 里没有同形状的函数；`compile_shader` 的 16.5 槽函数 `0x1883fc808` 只有 `mov w0,#0; ret`，与 `inject.c` 注释说的编译着色器不符，原因未查。
 - `EAGLServer` 除 `renderer`、`render_update` 外的槽，以及两个基类虚表 `0x1ee98e008`、`0x1ee989180`，只做到基址与槽数，没有逐槽核对。
 

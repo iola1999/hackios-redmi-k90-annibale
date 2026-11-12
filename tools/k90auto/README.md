@@ -16,16 +16,16 @@
 
 - 系统盘 `hackios-xnu-userland/userland/system26.apfs`：构建见[开发指南](../../docs/development.md) §6，磁盘部署见[双系统分区与持久化部署手册](../../docs/plan/dual-boot-setup.md)。
 - 启动卷 `hackios-xnu-userland/userland/flashboot.apfs`：在 `hackios-xnu-userland/userland/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh`，只编译 `stage0` 并生成小型 APFS 启动卷。系统卷从 UFS 挂载，切根路径与待完成的真机验收见[根文件系统说明](../../docs/analysis/rootfs-strategy.md)。
-- iOS 26 内核（12377 线）从头构建按[内核仓库说明](../../hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§2，构建完执行 `python3 tools/k90auto/register-kernel.py 12377-<名字>`：内核复制为 `hackios-xnu-kernel/out/xnu12377-<名字>.bin`，记录写进 `kernel-12377-<名字>/kernel.json`，`cycle.py --kernel 12377-<名字>` 和 `make-payload.py` 从这份记录取内核并核对哈希。`cycle.py` 的默认内核 `12377-rate10` 只在本项目的测试机上登记过，新环境要用 `--kernel` 指定。
-- iOS 26 内核在 Mac 上增量构建：把改动的文件从 `hackios-xnu-kernel/xnu/files` 复制进 `hackios-xnu-kernel/out/xnu12377-cmd`，在 `hackios-xnu-kernel/` 下按上一版 `kernel-12377-<名字>/kernel.json` 里 `build.command` 记录的命令执行 `xnu26/build-macos.sh`（`KERNEL_UUID` 换新值），产物复制为 `out/xnu12377-<名字>.bin`，再写一份新的 `kernel-12377-<名字>/kernel.json`（`kernel.path`、`kernel.bytes`、`kernel.sha256`）。`make-payload.py` 从这份记录取内核并核对哈希。
+- iOS 26 内核（12377 线）从头构建按[内核仓库说明](../../hackios-xnu-kernel/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-kernel/blob/k90-port/README.md)）§2，构建完执行 `python3 tools/k90auto/register-kernel.py 12377-<名字>`：内核复制为 `hackios-xnu-kernel/out/xnu12377-<名字>.bin`，记录写进 `kernel-12377-<名字>/kernel.json`，`cycle.py --kernel 12377-<名字>` 和 `make-payload.py` 从这份记录取内核并核对哈希。默认内核记录名见 [`cycle.py`](cycle.py) 的 `KERNEL`，新环境先登记本地构建，再用 `--kernel` 指定。
+- iOS 26 内核在 Mac 上增量构建：在 `hackios-xnu-kernel/` 下按上一版 `kernel-12377-<名字>/kernel.json` 里 `build.command` 记录的命令执行 `xnu26/build-macos.sh`（`KERNEL_UUID` 换新值）。实际构建树由 [`xnu26/env-macos.sh`](../../hackios-xnu-kernel/xnu26/env-macos.sh) 的 `XNU26_SRC` 选择，`build-macos.sh` 自动同步 `xnu/files/` 的改动。完成后用 `register-kernel.py 12377-<名字> <实际构建树>` 复制产物并登记新的 `kernel.path`、`kernel.bytes`、`kernel.sha256`，`make-payload.py` 从这份记录取内核并核对哈希。
 - AIR 库：`build-air.py` 是唯一的构建入口，先把 `hackios-xnu-userland/tools/mesa/air/` 的源码复制进 arm64e 构建树再编译、签名，记录写在 `out/ios26-resume/mesa-arm64e/air-build-record.json`；`--check` 只核对。构建树由 `setup-mesa-arm64e.py` 建立，步骤见 [arm64e 用户态构建 §6](../../docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)。
 - 根盘、Metal 驱动与注入库：`package.py`（第 7 节）。
 - Wi-Fi 固件：`hackios-xnu-kernel/tools/mk-fw-wifi.py` 从手机的 modem 分区取出，放在 `hackios-xnu-kernel/out/fw-wifi/`。
 
 ## 2. 根盘里的操作脚本与 launchd 任务
 
-- `rc.jobs.desktop`：`package.py` 默认的 `etc/rc.jobs`。32 s 滑动解锁，约 120 s 起循环 8 轮，每轮下拉控制中心停 8 s、按 home 收起，再左右翻页。init 每行最多 63 个参数，所以每轮单独一行。
-- `jobs/rc.jobs.interactive`：`cycle.py` 用的脚本，只启动 `annsh`、`lsprobe`、`framewatch` 等常驻程序，不碰屏幕；屏幕操作由主机经 `rsh.py`／`tour.py` 发送。
+- `rc.jobs.desktop`：包含自动屏幕操作的 `etc/rc.jobs` 候选。32 s 滑动解锁，约 120 s 起循环 8 轮，每轮下拉控制中心停 8 s、按 home 收起，再左右翻页。init 每行最多 63 个参数，所以每轮单独一行。
+- `jobs/rc.jobs.interactive`：`package.py` 默认优先选择、`cycle.py` 使用的脚本，只启动 `annsh`、`lsprobe`、`framewatch` 等常驻程序，不碰屏幕；屏幕操作由主机经 `rsh.py`／`tour.py` 发送。
 - `jobs/` 下其余 `rc.jobs.*` 是诊断轮的操作脚本，用 `JOBS_SOURCE` 选择。
 - `jobs/*.plist`：`package.py` 补进根盘的 launchd 任务（chronod、PosterBoard、replicatord、installd、biomed、ReportCrash、linkd、contextstored、dasd、appprotectiond）。chronod 约 120 s 后启动，installd 以 root 运行，biomed 等保持 Apple 的按需启动；理由写在 `package.py` 的注释里。
 
@@ -74,7 +74,7 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 - 帧间隔只统计帧数不少于 20 且帧率不低于 10 帧/秒的窗口。`summary.py` 只把 `s[0-9]*.log` 当日志快照，按重叠部分对接，同一窗口只算一次。loader 的日志区是 263,349 字节的头加 1,048,576 字节的环，环满之后开头的内容被覆盖；容量与快照频率见[运行协议](../../docs/plan/k90auto-run-protocol.md)的日志环一节。
 - `gestures.py` 按手势统计主动画的帧间隔（控制中心下拉取首帧起 1.8 s，翻页取 600 ms），输出 p50／p95／最长间隔、超过 18 ms 的比例、帧率和触摸到首帧的时间。需要 `touch_lat=1`，加 `glslow=3000` 时还给出窗口服务器每帧绘制时间。
 - `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，给出长帧归因和每段动画的帧率；需要 `touch_lat=1`。新日志另有 `panel_obs`，表示拷屏完成到观测 `CTL_FLUSH` 清零的上界。带 `tl: l` 时用 `INTF_FRAME_COUNT` 的差值计算显示间隔和长帧分组，`at` 只表示观测时刻；没有 `tl: l` 的旧日志沿用 `shown` 为拷屏开始的 copy 口径，P/G/bw/C 等原有数值不变，不将该口径当作实测面板时刻。
-- 异常截图指 GMEM 分 bin 边界下方出现状态栏蓝色块的截图（2026-10-25 的 framebuffer fetch 缓存问题）。其他显示异常要看拼图或由人确认。
+- 现有异常截图计数针对 GMEM 分 bin 边界下方的状态栏蓝色块（2026-10-25 的 framebuffer fetch 缓存问题）。每个图形批次还需实际打开截图，检查桌面组件、多任务卡片及转场画面；采样、原图审阅和缺样判定见[真机调试手册 §7.1](../../docs/plan/device-test-playbook.md#71-图像审阅与短暂异常)。
 - 温度和 CPU 档位来自 `cpufreq=1` 或 `2` 时内核每 30 s 写的日志。`N by temperature, M without a reading` 区分限频由读数触发还是没有读数触发；判断限频是否守住看紧跟的 `hot ticks` 一行。
 - backboardd 的 GPU 时间按 pass 拆分：`JOB_ENV` 加 `com.apple.backboardd.plist:ANNIBALE_PASS_TIMES=1` 和 `com.apple.backboardd.plist:FD_GPU_TRACEPOINT=-all,+render_pass,+draw_ib,+compute,+blit,+nondraw,+tile_loads,+tile_stores`，日志每 5 秒打印一组 `pass times`。AIR 库要带 `tools/mesa/rebase-26/0008`，读法见[GPU 提频后的 120 Hz](../../docs/analysis/2026-11-02-120hz-after-gpu-clock.md) §6；带 `0018` 时还会为不低于 2 ms 的 draw 打印 `draw gpu slow`，每个进程每 5 秒最多 4 行。
 - 震动、亮度、声音等需要人感知的项目不在判定范围内。
@@ -124,15 +124,15 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 | 变量 | 默认 | 作用 |
 |---|---|---|
-| `JOBS_SOURCE` | `tools/k90auto/rc.jobs.desktop` | 换掉根盘里的 `etc/rc.jobs` |
+| `JOBS_SOURCE` | `tools/k90auto/jobs/rc.jobs.interactive`，文件不存在时用 `tools/k90auto/rc.jobs.desktop` | 换掉根盘里的 `etc/rc.jobs`；选择逻辑见 [`package.py`](package.py) 的 `DEFAULT_JOBS` |
 | `JOBS_DROP` | 空 | 不打包列出的 `jobs/*.plist` |
 | `REST` | `1` | 登记其余 iOS 26 任务（`userland/mkjobs.py --rest`），有人查其 Mach 服务时才启动；`REST_ALLOW` 额外放行 DENY 表里的项 |
 | `ICON_METAL` | `1` | iconservicesagent 用 Metal 设备；`0` 时软件渲染，设置页图标是灰块 |
 | `POSTER_METAL` | `1` | MercuryPosterExtension 插入 Metal 设备登记库；`0` 时壁纸为黑色，见[锁屏壁纸](../../docs/analysis/2026-10-31-mercury-wallpaper.md) |
-| `DIRTY_REGIONS` | 关 | `1` 时 backboardd 只重绘变化区域；默认整帧重绘 |
+| `DIRTY_REGIONS` | `1` | backboardd 默认只重绘变化区域；`0` 设置 `CA_DISABLE_DIRTY_REGIONS=1`，整帧重绘供对照，定义见 [`package.py`](package.py) |
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
 | `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB）；`0` 不放 |
-| `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal MobileSlideShow Music Maps AppStore Files HelloK90` | 插入 `libannibale-ax.dylib` 的进程；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。进程名写进 `kern.exec_inject`，总长不能超过 510 字节 |
+| `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal Files` | 插入 `libannibale-ax.dylib` 的进程，默认列表见 [`package.py`](package.py) 的 `AX_PROCESSES`；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。整个注入配置写进 `kern.exec_inject`；`package.py` 要求去掉末尾换行和空格后的 UTF-8 长度至多 4094 字节 |
 | `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `AnnibaleAudio.driver` 按 arm64e 重编，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
 | `GPU_SPEED` | `3` | 记进 manifest，与载荷的 `adreno8_speed` 不一致时 `make-payload.py` 拒绝 |
@@ -169,7 +169,7 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
-- 默认值：内核记录 `12377-st5`（`--kernel`），`--seconds 900`，`jobs/rc.jobs.interactive`，`GPU_SPEED=14`，CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
+- 默认值：内核记录由 [`cycle.py`](cycle.py) 的 `KERNEL` 定义，可用 `--kernel` 选择；其余为 `--seconds 900`、`jobs/rc.jobs.interactive`、`GPU_SPEED=14`、CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
 - 固定启动参数 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、`touch_poll_us=4000` 和 Wi-Fi（`pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。之后是 `--boot-args`，最后是 `fbwidth=1206 fbheight=2622 fbpitch=460`（iPhone 17 画布，见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)）。
 - `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 分别替换固定参数、CPU 参数和 GPU 档位。同一个键出现两次时内核取第一个，所以本轮变量是 `FIXED_ARGS` 里的键时要用 `CYCLE_FIXED_ARGS` 整串替换；画布三个键排在最后，可以在 `--boot-args` 里改。`CYCLE_PROGRAMS=路径[:路径]` 往根盘的 `/annibale/bin` 多放程序。
 - 起轮前由 `ensure_loader_idle()` 将运行态（`oem stop` 后 `reboot` 加 `oem recovery`）、收尾态或 B 槽 Android（`recover-loader.py`）收敛到已枚举的 `xnuloader` 且 `result` 为 `idle`、启动卷常驻区为空。显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1`（配合 `ANDROID_SERIAL`）时经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再启动对应镜像。

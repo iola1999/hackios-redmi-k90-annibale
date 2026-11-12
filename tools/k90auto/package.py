@@ -132,8 +132,8 @@ XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
 # which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
 # userland/src/statusbar26.m: the status bar's time and battery 12 points closer to the screen edges.
 # Each application lays out its own status bar, so one not named here keeps iOS's place
-# (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to the kernel's 512-byte
-# kern.exec_inject, which refuses a longer string whole (checked below).
+# (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to kern.exec_inject;
+# the size check below follows the kernel buffer limit.
 AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail "
                               "MobileCal Files").split()
 # MercuryPosterExtension, the provider of the default wallpaper, gets the Metal device unless
@@ -347,6 +347,7 @@ DRIVER_FLAGS = ["-O1", "-framework", "Foundation", "-framework", "IOKit", "-fram
 # annibalemetal_commandbuffer.inc, which no manifest recorded: the .m hashes matched and the product
 # hash did not, so the search could only end by rebuilding from candidate trees.
 DRIVER_INCLUDES = ["tools/userland-driver/annibale_drawable.h",
+                   "tools/userland-driver/air_metal_reflection.h",
                    "tools/userland-driver/annibalemetal_archive.inc",
                    "tools/userland-driver/annibalemetal_blit.inc",
                    "tools/userland-driver/annibalemetal_buffer_pipeline.inc",
@@ -361,6 +362,7 @@ DRIVER_INCLUDES = ["tools/userland-driver/annibale_drawable.h",
                    "tools/userland-driver/annibalemetal_mesa.inc",
                    "tools/userland-driver/annibalemetal_pipecache.inc",
                    "tools/userland-driver/annibalemetal_queue.inc",
+                   "tools/userland-driver/annibalemetal_reflection.inc",
                    "tools/userland-driver/annibalemetal_renderencoder.inc",
                    "tools/userland-driver/annibalemetal_renderencoder_spi.inc",
                    "tools/userland-driver/annibalemetal_state.inc",
@@ -404,6 +406,13 @@ VDEC_TEST_FLAGS = ["-O1", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-framewo
 VPLAY_TEST_SOURCES = ["userland/src/tests/video_player_test.m"]
 VPLAY_TEST_FLAGS = ["-O1", "-fobjc-arc", "-Wall", "-Wextra", "-Werror", "-framework", "Foundation",
                     "-framework", "AVFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo"]
+VCOMB_TEST_SOURCES = ["userland/src/tests/video_combined_test.m"]
+VCOMB_TEST_FLAGS = ["-O1", "-Wall", "-Wextra", "-Werror", "-Wno-deprecated-declarations",
+                    "-framework", "Foundation", "-framework", "Metal", "-framework", "CoreVideo",
+                    "-framework", "IOSurface"]
+REFLECTION_TEST_SOURCES = ["tools/userland-driver/metal_reflection_test.m"]
+REFLECTION_TEST_FLAGS = ["-O1", "-Wall", "-Wextra", "-Werror", "-Wno-deprecated-declarations",
+                         "-framework", "Foundation", "-framework", "Metal"]
 APP_SOURCES = ["userland/src/inject/inject_app.c"]
 APP_FLAGS = ["-O1", "-fblocks"]
 
@@ -695,9 +704,24 @@ def main():
     vt = OUT / "libannibale-vt.dylib"
     vdec_test = OUT / "video_decode_test"
     vplay_test = OUT / "video_player_test"
+    vcomb_test = OUT / "video_combined_test"
+    reflection_test = OUT / "metal_reflection_test"
     app = OUT / "libannibale-app.dylib"
     assert air.is_file(), (f"{air} is missing; tools/k90auto/build-air.py writes it and signs it, "
                            "and ninja alone does not")
+    assert AIR_RECORD.is_file(), "AIR build record is missing; run tools/k90auto/build-air.py"
+    record = json.loads(AIR_RECORD.read_text())
+    got = sha(air)
+    assert got == record["library_sha256"], (
+        f"the AIR library here is {got[:16]}, but the last build-air.py run made "
+        f"{record['library_sha256'][:16]}; run tools/k90auto/build-air.py")
+    assert sha(SRC_ROOT / "tools/userland-driver/air_metal_reflection.h") == record.get(
+        "tree_sha256:air_metal_reflection.h"), (
+        "driver reflection ABI differs from the AIR build; run tools/k90auto/build-air.py")
+    air_source = record.get("source_sha256:air_metal.c")
+    # Record every copied source and build-tree digest for the library used by this image.
+    air_sources = {key: value for key, value in record.items()
+                   if str(key).startswith(("source_sha256:", "tree_sha256:"))}
     # The ninja build leaves the library unsigned, and dyld refuses it: the image then boots,
     # composits on the CPU and records plausible frame times with no GPU submission at all.
     signed = subprocess.run(["/usr/bin/codesign", "-dv", str(air)], capture_output=True, text=True)
@@ -718,6 +742,8 @@ def main():
                 "vt": build(VT_SOURCES, "/annibale/lib/libannibale-vt.dylib", VT_FLAGS, vt),
                 "video_decode_test": build(VDEC_TEST_SOURCES, "", VDEC_TEST_FLAGS, vdec_test, dynamic=False),
                 "video_player_test": build(VPLAY_TEST_SOURCES, "", VPLAY_TEST_FLAGS, vplay_test, dynamic=False),
+                "video_combined_test": build(VCOMB_TEST_SOURCES, "", VCOMB_TEST_FLAGS, vcomb_test, dynamic=False),
+                "metal_reflection_test": build(REFLECTION_TEST_SOURCES, "", REFLECTION_TEST_FLAGS, reflection_test, dynamic=False),
                 "app": build(APP_SOURCES, "/annibale/lib/libannibale-app.dylib", APP_FLAGS, app)}
     xpcwatch = OUT / "libannibale-xpcwatch.dylib"
     if XPCWATCH_PROCESSES:
@@ -760,6 +786,8 @@ def main():
                             *VT_SOURCES,
                             *VDEC_TEST_SOURCES,
                             *VPLAY_TEST_SOURCES,
+                            *VCOMB_TEST_SOURCES,
+                            *REFLECTION_TEST_SOURCES,
                             "tools/mesa/air/air_metal.c", "tools/mesa/air/air_to_nir.c",
                             "tools/mesa/air/air_metal_yuv.h", "tools/mesa/air/air_metal_yuv.inc",
                             *(PROBE_SOURCES if PROBE else [])]}
@@ -847,6 +875,8 @@ def main():
     shutil.copy2(vt, dest / "lib/libannibale-vt.dylib")
     shutil.copy2(vdec_test, dest / "bin/video_decode_test")
     shutil.copy2(vplay_test, dest / "bin/video_player_test")
+    shutil.copy2(vcomb_test, dest / "bin/video_combined_test")
+    shutil.copy2(reflection_test, dest / "bin/metal_reflection_test")
     shutil.copy2(app, dest / "lib/libannibale-app.dylib")
     assert sha(dest / "lib/libannibale.dylib") == sha(userland), \
         "libannibale.dylib in the image is not the one this pack built"
@@ -872,20 +902,6 @@ def main():
         relative = program[len("/annibale"):] if program.startswith("/annibale/") else program
         assert (dest / relative.lstrip("/")).exists(), (
             f"{plist_path.name} runs {program}, which is missing from the helper image")
-    if AIR_RECORD.is_file():
-        record = json.loads(AIR_RECORD.read_text())
-        got = hashlib.sha256(air.read_bytes()).hexdigest()
-        assert got == record["library_sha256"], (
-            f"the AIR library here is {got[:16]}, but the last build-air.py run made "
-            f"{record['library_sha256'][:16]}; run tools/k90auto/build-air.py")
-        air_source = record.get("source_sha256:air_metal.c")
-        # Every file build-air.py copies, with both digests. air_to_nir.c was outside the copied set
-        # until 2026-10-28, so a change to it reached no build and said nothing; recording the record's
-        # entries here means a round can be asked afterwards which sources its AIR library came from.
-        air_sources = {key: value for key, value in record.items()
-                       if str(key).startswith(("source_sha256:", "tree_sha256:"))}
-    else:
-        record, air_source, air_sources = {}, None, {}
     held = set()
     for text in [air.read_bytes()]:
         held = set(t for t in AIR_REQUIRED if t.encode() in text)
@@ -951,7 +967,7 @@ def main():
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
              | ({"/bin/lsprobe"} if PROBE and "/bin/lsprobe" not in before else set())
              | ({"/bin/bluetool", "/bin/bluetoothd"} - set(before) if BLUETOOTH else set())
-             | ({"/bin/video_decode_test", "/bin/video_player_test"} - set(before))
+             | ({"/bin/video_decode_test", "/bin/video_player_test", "/bin/video_combined_test", "/bin/metal_reflection_test"} - set(before))
              | ({"/fw"} - set(before) if (WIFI_FW or BT_FW or IRIS_FW) else set())
              | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} - set(before) if WIFI_FW else set())
              | ({"/fw/" + name for name in BT_FW_FILES} - set(before))
@@ -975,7 +991,8 @@ def main():
                 "/lib/AnnibaleMetal.bundle/AnnibaleMetal",
                 "/lib/libannibaleair.dylib", "/lib/libannibale.dylib", "/lib/libannibale-sb26.dylib",
                 "/lib/libannibale-media.dylib", "/lib/libannibale-vt.dylib", "/lib/libannibale-app.dylib",
-                "/bin/video_decode_test", "/bin/video_player_test",
+                "/bin/video_decode_test", "/bin/video_player_test", "/bin/video_combined_test",
+                "/bin/metal_reflection_test",
                 *(["/lib", "/lib/libannibale-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-ax.dylib"] if AX_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),

@@ -2,6 +2,8 @@
 
 系统卷放在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。启动阶段的 `md0` 只放小型 `flashboot.apfs` 引导卷中的 `stage0` 与挂载目录，辅助盘 `md1` 放本项目的程序、驱动与固件。系统镜像不再整体读入 loader 常驻区，`/private/var` 由内核直接写入 UFS `darwin_var`。2026-11-08 临时启动和刷入 `boot_a` 后重启均已完成真机切根，启动卷常驻长度为 4 MiB。
 
+设置读回与异常复位验证见[系统与持久化待办](../backlog/system.md)。
+
 ## 1. 近期提交与审查结论
 
 - 内核 `e8b499c` 与顶层 `bc20def` 加入 DSU 系统镜像读取：loader 把整个镜像读入常驻内存。
@@ -70,15 +72,12 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 - 临时启动停止前，`hw.memsize` 为 12 GiB，页大小为 16384 字节；空闲页 457628 页，约 6.98 GiB，wired 页 77614 页，约 1.18 GiB。完整系统镜像的 5.51 GiB 常驻分配已清除。
 - 同一镜像写入 `boot_a`，发送和写入均成功；重启后 USB 断开并重新枚举，新 loader 身份、4 MiB 启动卷、UFS 切根和 Cryptex 挂载再次确认。
 - 在新系统中只读 `/dev/rufs_boot_a` 的前 24,031,232 字节，SHA-256 与构建镜像完全一致；结果保存于 `boot-readback.log`。
-- 持久启动从槽位 1、代数 77738 恢复 21621 个节点与 73923 页。该结果确认正常重启读取了更新后的检查点；指定测试文件、设置和异常复位恢复仍需分别验证。
-- 持久启动中创建测试文件并执行 `fsync`、`F_FULLFSYNC` 与 `sync`，前两项均返回 0；`marker-create.log` 记录本轮写入，文件内容在下一批重启后读回。
+- 持久启动从槽位 1、代数 77738 恢复 21621 个节点与 73923 页。该结果确认正常重启读取了更新后的检查点。
+- 持久启动中创建测试文件并执行 `fsync`、`F_FULLFSYNC` 与 `sync`，前两项均返回 0；`marker-create.log` 记录本轮写入，文件读回结果见第 7 节。
 
 设备日志与截图保存在本地忽略目录 `docs/progress/evidence/storage-boot-device-1108/phase2/`，分别为 `temporary-ended.log`、`persistent-boot.log` 与 `temporary-screen.png`。源码对应内核 `990b6fcc`、loader `b935d2e5` 和辅助盘用户态 `5a37569`；后续 `net_test` 提交 `6ff56cb` 未包含在该辅助盘中。
 
-- 离线：验证真实 XNUP 条目、启动参数、完整容器大小、常驻区上限，以及上传顺序；尺寸或状态不符应在内核运行前失败。
-- 产物：用 APFS 检查工具读取启动卷，核对 `/sbin/launchd` 与挂载目录；构建 loader、辅助盘及 standalone，记录各自产物哈希。
-- 真机：日志应先出现 `BSD root: md0`，随后确认 `/dev/ufs_darwin` 挂载与根目录切换成功、launchd 缓存绑定成功；记录常驻镜像长度、实际内存窗口与可用内存。
-- 持久化：写文件、修改设置、执行同步，再正常重启并读回；另行检查异常复位恢复结果。仅修改启动卷不能完成持久化验收。
+设置读回与异常复位验证统一记录在[系统与持久化待办](../backlog/system.md)。
 
 ## 7. 完整原版系统卷部署
 
@@ -93,11 +92,11 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 完整提取已通过。`ios26/full-system.py` 从原始列表生成所有文件的元数据，提取状态记录镜像与准备脚本的 SHA-256；构建前检查该状态。`fetch.sh` 复制完整系统根目录和两个 Cryptex，共享缓存的分析目录通过硬链接复用内容。原始卷中的零字节、不可读普通文件先按原模式和时间创建，随后由 `rsync` 完成目录复制。
 
-用户态编译及配套辅助盘打包通过，启动任务共 553 项，包含 `locationd`、`fairplayd.H2`、`geod` 与 `weatherd`。通知资源直接使用原始系统卷的文件，辅助盘为 18,137,088 字节。完整提取的 6 项测试、切根的 7 个场景和数据盘挂载测试均通过；这些服务的实际启动与内容请求仍需在原版系统部署后检查。
+用户态编译及配套辅助盘打包通过，启动任务共 553 项，包含 `locationd`、`fairplayd.H2`、`geod` 与 `weatherd`。通知资源直接使用原始系统卷的文件，辅助盘为 18,137,088 字节。完整提取的 6 项测试、切根的 7 个场景和数据盘挂载测试均通过；这些服务的后续事项见[系统与持久化待办](../backlog/system.md)。
 
 当前生产 APFS 读取代码已编译为主机工具，从三个原始容器读取 12 个文件，与 macOS 完整提取结果的长度及 SHA-256 全部一致。检查覆盖 `launchd`、`locationd`、`fairplayd.H2`、日历通知资源、五个 CoreImage metallib，以及 OS/App Cryptex 中的文件。
 
-首轮完整系统启动镜像为 22,450,176 字节，SHA-256 为 `cff5d9104672098d536ca10ebbf6a9a16986c96c749f006c3bad3df422339109`。解开 Android kernel 的 gzip 后，XNUP 直接包含内核、辅助盘和 4 MiB 启动卷；内核、loader、启动参数与 Metal/AIR 沿用第 6 节的已部署输入。首轮检查完整系统及对应启动任务，图形候选修复另行验证。
+首轮完整系统启动镜像为 22,450,176 字节，SHA-256 为 `cff5d9104672098d536ca10ebbf6a9a16986c96c749f006c3bad3df422339109`。解开 Android kernel 的 gzip 后，XNUP 直接包含内核、辅助盘和 4 MiB 启动卷；内核、loader、启动参数与 Metal/AIR 沿用第 6 节的已部署输入。首轮检查覆盖完整系统及对应启动任务，图形候选的后续验收见[图形与显示待办](../backlog/graphics.md)。
 
 `reseal-loader-img.py` 校验容器长度、条目边界、padding 和结束记录，并拒绝 loader 无法解开的 `payload.lz4` 条目。7 项测试通过；BootShim、UEFI、DTB、Android ramdisk 及其余 header 字段保持原值。完整 boot 已通过 LK 临时启动，随后写入 `boot_a` 并重启；物理分区前 22,450,176 字节的完整读回 SHA-256 与上述镜像一致。
 
@@ -113,14 +112,14 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 迁移后首次运行已读回相同的 110 字节测试文件，`ufs_native=1`、`ufs_write_errors=0`。该轮 12 GiB 物理内存采样中，16 KiB 页的空闲计数为 428,495，约 6.54 GiB；wired 计数为 73,048，约 1.11 GiB。该读数对应首次启动采样，后续应用活动会改变页数。
 
-实际布局、范围及备份校验保存在本地忽略目录 `storage-boot-device-1108/phase3/`，写入与读回结果在 `phase4/`。完整系统镜像已覆盖旧系统及旧数据盘前部，回滚需要恢复内容与原 GPT。本次保留了已有数据盘内容；后续初始化可按测试需要重建 iOS 数据卷。
+写入与读回结果保存在本地忽略目录 `storage-boot-device-1108/phase4/`。完整系统镜像已覆盖旧系统及旧数据盘前部，本次保留了已有数据盘内容。
 
 持久启动的检查结果保存在 `phase4/persistent-migration-verification.json`：
 
 - UFS 系统卷、两个 Cryptex 和迁移后的数据盘均挂载成功，`ufs_native=1`、`ufs_write_errors=0`；启动卷 4 MiB，辅助盘 18,137,088 字节。
 - `/private/var` 从槽位 1、代数 91418 恢复 23647 个节点与 86313 页；同一 110 字节测试文件在迁移和多次正常重启后保持一致。
 - 11:08:30～31（CST）采样空闲页 408088，约 6.23 GiB；wired 页 91626，约 1.40 GiB。该读数随运行负载变化。
-- 桌面能够启动，早期透明的应用图标在原生应用和控制中心交互后恢复；Weather/Calendar 大组件仍为黑底，天气和地图内容请求仍待修复。
+- 桌面能够启动，早期透明的应用图标在原生应用和控制中心交互后恢复；Weather/Calendar 大组件仍为黑底，后续图形验收见[图形与显示待办](../backlog/graphics.md)；天气和地图内容请求仍有异常，后续事项见[系统与持久化待办](../backlog/system.md)。
 
 当前 `boot_a` 已更新为集成内核与已验证的 Metal/AIR 修复，loader 继续使用 `b935d2e5`。正常重启及物理读回结果保存在 `storage-boot-device-1108/phase8/`：
 

@@ -1,13 +1,12 @@
 # 相机路线：annibale（REDMI K90 / SM8750 "sun"）
 
-状态：调研与基础通路接入稿。本文记录相机栈结构、K90（SM8750 `"sun"`）的硬件资源与差异、分级路线和放弃准则。CAMSS 各块基址与 sensor 挂线见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
+本文保留早期相机栈设计与设备树资源分析。当前传感器身份、原生会话和真机结果见[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)，未完成事项集中在[多媒体待办](../backlog/multimedia.md)。CAMSS 各块基址与 sensor 连接见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
 
 ## 1. 结论
 
 - 相机栈采用裸寄存器方案：内核 `annibale_camera.c` 出 RAW10 帧，mediaserverd／cameracaptured 里的注入库冒充 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有回归脚本。
 - 用户态没有裁剪或修改相机框架，K90 上主要适配内核 CAMSS 寄存器与 iOS 26 CMCapture 契约（§4.2）。
-- 最大未知数是主摄 OV50E（光影猎人 800，OV 定制）的上电序列、初始化寄存器表与模式表，来自设备的 `/vendor/lib64/camera/com.qti.sensormodule.*.bin`。
-- 估算：L1（单摄预览，先 TPG 后真 sensor）3–5 周加 6–10 个真机窗口，L2（拍照）再加 2–3 周；拿不到 sensor 表就停在 TPG 演示。
+- 早期资料按 OV50E（光影猎人 800，OV 定制）分析主摄，模式表来源为设备的 `/vendor/lib64/camera/com.qti.sensormodule.*.bin`。当前工作以实际读取的传感器 ID 与厂商表匹配结果为准，见[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)。
 
 ## 2. annibale 相机栈
 
@@ -39,7 +38,7 @@
 | ultra | QUP SE8 I2C `0x880000`，slave 0x7a | sd-index 2 | MCLK2（GPIO91），RESET 3 | VIO 1.8 V、VDIG 1.0–1.2 V、VANA 2.8 V；带 `aon-camera-id` |
 | front | QUP SE9 I2C `0x884000`，slave 0x10 | sd-index 4 | MCLK4（GPIO93），RESET 7 | 同构 |
 
-- 主摄：光影猎人800 是 OmniVision OV50E 的小米定制版，50MP、1/1.55"、OIS（[fonearena 发布稿](https://www.fonearena.com/blog/467264#1)）。设备树不含型号与寄存器表，CamX 从 vendor 用户态 bin 探测加载。
+- 早期型号资料：发布稿将光影猎人 800 记为 OmniVision OV50E 的小米定制版，50MP、1/1.55"、OIS（[fonearena 发布稿](https://www.fonearena.com/blog/467264#1)）。设备树不含型号与寄存器表，当前适配需结合实际 chip ID 与 CamX vendor 表确认。
 - 供电轨是 RPMH PMIC LDO，走 SPMI/RPMH，annibale 的 PM8008i 手写 I2C 经验不适用。
 
 ## 4. SM8750 硬件要点与最小路线
@@ -55,31 +54,18 @@
 
 ### 4.2 iOS 侧
 
-内核出 `/dev/annibale-camera`，loader 加假 `/arm-io/isp` 节点，`inject_media.c` 替换 `BWFigCaptureDeviceVendor` 与 `FigCaptureSourceRemoteCreateFigCaptureSource`。在 iOS 26（iPhone 17 身份，`V57AP`）上需要核对以下各项：
-
-- 承载 CMCapture 的进程（`cameracaptured`／`mediaserverd`）与 vendor 的替换点。
-- 属性表与 `AVCaptureSession.plist` 的 `V57` 机型目录及格式匹配契约。
-- loader 假 `/arm-io/isp` 节点在 annibale loader 里的注入点。
-- iOS 26 的系统进程是 arm64e，注入库要按 arm64e 构建并签名，否则 dyld 不加载。
+早期适配由 `/dev/annibale-camera`、loader 的 `/arm-io/isp` 节点及 `inject_media.c` 中的 vendor／source 替换组成。iOS 26 的承载进程、V57 格式与属性、arm64e 构建和签名要求的核查结果见[多媒体设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)与[验证结果](../analysis/2026-11-11-multimedia-validation.md)。
 
 ### 4.3 分级路线
 
-| 级别 | 内容 | 盲写比例 | 真机窗口 | 工作量 |
-|---|---|---|---|---|
-| L1a 通路验证 | sun-camcc／CPAS／GDSC／SMMU-ife → TPG13 或 CSID TPG → csid-lite0 → ife-lite0 → `camera_region` → `/dev/annibale-camera`，iOS 上看到彩条预览 | 约 70–80% | 4–6 个 | 2–3 周 |
-| L1b 真 sensor 预览 | 从 OV50E bin 解出上电序列和一条 4032×3024@~30 的模式，CCI0 初始化 wide，同一 lite 路径出帧 | sensor 表约 50% | 再加 2–4 个 | 再加 1–2 周 |
-| L2 拍照 | 全幅模式、eeprom tuning（shading／CCM）、VAF 点按对焦 | tuning 解析约 40% | 再加 3–5 个 | 再加 2–3 周 |
-| 暂缓 | 录像、多摄并发、AON、HDR／多帧、IFE980 全量 CDM／UBWC、ICP／OFE | — | — | — |
+当前按真实传感器流与 DMA（M2）、拍照与调校（M6）、硬件资料（M7）、录像与多摄（M10）分别验收，依赖、下一步和完成条件集中在[多媒体待办](../backlog/multimedia.md)。TPG 结果仅覆盖测试图路径，真实预览需要实际传感器帧。
 
 ## 5. 放弃与推迟准则
 
-1. vendor 文件门：拿不到 `com.qti.sensormodule.annibale_*.bin`（或等价的 sensor 驱动），且 `cam=2` 式探针两个真机窗口内读不到 OV50E chip ID，就冻结 L1b／L2，只保留 L1a 的 TPG 演示或不做。手机下次在 Android 时 `adb pull /vendor/lib64/camera`，文件放在 `../fw-camera/`，不入库。
-2. CPAS 门：CPAS/CAMNOC 初始化连续 2 个真机窗口不能让 tfe／GDSC 稳定上电，降级为「TPG 内存图加 loader 直接铺帧缓冲」的静态演示，相机整体推迟。
-3. 单周真机窗口少于 1 个时只做盲写与离线校验，不启用新的硬件路径。
-4. iOS 侧出现必须改用户态才能通过的新依赖时，记录后推迟，不阻塞内核分级验证。
+执行条件遵循[真机调试手册](device-test-playbook.md)和 [AGENTS.md](../../AGENTS.md)。设备暂不可用期间继续静态分析与构建；硬件表、供电或原生契约缺少来源的部分明确记录未知项，再安排能验证该项的设备检查。
+
+原版用户态约束继续有效。新依赖与现有适配目标冲突时，记录具体接口和原因，再调整对应阶段的范围。厂商相机文件保存在本地，文件来源与使用方式见 §2.1。
 
 ## 6. 待办
 
-- 在合并设备树里反查各 sensor 节点 `cam_*-supply` 的 phandle，得到 PMIC LDO 名与 SPMI 地址；四个 sensor 共用的 `cam_clk-supply = <0x5e>` 疑为 titan GDSC 的 regulator。
-- 对照 AOSP `camcc-sun.c` 整理 sun camcc 的时钟 id 表，补进硬件资源图谱。
-- 按 TLMM 基址（图谱 §11）把 sensor 节点里的 GPIO 换算成实际编号。
+sensor 供电 phandle、PMIC LDO／SPMI、camcc 时钟 ID 和 TLMM GPIO 核对集中在[多媒体待办 M7](../backlog/multimedia.md)。四个 sensor 共用的 `cam_clk-supply = <0x5e>` 在早期分析中推断为 titan GDSC regulator，仍需结合当前设备树和原厂驱动确认。
