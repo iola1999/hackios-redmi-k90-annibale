@@ -1180,3 +1180,27 @@ cd35 保持第 63 节的 AVPlayer 探针、辅助盘、270 帧样本和启动参
 - 两份最终 iOS arm64e 探针以 `-Wall -Wextra -Werror` 编译链接通过。文件报告尚未覆盖真机硬解与连续播放。
 
 实现只增加各探针自己的文件句柄与输出目标，复用已有帧统计和格式。去掉文件输出会再次使完整像素校验依赖控制台回收。宿主数据、最终编译对应关系与复杂度审阅保存在本地 `codex-1112-video-frame-reports/`。
+
+## 69. Safari 异常与本轮网络缺口
+
+cd36 沿第 66 节的冻结内核、Metal、AIR、页面和打开探针，仅为 MobileSafari 增加有输出上限的未捕获异常观测。异常处理器保存并调用原处理器，原生框架方法保持原样。
+
+- 同一 MobileSafari PID 的注册线程与异常线程分别取得记录。异常为 `NSInvalidUnarchiveOperationException`，`__NSCoderError` 的 domain 为 `NSCocoaErrorDomain`，code 为 4866。
+- 底层错误为 `EncodingError.invalidValue`，debugDescription 原文为 `Unable to create a string from the sandbox extension token`；顶层错误记录 `Unable to encode the given top-level value as a property list`。
+- 两次接口查询均在 Safari 打开后执行，en0 为 UP／RUNNING，IPv4 地址为空。主机 HTTP 健康请求只覆盖主机，设备路由与设备访问测试服务尚未验证；本轮页面加载、正文与视频验收无效。
+- 13 条采集命令完成，最高 CPU 采样温度为 72.1°C，采样器记录一个覆盖缺口。HTTP 服务和控制器退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+静态核对发现，`libsystem_sandbox` 的请求 5 在成功返回后直接使用输出缓冲作为 extension token；MiniSandbox 该分支返回成功却未写入输出。原生库的失败分支释放缓冲并返回 NULL，Foundation 可继续处理这一结果。修复在内核返回 `ENOTSUP`，宿主回归和冻结单对象编译通过，真机复核尚未执行。
+
+后续先观察开机后的 Wi-Fi 自动连接与已保存网络设置，连接可用后再继续页面和视频测试。原始结果位于本地 `kernel-12377-codex-1112-cd36-safari-exception/`，网络与异常范围见其 `run/device-final-network-exception-review.json`；原生分支分析见本地 `safari-exception-1112/native-exception-current-review.json`，修复与构建见 `safari-sandbox-1113/`。
+
+## 70. 11-13 人工体验与发布范围
+
+本轮使用第 65 节的输入归还内核和 minmax AIR／heap Metal 辅助盘，记录位于本地 `kernel-12377-codex-1113-cd37-wifi-user-review/manifest.json`。该轮由用户操作并观察，以下结果覆盖该次启动。
+
+- 开机等待后 Wi-Fi 自动连接；用户在 01:18 反馈此前约一分钟操作卡顿，尚未完成对应时段的性能分析。
+- 闪光灯可用，亮度调节正常；屏幕亮度调整期间没有闪烁。
+- 01:25:15 前后的相机操作没有闪退，顶部绿色隐私指示灯亮起，预览黑屏；真实图像采集仍未通过。
+- 用户随后反馈整体性能较好、图形渲染错误与功能异常减少。这是本次体验反馈，尚无同条件的版本间帧率与错误数量对照。
+
+`v0.1.3` 按用户选定的范围采用最近验证的组合。已出现首次启动图标缺失的较新 AIR 候选继续单独验证，相机 DMA 开发继续保留在日常工作区。发布构建、版本来源和校验记录见[11-13 发布记录](../progress/2026-11-13-release.md)。

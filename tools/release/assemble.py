@@ -4,7 +4,7 @@
 usage: assemble.py ipsw DIR
            downloads os.dmg, systemos.dmg and appos.dmg of the release's iOS build from Apple
            into DIR and decrypts them (about 10.4 GB of downloads, 15 GB on disk)
-       assemble.py build --ipsw DIR --modem IMG --bluetooth IMG --zap FILE [-o DIR]
+       assemble.py build --ipsw DIR --modem IMG --bluetooth IMG --zap FILE [--iris FILE] [-o DIR]
            makes DIR/root.apfs and DIR/boot-ios.img (default DIR: ./out)
 
 Run it from the unpacked release (hackios-k90-vX.Y.Z/tools/release/assemble.py). --modem and
@@ -128,6 +128,10 @@ def firmware(args, recipes, work):
     for r in recipes:
         if r["kind"] == "firmware" and r["source"] == "zap":
             files[r["name"]] = args.zap.read_bytes()
+        if r["kind"] == "firmware" and r["source"] == "iris":
+            if args.iris is None:
+                raise SystemExit("this release requires --iris FILE (the phone's vpu35_4v.mbn)")
+            files[r["name"]] = args.iris.read_bytes()
     return files
 
 
@@ -139,7 +143,7 @@ def build(args):
         want = manifest["ios"]["dmg_bytes"][name]
         if not dmg.is_file() or dmg.stat().st_size != want:
             raise SystemExit(f"{dmg}: missing or not {want} bytes; run `assemble.py ipsw {args.ipsw}` first")
-    for path in (args.modem, args.bluetooth, args.zap):
+    for path in (args.modem, args.bluetooth, args.zap, *([args.iris] if args.iris else [])):
         if not path.is_file():
             raise SystemExit(f"{path}: not found")
     args.output.mkdir(parents=True, exist_ok=True)
@@ -216,6 +220,7 @@ def main():
     p.add_argument("--modem", type=Path, required=True)
     p.add_argument("--bluetooth", type=Path, required=True)
     p.add_argument("--zap", type=Path, required=True)
+    p.add_argument("--iris", type=Path, help="the phone's signed vpu35_4v.mbn, required by releases with Iris")
     p.add_argument("-o", "--output", type=Path, default=Path("out"))
     args = ap.parse_args()
     if sys.version_info < (3, 10):

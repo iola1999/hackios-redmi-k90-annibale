@@ -53,7 +53,7 @@ IPSW_SOURCE = {"url": "https://updates.cdn-apple.com/2026SummerFCS/c2f9fa07-0acc
                "members": {"os": "094-96558-090.dmg.aea", "systemos": "094-95851-092.dmg.aea",
                            "appos": "094-96441-094.dmg"}}
 # the phone's own firmware: which partition image each file is extracted from
-VENDOR_FIRMWARE = {"gen80000_zap.mbn": "zap",
+VENDOR_FIRMWARE = {"gen80000_zap.mbn": "zap", "vpu35_4v.mbn": "iris",
                    "amss20.bin": "modem", "regdb.bin": "modem", "bd_p11.elf": "modem", "phy_ucode20.elf": "modem",
                    "hmtbtfw20.tlv": "bluetooth", "hmtbtfw20.ver": "bluetooth", "hmtnv20.bin": "bluetooth"}
 # fw/ files a release may carry: the GPU firmware of firmware-gen8/ (Qualcomm's redistribution
