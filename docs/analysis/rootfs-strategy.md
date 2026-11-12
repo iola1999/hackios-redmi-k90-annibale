@@ -112,7 +112,7 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 迁移后首次运行已读回相同的 110 字节测试文件，`ufs_native=1`、`ufs_write_errors=0`。该轮 12 GiB 物理内存采样中，16 KiB 页的空闲计数为 428,495，约 6.54 GiB；wired 计数为 73,048，约 1.11 GiB。该读数对应首次启动采样，后续应用活动会改变页数。
 
-实际布局、范围及备份校验保存在本地忽略目录 `storage-boot-device-1108/phase3/`，写入与读回结果在 `phase4/`。完整系统镜像已覆盖旧系统及旧数据盘前部，回滚需要恢复内容与原 GPT。本次保留了已有数据盘内容。
+写入与读回结果保存在本地忽略目录 `storage-boot-device-1108/phase4/`。完整系统镜像已覆盖旧系统及旧数据盘前部，本次保留了已有数据盘内容。
 
 持久启动的检查结果保存在 `phase4/persistent-migration-verification.json`：
 
