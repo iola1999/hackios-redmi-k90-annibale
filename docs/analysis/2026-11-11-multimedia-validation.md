@@ -848,7 +848,7 @@ cd23 只调整第 43 节的 RAW 缓冲数量。OPEN 前保留初始 4 块，收�
 
 生产实现按成功分配数维护 `raw_count`，返回索引、取帧与重新入队均检查该数量；释放扫描全部槽位，覆盖映射失败后保留的资源。零数量、容量、DPB 实际字节数和 RAW IOVA 范围检查保留，重复或变化 PSC 仍拒绝。实际源码通过 160 项 ASan／UBSan 场景、64 类消融和三个内核单元编译，已与相机 CCI 读取修正合入内核仓 `496e356d`。
 
-cd23 仍包含 STAGE1 诊断设置；通用 STAGE 规则与重复会话结果见第 50 节。连续播放、其他分辨率及其他格式尚未验收。
+cd23 仍包含 STAGE1 诊断设置；通用 STAGE 规则与重复会话结果见第 50 节，1280×768 STAGE2 结果见第 55 节。连续播放及其他格式尚未验收。
 
 本轮原始结果位于本地 `kernel-12377-codex-1112-cd23-iris-raw-count/`；软件参考与逐帧对照位于 `codex-1112-iris-raw-count/reference-check/comparison.json`，生产检查位于同目录的 `production-applied-check/` 与 `production-applied-compile/`。
 
@@ -866,9 +866,9 @@ cd24 以第 44 节为基线，仅将 `CCI_IRQ_GLOBAL_CLEAR_CMD` 从 `0xc10` 修�
 
 本轮末尾读取后摄 V5 数据区，原生退出码为 0、耗时 227 ms，但 telemetry 插入一行 Base64 中间，rsh 输出缺少后半行，连续性校验失败后结束采集。四份原始日志均保留相同的前 20 字符和后 44 字符；合并后另存派生回复，598 行／28,704 字节通过严格连续性检查，七个 LZ4 extent 按预期解出 62,369 字节。原始回复与日志保持原样。
 
-第 49 节的组合轮补取 HAL 目录 inode 后，两段回复写入新的 metadata-v6，范围与回读检查通过。`dump.erofs` 因缺少祖先 inode 输出错误；直接解析目标 inode 与 inline 目录，十条目录记录与 CLI 列表一致，已定位四个本机 CamX HAL 文件。原 CLI 失败记录保留，文件内容仍待提取。
+第 49 节的组合轮补取 HAL 目录 inode 后，两段回复写入新的 metadata-v6，范围与回读检查通过。`dump.erofs` 因缺少祖先 inode 输出错误；直接解析目标 inode 与 inline 目录，十条目录记录与 CLI 列表一致，已定位四个本机 CamX HAL 文件。原 CLI 失败记录保留，完整文件提取见第 54 节。
 
-按 V5 schema 对齐解读，后摄 `sensorDriverData` 的 slaveAddress 为 `0x20`，ID 地址为 `0x300a`，expected ID 为 `0x5650`，mask 为 `0xffff`；本轮 `0x300a/0x300b=0x56/0x50` 与这组字段相符。本机 V5 生成 parser 尚未取得，字段偏移仍属 schema 对齐推断；当前只提取所需片段，完整后摄模块的 CRC 尚未校验。
+后摄 `sensorDriverData` 的 slaveAddress 为 `0x20`，ID 地址为 `0x300a`，expected ID 为 `0x5650`，mask 为 `0xffff`；本轮 `0x300a/0x300b=0x56/0x50` 与这组字段相符。完整模块校验见第 54 节，本机 V5 parser 的字段与调用路径核对见第 56 节。
 
 最高 CPU 采样温度为 74.4°C，收尾确认新版 loader 空闲、常驻区为空和真实 LK 重试 7。生产修正已随内核仓 `496e356d` 提交，保留已修正的 VFE offset `0x1000`；本轮 RAM 候选仍用旧 offset `0xa00`，VFE 新地址需要单独真机复核。生产测试通过 34 项场景、7 类身份消融和 3 类 MMIO 消融。
 
@@ -919,7 +919,7 @@ cd26 以第 46 节为基线，只将固定 STAGE1 改为原厂普通 AVC／HEVC 
 - 两个不同 wire session 分别完成输入 STOP、RAW STOP 与 CLOSE，应答的 session、type、port 和 packet ID 均匹配。`close done` 对应输入、内部和 RAW 缓冲释放、解除映射与 TLB 同步；第二次会话复用已清理槽位。
 - 13 步全部完成，最高 CPU 采样温度为 72.9°C，采样器记录一个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 
-生产修改仅增加尺寸计算与 OPEN 属性，未增加会话状态或 ABI，已提交为内核仓 `37121a16`。实际源码通过 181 项 ASan／UBSan 场景、75 类消融及内核编译；20 组临界尺寸和 STAGE2 报文已有宿主覆盖。本轮样本计算结果仍为 STAGE1，STAGE2、HEVC 和持续播放尚待验证；去掉临时诊断后的结果见第 52 节。
+生产修改仅增加尺寸计算与 OPEN 属性，未增加会话状态或 ABI，已提交为内核仓 `37121a16`。实际源码通过 181 项 ASan／UBSan 场景、75 类消融及内核编译；20 组临界尺寸和 STAGE2 报文已有宿主覆盖。本轮样本计算结果为 STAGE1；去掉临时诊断后的结果见第 52 节，STAGE2 真机结果见第 55 节。HEVC 和持续播放尚待验证。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd26-iris-stage-rule/`；逐帧与释放核对见其 `run/iris-stage-rule-review.json` 和 `run/pixel-reference-comparison.json`，宿主检查位于 `codex-1112-iris-stage-rule/production-applied-check/`。
 
@@ -931,7 +931,7 @@ cd27 以第 47 节为基线，只将 VFE 版本寄存器 offset 从 `0xa00` 改�
 - 主摄仍连续读得 ID `0x5650`、revision `0x45`，前摄为 `0x5620`。`camera_avtest` 正常退出，仅覆盖枚举与格式；`hw_dma=0`，没有真实图像输出。
 - 本轮 13 步完成，最高 CPU 采样温度为 73.3°C；采样器记录两个覆盖缺口，峰值仅限已取得的读数。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 
-末尾一条 HAL inode 读取取得 598 行／28,704 字节，连续性、Base64 与终止 offset 均通过检查；所需 28,672 字节写入新的 metadata-v7 并回读一致，metadata-v6 保持原样。四个 HAL 的逻辑范围和物理 extent 均连续，完整文件内容仍待提取。
+末尾一条 HAL inode 读取取得 598 行／28,704 字节，连续性、Base64 与终止 offset 均通过检查；所需 28,672 字节写入新的 metadata-v7 并回读一致，metadata-v6 保持原样。四个 HAL 的逻辑范围和物理 extent 均连续，完整文件提取见第 54 节。
 
 | HAL 文件 | 逻辑字节数 | 压缩字节数 | extent 数 |
 |---|---|---|---|
@@ -940,7 +940,7 @@ cd27 以第 47 节为基线，只将 VFE 版本寄存器 offset 从 `0xa00` 改�
 | `com.qti.chi.offline.so` | 645,104 | 401,408 | 98 |
 | `com.qti.chi.override.so` | 7,310,560 | 5,128,192 | 1,252 |
 
-`dump.erofs` 仍报告缺少祖先 inode，路径显示 `(not found)`；上述目标 inode 与区段数据来自本轮已读取范围，原始 stderr 保留。当前每次 `cat` 取得约 28 KiB，完整读取这四个压缩文件约需 851 次命令，后续先核对一次 Android 只读提取与恢复流程。
+`dump.erofs` 仍报告缺少祖先 inode，路径显示 `(not found)`；上述目标 inode 与区段数据来自本轮已读取范围，原始 stderr 保留。该读取方式每次 `cat` 取得约 28 KiB，完整读取这四个压缩文件约需 851 次命令；完整提取采用第 54 节的 Android 只读流程。
 
 本轮原始记录位于本地 `kernel-12377-codex-1112-cd27-camera-vfe-version/`，寄存器核对见其 `run/camera-vfe-root-review.json`；HAL 区段核对见 `codex-1112-camera-native/metadata-v7/extent-review.json`。
 
@@ -953,7 +953,7 @@ cd28 使用当前生产 Iris HFI、硬件和会话三个实现，其他 1,159 �
 - 两次探针耗时分别为 1,289 ms 和 273 ms，包含初始化与用户态加载，当前没有性能提升比例。移除临时诊断后，重复会话与内容校验仍通过。
 - 13 步完成，最高 CPU 采样温度为 75.6°C，采样器记录五个覆盖缺口，峰值仅覆盖已取得读数。独立收尾检查确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 
-本轮仍为 RAM 测试，完整部署镜像保持原版本。结论覆盖上述三个生产 Iris 实现和该 H.264 样本；其他尺寸、STAGE2、HEVC、低延迟、动态重配置与持续播放尚待验证。全局 PAS／SMMU 退出资源继续按复位要求处理。
+本轮仍为 RAM 测试，完整部署镜像保持原版本。结论覆盖上述三个生产 Iris 实现和该 H.264 样本；1280×768 STAGE2 结果见第 55 节，其他尺寸、HEVC、低延迟、动态重配置与持续播放尚待验证。全局 PAS／SMMU 退出资源继续按复位要求处理。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd28-iris-production/`；独立核对见其 `run/iris-production-review.json`、`run/pixel-reference-comparison.json` 和 `run/loader-recovery/root-hard-check.json`。
 
@@ -978,6 +978,67 @@ cd28 使用当前生产 Iris HFI、硬件和会话三个实现，其他 1,159 �
 
 提取和恢复共耗时 67.0857 秒，回程只执行一次既有恢复流程。独立检查确认 loader 空闲、常驻区为空，真实 LK 的 A 槽重试为 7；未改变 HAL 或传感器模块内容。
 
-完整后摄模块的 CRC、四个 section 和符号区边界检查通过，文件还与此前取得的前缀和恢复的数据片段逐字节一致。本机 `camera.qcom.sm8750.so` 依赖 `camera.qcom.so`；V5 的 `SensorDriverData::Load`、`SensorDriverDataClass::LoadModule` 和 `CreateProbeCmd` 定义已在后者定位，后续沿解析对象到探测命令核对字段。
+完整后摄模块的 CRC、四个 section 和符号区边界检查通过，文件还与此前取得的前缀和恢复的数据片段逐字节一致。本机 `camera.qcom.sm8750.so` 依赖 `camera.qcom.so`；V5 的 `SensorDriverData::Load`、`SensorDriverDataClass::LoadModule` 和 `CreateProbeCmd` 定义位于后者，解析对象到探测命令的字段核对见第 56 节。
 
 原始文件与命令记录位于本地 `codex-device-1111/android-camera-extraction/run/`，逐文件独立核对见其 `root-file-review.json`。HAL 与 V5 解析结果位于 `codex-1112-camera-identity/v5-schema/`，真实传感器流与图像 DMA 仍待实现和验证。
+
+## 55. 1280×768 STAGE2 硬解通过
+
+cd29 保持第 52 节的内核、原生探针、启动参数与常驻启动卷，仅替换辅助盘中的 H.264 样本。新样本保留原画面的 5:3 比例、15 fps 和 30 帧，宽高各扩大四倍；SPS 无裁剪，尺寸规则选择 STAGE2。实际 APFS 回读的 719 个路径中，718 个保持一致。
+
+- 单次请求提交、接受、回调和出帧均为 30，`hardware=1`、`require_hardware=1`、`software=0`；错误、丢帧、空帧和布局错误均为 0。
+- NV12 有效数据共 44,236,800 字节。30 帧的有效 Y／UV 区域 FNV1a64、显示时间戳、尺寸与字节数全部匹配独立软件参考。设备没有回传原始像素转储。
+- PSC minimum 为 6，RAW 与 DPB 均发布 6 块。输入 STOP、RAW STOP 与 CLOSE 分别收到匹配应答，随后记录 `close done`；按冻结源码，该分支要求会话缓冲解除映射、TLB 同步和释放成功。
+- 原生与 rsh 退出码均为 0，探针总耗时 1,201 ms。该数字包含会话初始化与测试程序工作，持续播放和性能收益尚未测量。
+- 12 步完成，最高 CPU 采样温度为 76.0°C，采样器记录两个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+本轮为 RAM 测试，完整部署镜像保持原版本。全局 PAS／SMMU 退出仍按复位要求处理。原始结果位于本地 `kernel-12377-codex-1112-cd29-iris-stage2/`，独立核对见其 `run/iris-stage2-root-review.json`、`run/root-pixel-reference-comparison.json` 和 `run/loader-recovery/root-hard-check.json`。
+
+## 56. 本机 HAL 的传感器身份契约
+
+第 54 节取得的 `camera.qcom.so` 包含 V5 的实际解析器。静态核对沿 `SensorDriverData::Load`、`CreateProbeCmd` 和 `CreateI2CInfoCmd`，确认模块字段的读取偏移、对象成员和原厂探测命令一致；该过程未加载执行 HAL。
+
+| 字段 | 主摄 wide_i | 前摄 front_i |
+|---|---|---|
+| 模块 slaveAddress | `0x20` | `0x20` |
+| CCI 7 位地址 | `0x10` | `0x10` |
+| ID 起始寄存器 | `0x300a` | `0x300b` |
+| 地址／数据宽度 | 2／2 字节 | 2／2 字节 |
+| 期望 ID | `0x5650` | `0x2042` |
+| mask | `0xffff` | `0xffffffff` |
+
+两个模块各有一条 `ModuleConfiguration`，slave override flag 均为 0。原厂 CCI 配置将模块的 `0x20` 右移一位，得到 `0x10`；原厂 CCI／QUP 的两字节读取均以第一个 payload 字节为高位。I²C frequency enum 为 3，与 CCI 源时钟频率分别记录。
+
+前摄此前取得 `0x300a/0x300b=0x56/0x20`，旧组合为 `0x5620`。原厂身份需要读取 `0x300b/0x300c`，cd30 的补读结果见第 58 节。完整身份实现还需按本机起始地址、宽度、端序、期望值与 mask 处理。
+
+精确指令地址、文件偏移与原始字节见本地 `codex-1112-camera-identity/v5-schema/hal-identity-contract.json`；独立文件核对见同目录 `root-hal-identity-review.json`。cd30 的冻结输入、编译与 24 项宿主场景及 4 类消融结果位于 `codex-1112-camera-front-id/`。真实传感器流与图像 DMA 尚未验证。
+
+## 57. Safari 页面传输与脚本完成，单帧正文仍空白
+
+本轮沿第 53 节保持内核、辅助盘、原生探针、URL、options 与启动就绪条件。原生打开成功后，以完整页面 GET、page-ready 和 Safari 前台状态作为事件完成条件，最多观察 90 秒；期间增加前后两次只读接口查询，结束保存一张截图。
+
+- 原生只调用一次，返回 true，NSError 为空。方法耗时 8.811783 秒，探针耗时 8,866 ms，原生与 rsh 退出码均为 0。
+- 目标 GET 返回 200，HTML 的 1,900 字节全部写出，内容 SHA-256、响应范围与长度匹配，`write_error=null`。随后收到 page-ready，最新完整 Main Display 记录为 Safari primary。
+- GET 开始和 page-ready 分别位于主机观测原生成功后 26.839078 秒和 26.963755 秒；三者均使用本机主机单调时间。该延迟超出第 53 节的后置观察窗口，不能据此确定旧轮最终会否完成加载。
+- 前置接口查询显示 en0 已 UP／RUNNING，尚无 IPv4；后置查询已有 IPv4。`net_test show` 的退出码没有包含接口查询结果，接口状态按输出字段单独核对。
+- 实际截图中 Safari 状态栏、地址栏和工具按钮可见，网页正文为均匀浅灰，测试页文字、播放按钮与状态文字均未显示。截图请求和主机确认完成分别位于 page-ready 后 3.065396 秒和 4.093128 秒；本轮仅有这一帧，后续是否显示内容尚未覆盖。
+- 6 条命令完成，最高 CPU 采样温度为 73.3°C，采样器记录一个覆盖缺口。HTTP 服务与控制进程退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+冻结 HTML 在发送 page-ready 前已给状态元素赋值，页面文字与按钮的默认样式要求可见。当前结果确认页面传输和脚本执行完成，单帧画面未通过内容验收。下一次页面观察先区分延迟显示与持续空白，媒体播放保持未验收。
+
+本轮 WebKit GPU 对 surface 48 的第三次提交包含 33 个 work 和 10 条管线，完成记录的错误数为 0；随后 backboardd 导入同一 surface，并记录合成提交、完成和 display marker。该 BGRA 对象的行宽为 4,864 字节、offset 为 0，冻结源码使用直接共享导入；现有记录没有该 surface 的像素，尚不能定位内容缺失发生在哪一步。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd16-safari-page-ready/`；页面事件、接口与截图分别见其 `run/page-observation.json`、`run/network-before.json`、`run/network-after.json` 和 `run/root-page-visual-review.json`。页面观察控制器的 19 项宿主测试通过，覆盖完整响应、部分响应、缺失脚本事件、超时、原生失败、温控与传输停止。
+
+## 58. 前摄补读确认原厂 ID
+
+cd30 沿第 51 节的冻结内核和辅助盘，仅在前摄 `0x300a/0x300b` 均读取成功后补读 `0x300c`。三个字节分别为 `0x56/0x20/0x42`，三次事务均成功；按原厂起始寄存器组合 `0x300b/0x300c`，得到期望 ID `0x2042`。本轮诊断保持旧识别返回 `0x5620`，未改变传感器启用行为。
+
+- 主摄仍取得 `0x5650`、revision `0x45`，VFE 为 `0x20050000`，CSID 为 `0x30000004`。
+- `camera_avtest` 的原生与 rsh 退出码均为 0，耗时 398 ms，枚举两个视频设备，后摄 33 种格式、前摄 14 种格式。`hw_dma=0`，真实传感器流与图像 DMA 尚未取得。
+- 12 步完成，最高 CPU 采样温度为 75.2°C，采样器记录三个覆盖缺口。独立收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+- 两张桌面截图相隔 6.111 秒，均缺少应用／Dock 图标主体及小组件主体，壁纸、标签、时钟指针、状态栏与 Dock 背景可见。该轮沿用 cd27 的 audio-player 辅助盘，当前没有将画面缺失归因于相机诊断的对照。
+
+正式身份读取候选按原厂寄存器、两字节事务、端序、期望值和 mask 处理 CCI 与 GPIO 两条路径，已通过 60 项宿主场景、20 类消融及编译。该候选保存在本地，尚未修改生产源码；cd30 的逐字节补读只确认寄存器值，一次两字节读取仍需独立真机验证。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd30-camera-front-id/`，独立核对见其 `run/camera-front-id-root-review.json` 与 `run/loader-recovery/root-hard-check.json`。正式身份读取候选、行为补丁和验证范围见本地 `codex-1112-camera-configured-id/delivery.json`。

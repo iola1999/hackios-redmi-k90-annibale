@@ -6,10 +6,10 @@
 
 | 编号 | 事项 | 当前边界 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
-| M1 | Iris 硬件解码出帧 | 进行中；cd28 的生产 Iris 配置两次各硬解 30 帧 320×192 H.264，全部有效像素区哈希与软件参考一致，会话关闭与缓冲释放通过 | 验 STAGE2 尺寸、连续播放与其他格式，完整部署镜像另行验证 | [多媒体验证 §52](../analysis/2026-11-11-multimedia-validation.md#52-iris-生产配置重复解码通过)、[视频分析](../analysis/2026-11-05-video-decode.md) |
-| M2 | 真实相机流与 DMA | 进行中；主摄连续 ID 读取和 VFE 新地址通过真机验证，VFE 版本为 `0x20050000`；组合 CI／MPS／纹理的七项探针通过，原版相机仍有部分管线预热失败，真实 DMA 待验证 | 提取本机 HAL 核对 V5 parser，定位剩余管线失败；按本机 CSID／IFE 契约实现 streaming 与 DMA，再验首尾行像素 | [多媒体验证 §47、§49、§51](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
+| M1 | Iris 硬件解码出帧 | 进行中；生产 Iris 配置通过两次 320×192、一次 1280×768 STAGE2 H.264，共 90 帧有效像素区哈希与软件参考一致，会话关闭与缓冲释放通过 | 验连续播放与其他格式，完整部署镜像另行验证 | [多媒体验证 §52、§55](../analysis/2026-11-11-multimedia-validation.md#55-1280768-stage2-硬解通过)、[视频分析](../analysis/2026-11-05-video-decode.md) |
+| M2 | 真实相机流与 DMA | 进行中；主摄 ID、VFE 新地址及七项组合探针通过；前摄补读 `0x300c=0x42`，按原厂 `0x300b/0x300c` 组合为期望 ID `0x2042`，真实 DMA 待验证 | 真机验一次两字节的正式身份读取，定位剩余管线失败；实现 streaming 与 DMA，再验首尾行像素 | [多媒体验证 §49、§51、§56、§58](../analysis/2026-11-11-multimedia-validation.md)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
 | M3 | 扬声器实际出声 | 待验证；AudioQueue、PCM 完成及双功放 operating 已有结果 | 先核对功放配置与软件保护；缺少 DSP 扬声器保护的首次出声按原调研使用低增益并由人在场确认。冷启动播放已知音频，结合路由、PCM 完成和听音验收左右声道与音量 | [多媒体验证 §2](../analysis/2026-11-11-multimedia-validation.md)、[音频分析](../analysis/2026-11-02-audio-and-volume.md) |
-| M4 | 冷启动播放器与 Safari 视频 | 进行中；本地与 HTTP 零幅 AVPlayer 首次／重复播放结束且全局 DSP 排空；解锁和桌面就绪后 Safari 原生打开在 1.150740 秒返回成功并进入前台，页面尚未请求 | 按页面事件观察网络就绪与 WebKit 请求，再验媒体播放；补齐目标 DSP 帧归属和输出设备 ID 含义，软解与硬解分别标明 | [多媒体验证 §40、§53](../analysis/2026-11-11-multimedia-validation.md)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
+| M4 | 冷启动播放器与 Safari 视频 | 进行中；本地与 HTTP 零幅 AVPlayer 首次／重复播放结束且全局 DSP 排空；Safari 完整取得页面并执行脚本、保持前台，结束单帧正文与按钮空白 | 用少量有界后置截图和提交记录区分延迟显示与持续空白，再验媒体播放；补齐目标 DSP 帧归属和输出设备 ID 含义，软解与硬解分别标明 | [多媒体验证 §40、§57](../analysis/2026-11-11-multimedia-validation.md)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
 
 NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查已经通过，原版 SLM 两条管线构造也已通过。这些结果作为后续回归基线。
 
