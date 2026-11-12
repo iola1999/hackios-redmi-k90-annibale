@@ -73,14 +73,37 @@ IR3 命中缓存后恢复已编译 variant；未命中则执行 NIR post-finaliz
 - 缩略图 header 只有 `rwa_texture` 指针，layer 探针已有 IOSurface ID。需要在 draw 侧取得 surface ID、plane、buffer offset／stride 和 parent texture，才能关联两侧；CGImage 上传来源仍需另外核对。
 - `audit-pass` 可提供附件尺寸、格式和 load／store；其 pure-black 检查只看 RGB，单独使用无法判断透明图标。
 
-下一步先审查只同步匹配 draw 的有界诊断，再决定实际编译输入的最小导出范围。导出位置应在专化与 linked 输入确定之后，记录实际 entry、模块长度及哈希、常量和图结构；超限或缺模块需明确标记不完整。宿主 runner 的轮次时限无法打断进程内已经阻塞的输出或 GPU 等待。
+匹配 draw 的同步诊断已完成宿主验证，见 §6。实际编译输入的最小导出范围继续核查：位置应在专化与 linked 输入确定之后，记录实际 entry、模块长度及哈希、常量和图结构；超限或缺模块需明确标记不完整。宿主 runner 的轮次时限无法打断进程内已经阻塞的输出或 GPU 等待。
 
 输入完整后才执行三份冻结前端的离线对照：固定 linked function、管线 shape 和 variant key，关闭磁盘缓存，比较接口、NIR、IR3 机器码及 binning 变体。验收按 PID、pipeline、commit／work 分组核对模块与缩略图，`airdump.py`、`thumbs.py` 返回 0 仍需检查缺项。当前普通系统 metallib 的默认常量检查无法覆盖完整 draw。
 
 共享 AIR／Metal 修改按文件协调。相机的 `air_texture.inc` 与 `AnnibaleMetalStitchedFunction` 当前由多媒体任务维护；通用显示候选使用独立构建目录和冻结工具，交唯一 device 串行执行。
 
-## 6. 本地复核资料
+## 6. 限定匹配次数的绘制诊断
+
+内核提交 `2e0280a1` 在 `annibalemetal_diag.inc` 与 `annibalemetal_commandbuffer.inc` 新增 `ANNIBALE_SYNC_MATCHED_DRAWS=1..16`，要求非空 `ANNIBALE_THUMB_MATCH`。它只同步名称及现有 texture／scissor 条件匹配的 draw，尝试次数按进程累计，跨 commit 保留。失败也消耗次数；预算耗尽后恢复通常的异步提交。原 `ANNIBALE_SYNC_DRAWS` 同时存在时优先使用原模式，compute 路径继续按原开关处理。
+
+新模式只保留匹配管线的名称与 handle，不复制 AIR，也不启用失败 AIR 导出。管线表发布与查询使用短锁；同地址后来创建的非匹配管线会清除旧匹配项。缩略图开始前按实际启用的 pre／out／in 槽位检查整组数量，剩余预算不足就整组跳过；读回失败明确记录 `incomplete`。
+
+26 项宿主测试成功，独立复跑结果一致。测试执行生产 `commit`、`syncDraw`、`thumbWork` 与匹配 helper，覆盖默认与旧同步模式、次数上限、跨 commit／双线程提交、handle 重用、整组预算、缺槽、depth、读取和绘制失败、compute／copy。ASan／UBSan 通过；旧版在同套 26 项中有 22 项失败，包含子测试共 23 条失败记录。
+
+当前源码和冻结 CI 基线分别完成 arm64e dylib／bundle 链接及严格签名检查。CI 候选相对冻结基线只修改上述两个 include；两份生产文件分别为 987、1193 行。构建与测试清单保存在 `hackios-xnu-kernel/out/sync-matched-1112/validation.json`。
+
+清单与本地文件的对应关系已核对：
+
+- `git_head` 记录提交前的父提交 `fef4ad25`。
+- 两份 include 的候选 SHA256 和测试脚本 SHA256 均与 `2e0280a1` 一致。
+- 两套构建各 30 个源码摘要及共 4 个产物的大小、SHA256 均与本地文件一致。
+
+| 冻结 CI 诊断产物 | SHA256 |
+|---|---|
+| `ci-frozen/artifacts/libannibalemetal.dylib` | `6f424eda5348f75a8e64e75a321e520add3d2af4de530203ecedfbae4551299b` |
+| `ci-frozen/artifacts/AnnibaleMetal.bundle/AnnibaleMetal` | `20130a80b9425be0dae270a726a5a46425558a1391afd13df3c43df98c8717d6` |
+
+该改动限制同步尝试数量，未提供单次 GPU 等待或输出的硬时限。pre 读回和后续 finish 仍可能等待此前提交的工作，超时无法单独归因于选中 draw。配置示例可先选 `N=2`、`THUMBS=6`、`THUMB_ONLY=pre0,out0,in0`；它只观察附件 0 和 fragment 输入 0，尚未运行设备，也未确认候选管线对应具体图标。复杂度审查保留现有匹配表、预算与提交入口，完整 AIR 捕获及资源身份扩展仍待后续决定。
+
+## 7. 本地复核资料
 
 原始报告、逐文件清单与日志摘录保存在 Git 忽略的 `docs/analysis/local/s5-foreground-1112/air-icons/` 和 `air-icons-build/`。minmax 两张原图 SHA256 分别为 `26a52a8c1bec87cf9fb3199165924c89429f06d042057591a0449b48b29e7fe7`、`ccfa9ce57323a472c7e041325f16bfd06904e798d96f35e5ceef42d3a1a57692`。
 
-既有构建与离线检查集中在 `hackios-xnu-kernel/out/codex-1112-cospi-visual/`、`out/codex-1112-ci-stitch/`；数值探针和设备轮次结论见[多媒体验证](2026-11-11-multimedia-validation.md)。本批未修改生产渲染代码，首个失败契约仍待定位。
+既有构建与离线检查集中在 `hackios-xnu-kernel/out/codex-1112-cospi-visual/`、`out/codex-1112-ci-stitch/`；数值探针和设备轮次结论见[多媒体验证](2026-11-11-multimedia-validation.md)。本批只修改诊断开关及其状态管理，首个失败契约仍待定位。
