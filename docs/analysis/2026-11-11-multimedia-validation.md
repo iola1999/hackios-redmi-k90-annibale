@@ -1009,7 +1009,7 @@ cd29 保持第 52 节的内核、原生探针、启动参数与常驻启动卷�
 
 两个模块各有一条 `ModuleConfiguration`，slave override flag 均为 0。原厂 CCI 配置将模块的 `0x20` 右移一位，得到 `0x10`；原厂 CCI／QUP 的两字节读取均以第一个 payload 字节为高位。I²C frequency enum 为 3，与 CCI 源时钟频率分别记录。
 
-前摄此前取得 `0x300a/0x300b=0x56/0x20`，旧组合为 `0x5620`。原厂身份需要读取 `0x300b/0x300c`，cd30 的补读结果见第 58 节。完整身份实现还需按本机起始地址、宽度、端序、期望值与 mask 处理。
+前摄此前取得 `0x300a/0x300b=0x56/0x20`，旧组合为 `0x5620`。原厂身份需要读取 `0x300b/0x300c`，cd30 的补读结果见第 58 节；按本机起始地址、宽度、端序、期望值与 mask 处理的正式身份读取结果见第 59 节。
 
 精确指令地址、文件偏移与原始字节见本地 `codex-1112-camera-identity/v5-schema/hal-identity-contract.json`；独立文件核对见同目录 `root-hal-identity-review.json`。cd30 的冻结输入、编译与 24 项宿主场景及 4 类消融结果位于 `codex-1112-camera-front-id/`。真实传感器流与图像 DMA 尚未验证。
 
@@ -1039,6 +1039,51 @@ cd30 沿第 51 节的冻结内核和辅助盘，仅在前摄 `0x300a/0x300b` 均
 - 12 步完成，最高 CPU 采样温度为 75.2°C，采样器记录三个覆盖缺口。独立收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 - 两张桌面截图相隔 6.111 秒，均缺少应用／Dock 图标主体及小组件主体，壁纸、标签、时钟指针、状态栏与 Dock 背景可见。该轮沿用 cd27 的 audio-player 辅助盘，当前没有将画面缺失归因于相机诊断的对照。
 
-正式身份读取候选按原厂寄存器、两字节事务、端序、期望值和 mask 处理 CCI 与 GPIO 两条路径，已通过 60 项宿主场景、20 类消融及编译。该候选保存在本地，尚未修改生产源码；cd30 的逐字节补读只确认寄存器值，一次两字节读取仍需独立真机验证。
+cd30 的逐字节补读只确认寄存器值；后续正式两字节身份读取的实现、宿主检查与真机结果见第 59 节。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd30-camera-front-id/`，独立核对见其 `run/camera-front-id-root-review.json` 与 `run/loader-recovery/root-hard-check.json`。正式身份读取候选、行为补丁和验证范围见本地 `codex-1112-camera-configured-id/delivery.json`。
+
+## 59. 正式两字节身份读取通过
+
+cd31 沿第 51 节的冻结内核和辅助盘，仅改变相机身份读取：CCI 与 GPIO 路径按第 56 节的原厂起始地址、两字节事务、端序、期望值和 mask 判断成功。候选保留逐事务诊断；去掉诊断后，行为与内核提交 `84e3437e` 一致。其他内核对象保持冻结版本，本轮没有验证完整当前源码组合。
+
+- 后摄 CCI 从 `0x300a` 读得 `0x5650`，前摄 GPIO I²C 从 `0x300b` 读得 `0x2042`，两者均记录 sensor matched。CSID 与 VFE 版本保持第 58 节结果。
+- `camera_avtest` 枚举两个视频设备，原生与 rsh 退出码均为 0，耗时 216 ms。`hw_dma=0`，真实传感器流与图像 DMA 尚未取得。
+- 相隔 6.182 秒的两张桌面截图中，应用与 Dock 图标可见；天气组件为浅色块，日历组件中间显示壁纸、上下为浅色块，组件内容仍缺失。该截图覆盖桌面，未显示相机预览。
+- 12 步完成，最高 CPU 采样温度为 72.5°C，采样器记录五个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+生产身份读取的 60 项宿主场景、20 类消融及编译已通过。真机结果支持两字节身份事务与原厂配置匹配；后续仍需传感器 streaming、CSI 接收和 DMA 像素验收。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd31-camera-configured-id/`，事务与画面见其 `run/camera-configured-id-events.json` 和 `run/visual-observation.json`；候选与生产源码的对应关系见本地 `codex-1112-camera-configured-id-cd31/final-review.json`。
+
+## 60. 270 帧离线硬解完成，逐帧记录缺一条
+
+cd32 保持第 55 节的生产 Iris 内核、探针和启动参数，仅将辅助盘的 H.264 视频延长到 270 帧、18 秒媒体时间。实际 APFS 的 719 个路径中，718 个保持一致；样本内容由原 30 帧序列重复九次。命令使用 `--frames 271`，使读取器在提交 270 帧后继续检查 EOF。
+
+- 探针统计提交、接受、回调和出帧均为 270，`hardware=1`、`require_hardware=1`、`software=0`；错误、丢帧、空帧和布局错误为 0，输出有效数据 398,131,200 字节。
+- 独立扫描 48 份原始日志，回收到 269 个唯一回调。其有理数 PTS、duration、源样本编号、NV12 尺寸与字节数、有效位和 FNV1a64 全部匹配软件参考，未发现冲突或不匹配。
+- 参考帧 247（源样本 249、PTS 为 `247/15`）的回调记录缺失，源样本 3 的提交记录也缺失，各快照均未恢复这两条输出。未发现 `annsh dropped` 提示，输出缺失原因尚未确定；独立像素校验仅覆盖已恢复的 269 帧。
+- `limit_reached=0`、`reader_status=2`，四个 marker 与最终 drain 均成功。PSC minimum、RAW 与 DPB 数量均为 6；输入 STOP、RAW STOP 与 CLOSE 取得匹配应答，随后记录 `close done`。
+- 原生与 rsh 退出码均为 0，探针耗时 3,784 ms。12 步完成，最高 CPU 采样温度为 74.4°C，采样器记录三个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+该探针只离线解码视频，没有显示、按媒体时钟等待或音频播放。18 秒为样本媒体时长，实时播放尚未验收；重复内容也未覆盖每帧独立变化的输入。会话缓冲关闭成功，全局 VPU DMA 退出仍按复位要求保留资源。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd32-iris-sustained/`。已有比较见其 `run/claude-pixel-reference-comparison.json`，独立核对见本地 `codex-resume-1112/cd32-independent-review.json`；辅助盘逐路径比较见本地 `codex-1112-iris-sustained-root/logical-comparison.json`。
+
+## 61. Safari 三帧正文持续空白
+
+本轮保持第 57 节的内核、辅助盘、HTML、原生打开探针和就绪条件，仅将页面完成后的单张截图改为相邻两张及稍后一张。原生打开调用一次，返回 true，NSError 为空，方法耗时 0.561653 秒，探针耗时 577 ms；完整 GET 返回 200 并写出相同的 1,900 字节 HTML，随后收到 page-ready，Main Display 保持 Safari primary。
+
+| 截图 | 请求距 page-ready | 主机确认取得距 page-ready | 可见结果 |
+|---|---|---|---|
+| 首张 | 2.765 秒 | 3.587 秒 | 状态栏与浏览器按钮可见，正文浅灰，测试页文字及播放按钮缺失 |
+| 相邻张 | 3.595 秒 | 4.416 秒 | 与首张相同 |
+| 稍后张 | 10.134 秒 | 10.972 秒 | 与首张相同 |
+
+三份原始截图的 SHA-256 相同，实际看图也确认上述内容。该结果覆盖 page-ready 后约 11 秒，正文在这一窗口内持续空白；更晚显示尚未覆盖。三张截图来自 framebuffer，物理面板呈现未单独验证。
+
+本轮 backboardd 加载的 AIR UUID 为 `A1E7F4D6-1D95-3783-8602-07873F121FC0`，对应第 23 节的 minmax AIR；Metal bundle UUID 为 `1978DE94-43C6-380F-A5D9-42153B8E9370`，对应第 26 节记录的版本。该轮延续原冻结用户态库，未覆盖第 49 节的组合库；当前画面缺失与库版本的因果关系尚未验证。
+
+6 条命令及三张截图完成，最高 CPU 采样温度为 73.6°C，采样器未记录覆盖缺口。服务端退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。网页文字未通过可见内容验收，本轮没有点击或媒体播放结果。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd16-safari-page-visual/`，事件与截图时间见其 `run/page-observation.json` 和 `run/page-foreground-shots.json`；控制器差异和收尾核对见本地 `codex-device-1111/safe-batch-safari-page-visual/`。
