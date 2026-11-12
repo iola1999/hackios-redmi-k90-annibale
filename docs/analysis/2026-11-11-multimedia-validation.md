@@ -1087,3 +1087,54 @@ cd32 保持第 55 节的生产 Iris 内核、探针和启动参数，仅将辅�
 6 条命令及三张截图完成，最高 CPU 采样温度为 73.6°C，采样器未记录覆盖缺口。服务端退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。网页文字未通过可见内容验收，本轮没有点击或媒体播放结果。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd16-safari-page-visual/`，事件与截图时间见其 `run/page-observation.json` 和 `run/page-foreground-shots.json`；控制器差异和收尾核对见本地 `codex-device-1111/safe-batch-safari-page-visual/`。
+
+## 62. AVPlayer 首帧前的空会话排空阻止输入
+
+cd33 沿第 60 节的冻结内核、270 帧样本、辅助盘和启动参数，仅将离线探针改为 `video_player_test --deadline 60 /annibale/bin/h264.mp4`。该探针读取 AVPlayerItemVideoOutput，不显示视频。
+
+- ready、playing、advanced 和 ended 均为 1，媒体时钟最终为 `6912000/384000`，即 18 秒；输出帧数与字节数均为 0，`has_new` 始终为 0。原生与 rsh 退出码均为 1，探针耗时 21,482 ms。
+- `iris_vt[344]` 创建 Iris 会话后，在首次 decode 前发布 DRAIN；固件返回匹配 ACK，未返回 DRAIN_LAST，收集输出超时。随后出现首个 decode 请求，内核仍处于 draining，未发布 bitstream 输入。
+- 会话 STOP／CLOSE 后记录 `close done`。最高 CPU 采样温度为 73.6°C，温控采样没有覆盖缺口；收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+源码核对发现 `iris_vt_finish_delayed_frames` 即使没有 pending 帧也调用 `IRIS_IOC_FLUSH_SESSION`。内核在首次输入和 PSC 前对空会话执行 DRAIN，缺少 DRAIN_LAST 后保留 draining 状态，后续输入返回 EBUSY。iOS 26 的 `VTDecompressionSessionFinishDelayedFrames` 沿派生类槽位 `0x38` 调用该方法，签名判据为 `0xbfc3`。
+
+内核提交 `f9b6215d` 使用已有 `next_input_idx`，直接完成尚未发布输入的会话 flush。错误、closing 和端口检查保持原顺序，已发布输入的会话继续要求 ACK、LAST 与输入归还。该改动覆盖 `IRIS_IOC_FLUSH_SESSION`；显式 `IRIS_FRAME_DRAIN` 的处理保持原样。
+
+新增回归场景能使旧实现失败，修复后 185 项 HFI／会话场景和 77 类编译消融通过。RAM 候选只重建 HFI，另外 1161 个链接对象及编译依赖摘要均已核对；真机复核见第 63 节。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd33-avplayer-video/`，原生输出见其 `run/probe-avplayer-video.txt`。修复前后测试、构建对应关系和复杂度审阅见本地 `codex-1112-iris-empty-flush/`；真实连续出帧、显示与音频仍待验收。
+
+## 63. 空会话 flush 修复后取得三帧，连续播放仍未通过
+
+cd34 保持第 62 节的 AVPlayer 探针、辅助盘、样本、启动参数与控制器，仅替换 HFI 中的空会话 flush 行为。首次输入随后成功发布，PSC 完成，RAW 与 DPB 均发布 6 块；首帧前的排空超时未再出现。
+
+- 原生探针记录 ready、playing、advanced 和 ended 均为 1，最终媒体时钟为 18 秒。收到 3 帧 1280×768 NV12，PTS 分别为 0、1/15、2/15 秒，有效数据共 4,423,680 字节；首帧在探针开始后 851 ms 取得，后续直到结束没有新输出。
+- 原生 summary 和 rsh 退出码为 0，探针自身的验收条件只要求取得有效帧及结束事件。持续出帧没有通过本轮验收。
+- 按同一样本、相同 PTS 的软件 NV12 参考核对，首帧有效区哈希匹配，后两帧不匹配。AVPlayer 输出转换及硬解参考状态的归属仍需分别定位。
+- 本轮记录 264 条 `VT-DS` 错误 `-12909`，首条位于第四次 bitstream 输入发布之后。现有有限 HFI 回复日志未取得该次 ioctl 的 errno，后续按输入归还与 RAW 输出顺序继续核对。
+- 12 项探针完成，最高 CPU 采样温度为 73.6°C，采样器记录三个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd34-avplayer-empty-flush/`，原生记录和逐帧参考比较分别见其 `run/probe-avplayer-video.txt` 与 `run/root-frame-reference-review.json`。本轮推进了首次输入和首帧；持续播放、完整像素正确性、显示与音频仍待验收。
+
+## 64. 原厂 V5 模式与寄存器导出
+
+内核工具提交 `e67048ab` 为 `camsensor.py` 增加 `--json MODULE.bin OUT.json`，按已提取本机 HAL 的 V5.2.1 布局导出传感器身份、供电、模式时序、流配置、初始化与启停寄存器。JSON 保留每条流的 VC 列表、CFA 原始枚举、寄存器操作顺序、数据与延迟；现有内核表格式仍由 V3 入口生成。
+
+- 前摄模块含 6 个模式、6 条流及 6 个 VC 值；主摄模块含 31 个模式、67 条流及 123 个 VC 值。两份模块共 13,237 条寄存器设置，全部导出字段与原始数据逐项一致。
+- 前摄 mode 4 为 2592×1458、30.003 fps、VC0 RAW10、4-lane D-PHY、settle 31 ns，共 81 条模式设置，可用于下一步核对 PHY 和接收配置。
+- 主摄 mode 24 与 27 均含两条流。mode 29 同时满足单条流、单 VC，为 1280×720、480 fps、3-trio C-PHY；选用它需要独立核对相应速率与带宽。
+- 4 项测试、CLI 输出及错误输入保护通过，两份完整原厂输入均解码成功；24 个重算 CRC 的结构或语义损坏输入被拒绝。解析器检查模块长度、CRC、池引用、数组长度与有来源的字段范围。
+
+真实 streaming、CSI 接收和 DMA 仍需实现。当前前置条件包括 SM8750 PHY 的 D-PHY／C-PHY 表与 lane mask、CSID lite980 和 VFE lite98x 寄存器、DMA 连续地址或 SMMU 映射、RAW 布局与缓存同步，以及停止完成后再释放资源。导出 JSON 供静态核对，当前内核尚未消费该输出。
+
+原厂文件、HAL 指令、寄存器逐项核对、模式候选与硬件前置条件集中在本地 `codex-1112-camera-identity/v5-schema/v5-modes-validation.json`。该批没有新增设备操作，真实图像仍待验收。
+
+## 65. RAW 先返回与输入区域复用顺序
+
+第 63 节后核对源码发现，`iris_receive` 每次处理一份 HFI message；`iris_collect_output` 取得 RAW 后可以立即返回，当前 bitstream BUFFER 尚未归还。下一次普通输入在接收回复前检查 `input_queued`，返回 EBUSY；用户态插件将 ioctl 失败转换为 `-12909`。cd34 的日志没有记录该次 errno，尚未确认这处顺序与全部错误的对应关系。
+
+宿主使用生产 HFI／会话函数复现 RAW 先返回、精确 INPUT BUFFER 稍后返回的顺序。旧实现完成第一次调用后仍持有输入，第二次提交得到 EBUSY；修改后第一次调用等待输入归还，第二次提交成功。多个 RAW 先返回仍保留后续帧，缺输入和错误 SID／index 场景继续保留输入内容与 DMA 资源。
+
+内核提交 `4490b52f` 仅在普通 collect 中等待精确输入归还后取得 RAW，复用 `raw_state`／`raw_done`。入口的输入持有检查、POLL、DRAIN 与关闭顺序保持原样。190 项 HFI／会话场景和 78 类编译消融通过，删除等待条件会使顺序测试失败；父任务独立复跑 190 项通过。
+
+候选只重建 HFI，1161 个对象保持冻结版本，并完成编译依赖与链接输入摘要核对。真机连续出帧与像素校验待下一批验证；第 63 节的后两帧差异继续单独定位。宿主复现见本地 `codex-1112-iris-input-order-review/validation.json`，构建及复杂度核对见本地 `codex-1112-iris-input-order/`。
