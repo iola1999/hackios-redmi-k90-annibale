@@ -1138,3 +1138,17 @@ cd34 保持第 62 节的 AVPlayer 探针、辅助盘、样本、启动参数与�
 内核提交 `4490b52f` 仅在普通 collect 中等待精确输入归还后取得 RAW，复用 `raw_state`／`raw_done`。入口的输入持有检查、POLL、DRAIN 与关闭顺序保持原样。190 项 HFI／会话场景和 78 类编译消融通过，删除等待条件会使顺序测试失败；父任务独立复跑 190 项通过。
 
 候选只重建 HFI，1161 个对象保持冻结版本，并完成编译依赖与链接输入摘要核对。真机连续出帧与像素校验待下一批验证；第 63 节的后两帧差异继续单独定位。宿主复现见本地 `codex-1112-iris-input-order-review/validation.json`，构建及复杂度核对见本地 `codex-1112-iris-input-order/`。
+
+## 66. Safari 绘制诊断前发生原生退出
+
+本轮沿第 61 节的冻结内核、AIR、页面与原生打开探针，仅在两份 Metal 库加入已有的匹配绘制诊断。选择 `buffer_image_blit`，从第二次匹配开始，最多同步两次并采集六份 64×64 缩略图；输入、输出和绘制前的 attachment 分别使用 `in0`、`out0`、`pre0`。
+
+- 原生打开返回成功，探针耗时 473 ms；Main Display 两次记录 Safari primary。MobileSafari 随后记录 `userabort` 与 `SIGNAL 6`，显示布局转为 home，控制器结果为 `foreground_lost`。
+- 退出前记录 `NSInvalidUnarchiveOperationException` 及调用栈；具体归档对象和异常触发契约仍待静态定位。
+- 页面 GET、完整响应与 page-ready 均为 0，三张页面截图未取得。匹配 draw 与缩略图样本也为空，该轮没有覆盖正文像素与合成验收。
+- WebKit GPU 进程实际加载候选 Metal bundle 与冻结 AIR，两个 command-buffer 均 completed、errors 为 0；`buffer_image_blit` 管线与匹配同步尚未触发。当前日志未支持将退出归因于该同步。
+- 13 条采集命令完成，runner 与 helper 退出码均为 0；这些结果覆盖采集流程。最高 CPU 采样温度为 75.2°C，采样器记录一个覆盖缺口。HTTP 服务和控制进程退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+候选的 26 项匹配绘制检查、10 项控制器检查与冻结输入核对通过。本批三轮至此结束；下一批先验证第 65 节的 Iris 输入归还修复，Safari 先核对异常调用栈，再安排同页面诊断。没有取得缩略图的原因需结合页面未完成与原生退出判断。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd33-safari-matched/`，退出与前台时序见其 `run/s018.log`，采集边界见 `run/page-observation.json` 和 `run/safari-thumbnail-review.json`；冻结输入及运行库核对见本地 `safari-matched-1112/delivery.json`，本批汇总见本地 `codex-device-1111/continuation-device-batch-1112.json`。
