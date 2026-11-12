@@ -1137,7 +1137,7 @@ cd34 保持第 62 节的 AVPlayer 探针、辅助盘、样本、启动参数与�
 
 内核提交 `4490b52f` 仅在普通 collect 中等待精确输入归还后取得 RAW，复用 `raw_state`／`raw_done`。入口的输入持有检查、POLL、DRAIN 与关闭顺序保持原样。190 项 HFI／会话场景和 78 类编译消融通过，删除等待条件会使顺序测试失败；父任务独立复跑 190 项通过。
 
-候选只重建 HFI，1161 个对象保持冻结版本，并完成编译依赖与链接输入摘要核对。真机连续出帧与像素校验待下一批验证；第 63 节的后两帧差异继续单独定位。宿主复现见本地 `codex-1112-iris-input-order-review/validation.json`，构建及复杂度核对见本地 `codex-1112-iris-input-order/`。
+候选只重建 HFI，1161 个对象保持冻结版本，并完成编译依赖与链接输入摘要核对。真机复核见第 67 节；第 63 节的后两帧差异继续单独定位。宿主复现见本地 `codex-1112-iris-input-order-review/validation.json`，构建及复杂度核对见本地 `codex-1112-iris-input-order/`。
 
 ## 66. Safari 绘制诊断前发生原生退出
 
@@ -1152,3 +1152,31 @@ cd34 保持第 62 节的 AVPlayer 探针、辅助盘、样本、启动参数与�
 候选的 26 项匹配绘制检查、10 项控制器检查与冻结输入核对通过。本批三轮至此结束；下一批先验证第 65 节的 Iris 输入归还修复，Safari 先核对异常调用栈，再安排同页面诊断。没有取得缩略图的原因需结合页面未完成与原生退出判断。
 
 原始结果位于本地 `kernel-12377-codex-1112-cd33-safari-matched/`，退出与前台时序见其 `run/s018.log`，采集边界见 `run/page-observation.json` 和 `run/safari-thumbnail-review.json`；冻结输入及运行库核对见本地 `safari-matched-1112/delivery.json`，本批汇总见本地 `codex-device-1111/continuation-device-batch-1112.json`。
+
+## 67. 输入归还修复后仍只有三帧
+
+cd35 保持第 63 节的 AVPlayer 探针、辅助盘、270 帧样本和启动参数，仅替换第 65 节的 HFI 输入归还行为。371 项编译依赖及其他 1161 个链接对象逐项核对通过，本轮内核对应提交 `4490b52f`。
+
+- 原生与 rsh 退出码均为 0，探针耗时 19,506 ms。ready、playing、advanced 和 ended 均为 1，最终媒体时钟为 18 秒；输出仍为 3 帧，PTS 为 0、1/15、2/15 秒，有效数据共 4,423,680 字节。
+- 三帧有效区哈希与第 63 节一致；按同一样本、相同 PTS 的软件参考比较，首帧匹配，后两帧仍有差异。连续播放与像素验收仍未通过。
+- 保存的完整快照最多包含 264 条 `VT-DS err=-12909`，首条紧随第四次输入 `index=3/tag=4`。没有取得显式 HFI、firmware、buffer mismatch、data-corrupt 或 collect timeout 错误行；该检查仅覆盖已保存的日志，首次失败 ioctl 的实际状态仍需定位。
+- 输入 0 与输入 1 之间完成三次 DRAIN／RESUME。源码中的 `iris_vt_finish_delayed_frames` 即使没有 pending 帧仍调用 flush；原生排空契约与参考帧状态的关系继续静态核对。
+- 关闭记录 `ioctl close retained slot=1 error=5` 与 `device close retained slot=1 error=5`。会话关闭未完成，相关 DMA 资源按失败规则保留。
+- 12 条采集命令完成，最高 CPU 采样温度为 72.1°C，采样器记录六个覆盖缺口。收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
+
+桌面前后截图中应用与 Dock 图标可见；天气组件为均匀浅色块，日历组件上下为浅色块、中间显示壁纸，组件内容仍缺失。该探针没有视频显示层，截图只覆盖桌面。
+
+原始结果位于本地 `kernel-12377-codex-1112-cd35-avplayer-input-order/`。逐帧比较与物理行号复核见其 `run/root-result-review.json`，关闭、温控及恢复见 `run/device-review.json`，截图范围见 `run/device-visual-review.json`。本批第一轮功能验收未通过；下一轮改用 Safari 异常观测，Iris 先核对帧间排空和首个失败状态。
+
+## 68. 逐帧文件报告的宿主验证
+
+用户态提交 `ad4c86c` 为 `video_decode_test` 与 `video_player_test` 增加 `--report-file PATH`。离线探针写入每条 callback，播放器探针写入每个实际取得的帧，保留 PTS、布局、有效字节数与 FNV1a64；播放器控制台继续按原有频率采样，控制台与文件复用同一帧内容及计时。
+
+报告使用排他创建，已有文件保持内容。正常收尾写入 `stage=report_complete`；文件写入或关闭失败会使原生退出码失败。报告保持打开直到解码回调或播放器清理结束，进程 deadline 仍覆盖文件收尾。
+
+- 两套主机测试各 12 项通过，覆盖实际软件像素比较、逐帧报告、已有文件保护及原有超时和输入场景。
+- 同一 270 帧长样本的软件解码取得完整 270 条 callback、270 个唯一 PTS，全部哈希匹配参考，有效数据 398,131,200 字节，原生退出码为 0。
+- 已有报告的验证返回退出码 1、errno 17，文件摘要保持一致；3 ms deadline 返回 124，报告文件已创建且没有完成记录。
+- 两份最终 iOS arm64e 探针以 `-Wall -Wextra -Werror` 编译链接通过。文件报告尚未覆盖真机硬解与连续播放。
+
+实现只增加各探针自己的文件句柄与输出目标，复用已有帧统计和格式。去掉文件输出会再次使完整像素校验依赖控制台回收。宿主数据、最终编译对应关系与复杂度审阅保存在本地 `codex-1112-video-frame-reports/`。
