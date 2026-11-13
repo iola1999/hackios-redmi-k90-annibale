@@ -1819,6 +1819,19 @@ RAW 发布顺序修改没有改变本样本的首 GOP 故障。候选继续留�
 
 客户端已加载和当前可见的 VT UUID 均为 `0501E106-64E1-3397-B7D5-7C40659AB0AD`，实际服务端库 UUID 仍待确认。原始 stdout、独立逐帧比较与内核行号集中在本地 `codex-1113-iris-drain-native/finish-seven/`，对应记录为 `independent-runtime-review.json` 和 `device-run/console-iris-lines.json`。本项 helper 已结束，设备保持 iOS 运行。
 
+### 90.9 LAST 返回值的原厂处理顺序
+
+设备原厂 `msm_video.ko` 在 `0x5b1b4–0x5b244` 先处理 LAST／PSC_LAST：返回长度归零、清除 READONLY，再检查普通 RAW 的 READONLY。内核 `edd5177c` 已按这个顺序处理局部返回值；固件消息保留原字节，协议格式、缓冲身份和长度范围检查继续执行，PSC_LAST 仍返回 `EOPNOTSUPP`。
+
+本次验证覆盖以下范围：
+
+- 实际 HFI／session 的 217 项用例、24 项缓冲诊断用例通过，94 项编译变体被拒绝。
+- 四项短／完整 LAST 与 READONLY 组合覆盖空输出、DRAIN ACK、输入归还、双端 RESUME 和 Close；去掉长度归零或 READONLY 清除后，对应用例失败。
+- HFI 诊断解析的 31 项用例通过，14 项删除处理变体被拒绝；内核及 VideoToolbox 生命周期、逐帧错误、恢复与打包检查通过。
+- 诊断值为 0 的 ARM64 目标对象编译通过，附加缓冲日志字符串检查通过。完整内核链接、打包及真机故障关联仍待验证。
+
+本项尚未确认第 90.5 节首包 Finish 后的 27 个错误帧及两帧缺失是否消除。原厂反汇编、私有组合检查保存在本地 `codex-1113-iris-reference-state/last-normalization/`，正式源码验证保存在 `codex-1113-iris-last-production/`。
+
 ## 91. 相机 Front 原生配置
 
 同次开机已经从桌面进入 Camera 并操作前摄切换，`shot-09687.png` 显示相机控件和隐私指示灯，预览仍为黑屏。原始截图和操作记录位于本地 `codex-1113-iris-order-result-resume/`。
@@ -1959,3 +1972,27 @@ RAW 发布顺序修改没有改变本样本的首 GOP 故障。候选继续留�
 新增的物理页缓存同步没有改变 A5 保留范围。DMA 写入范围、Stage-2 属性与系统缓存仍需核对，真实场景和可见预览继续保留在待办。
 
 原始 RAW、唯一回执、采集与发送返回位于本地 `codex-1113-camera-cpu-read-nc/run-1/`；独立比较为同目录上一级的 `root-raw-review.json`。本项六个宿主 helper 组已结束，设备保持 iOS 运行。候选继续留在本地诊断目录。
+
+### 91.8 RAW 起点偏移与绝对地址相位
+
+以第 91.7 节 read-sync 为基线，只把 RAW 起点在同一连续分配内增加 256 字节。DMA 提交、完成地址检查、停止后的缓存同步及用户态复制使用同一起点；原基线对象和内核重新构建后逐字相同。
+
+更换候选后自然等待至少 45 秒，只采集一帧并发送一次 RAW。采集退出 0、state=3、error=0、flags=0x3f，completed=1、same_fd=1；文件仍为 4,735,704 字节，单次 POST 返回 200，发送端、接收回执与独立主机 SHA-256 相同。
+
+| RAW 相对范围 | read-sync 基线 | 起点增加 256 字节 |
+|---|---|---|
+| 9,249 个完整 512 字节块的前半段 | 每块有数据 | 每块全部为 A5 |
+| 同一批块的后半段 | 每块全部为 A5 | 每块有数据 |
+| 最后 96 字节 | 有数据 | 全部为 A5 |
+
+未写入半块保留原绝对内存地址相位，CPU 缓存、映射属性与设备总线配置仍需区分。真实完整像素及可见预览尚未通过。原始 RAW、单次采集和传输记录、独立比较位于本地 `codex-1113-camera-dma-window-phase/run-1/`；本项 helper 已结束，iOS 持续运行。
+
+### 91.9 原生解析数组与 Source 激活范围
+
+同次 Source 观测取得完整的 288 行记录，新 cameracaptured PID 对应的库 UUID 为 `F8290183-8A60-34A8-BE92-8A73ACB9C55D`。Generic 与 Source 三项 ABI／地址检查分别匹配，预算 512 未满。
+
+- 原 ParsedConfiguration initializer 两次返回非空；`parsedCameraSourceConfigurations` getter 四次均返回 nil。
+- 记录覆盖连续编号 0～160，未出现 Source XPC initializer 或 Source cache 记录。
+- 前期 catalog RequestStreams 运行 131 帧，六个输出均无 config、pool 或 handler；随后实际 Camera UI 会话的解析数组为空，前摄预览黑屏。
+
+静态 helper 从 `connectionConfigurations` 构造解析数组，SourceType 1 进入相机分支；视频输出宽度或高度小于 1 也可在发布数组前返回。实际连接的 Source、Sink、enabled、SourceType 和输出尺寸继续核对。原始观测及独立复核分别保存在本地 `codex-1113-camera-source-activate-observation/`、`codex-1113-camera-source-activate-review/`。
