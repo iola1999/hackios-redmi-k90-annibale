@@ -56,12 +56,21 @@ GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限
 
 `run-queue.sh` 依次运行各目录，每轮默认 420 s，100 s 起每 3 s 截图，每 20 s 拉一次日志（`RUN_SECONDS`；`RUN_TIMING` 格式为 `截图间隔,截图起点,日志间隔`）。它先核对 `manifest.json` 里的载荷存在；复位后退回 Android 时调 `recover-loader.py` 切回 loader；loader 不处于 idle 或该轮失败时停止整个队列。
 
+持续功能测试使用现有持续运行入口：
+
+```sh
+K90_FREEZE_OFF=1 python3 tools/k90auto/run-auto.py ROUND_DIR 0 0,0,5
+```
+
+- 时长参数 `0` 使用现有持续运行分支，同一运行器串行处理命令和按需截图。相机、Safari、播放等测试复用本次开机，单项完成后设备保持 iOS 运行。
+- 结束运行或更换启动载荷时，通过 `run/stop-request` 执行下面的收尾步骤；内核的 DMA 停止、同步和资源保留要求继续生效。
+
 `run-auto.py` 的其余行为与开关：
 
 - 启动卷：先上传 payload，使 loader 按本轮 `memsize` 分配窗口；再通过 `oem ramdisk` 上传小型 `flashboot.apfs` 启动卷，核对 loader 报告的实际长度与窗口。该卷只提供 `stage0` 和挂载目录，系统卷由内核从 `darwin` 分区按需读取，`/private/var` 由 `darwin_var` 直接持久化。
-- 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 按固定时长跑。
+- 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 关闭这项检查，运行时长由时长参数决定。
 - `run/shot-request` 出现时拍一张（`shot-now.py` 写这个文件，`SHOT_ON_ACTION=0` 忽略）；`run/stop-request` 出现时提前收尾。
-- `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 字符）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `annsh`，输出从日志取回；内建命令见 `hackios-xnu-userland/userland/src/apps/annsh.c`。输出等待默认为 40 秒，慢原生调用可通过 `RSH_OUTPUT_TIMEOUT` 延长，调用方的子进程期限也要相应放宽。
+- `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 UTF-8 字节）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `annsh`，输出从日志取回；内建命令见 `hackios-xnu-userland/userland/src/apps/annsh.c`。输出等待默认为 40 秒，慢原生调用可通过 `RSH_OUTPUT_TIMEOUT` 延长，调用方的子进程期限也要相应放宽。
 - `ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]` 通过 `rsh.py` 采集只读状态，默认覆盖进程、`trollstorehelper list`、`/Applications`、下载目录和 IPA 暂存目录，结果写入 `run/ios-state-*.json`。`trollstorehelper list` 列出 `/private/var/containers/Bundle/Application` 中已安装的应用；系统应用可通过 `trollstorehelper open` 和主屏复核。命令返回非零会保留在对应记录中；传输失败停止后续查询，并在报告里标明失败命令。
 - `fetch.py ROUND_DIR DEVICE_PATH OUT` 通过 `annsh cat` 分块读回设备文件，检查偏移连续性，任一段缺失就以失败退出。
 - 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志。自动复位仅接受 `returned`、`returned-held`、`hung`、`hung-held` 及其完整零错误状态；未知状态、格式错误或复位命令失败会停止队列。内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，完成条件是 loader 重新应答 idle 且启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。

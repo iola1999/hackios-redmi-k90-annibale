@@ -1,6 +1,6 @@
 # HackiOS 项目排查与协作手册
 
-本文记录 REDMI K90（SM8750，`annibale`）移植中可复用的排查方法、判断依据、存储安全和协作约束，回答三个问题：下一步检查什么、这个检查能区分哪些原因、结果支持多大范围的结论。更新日期 2026-11-08。
+本文记录 REDMI K90（SM8750，`annibale`）移植中可复用的排查方法、判断依据、存储安全和协作约束，回答三个问题：下一步检查什么、这个检查能区分哪些原因、结果支持多大范围的结论。更新日期 2026-11-13。
 
 当前命令见[真机调试手册](device-test-playbook.md)，真机轮的计数口径、收尾和重试见[真机轮运行规则](k90auto-run-protocol.md)，项目状态见[进度表](2026-10-23-tracking.md)，任务选择见[待办目录](../backlog/README.md)，案例见[桌面交互案例](../analysis/2026-10-24-interactive-runtime.md)和[A830 命令执行案例](../analysis/2026-10-24-a830-command-startup.md)。
 
@@ -45,11 +45,14 @@
 - 比较初始化顺序要追踪资源申请、框架回调和首次启动的完整调用关系。同一驱动有多种模式时先确认本机走哪个入口：普通 HFI 与硬件调度模式的 START 顺序不同。等待应答期间对方发来的资源请求必须处理或明确失败。
 - 接口是否存在按编译或运行结果、代码实际用法、头文件的顺序采信，并写明是哪棵树：`xnu12377` 的 `ctl_bind` 在 `<sys/kern_control_private.h>` 的 `KERNEL_PRIVATE` 段里。
 - 容器不可用时，从构建树 `BUILD/obj/DEVELOPMENT_ARM64_BCM2837/compile_commands.json` 取同类文件的 `arguments` 编单个文件，再用 `nm -u` 对照 `mach.development.bcm2837.unstripped`，能确认编译与符号可见性。
-- `xnu26/build-macos.sh` 增量构建有三条约束：
+- `xnu26/build-macos.sh` 内核构建有以下约束：
   - `*/conf/Makefile.template` 含 `${OBJS}: $(firstword $(MAKEFILE_LIST))`，修改 `*/conf/files` 触发 `doconf` 重写 `Makefile` 后会让该子系统全部 `.o`／`.cpo` 全量重编，把 `Makefile` 时间戳改回早于 `BUILD/obj/SETUP/config` 又会让 `gmake` 重跑所有子系统的 `doconf`。
   - `makedefs/MakeInc.cmd` 已对子 make 传 `MAKEJOBS=--jobs=$(hw.ncpu)`，外层再传 `-jN` 会重置 jobserver 并成倍派生编译进程。
-  - Xcode clang 21 在 `-Weverything` 下会对内核头文件双下划线宏输出数百 MB 的 `-Wreserved-identifier` 诊断。
-- `xnu26/build-macos.sh` 已自动剔除外层 `-j` 并将 `DOCONFDEPS` 与生成 `Makefile` 的时间戳钳制在 `SETUP/config` 与存量 `.o` 之间，`xnu26/xcrun` 已对 `clang`／`clang++` 追加 `-Wno-reserved-identifier -Wno-reserved-macro-identifier`。
+  - Xcode clang 21 在 `-Weverything` 下会对内核头文件双下划线宏输出数百 MB 的 `-Wreserved-identifier` 诊断，拖慢全量构建。
+- `xnu26/build-macos.sh` 已自动剔除外层 `-j` 并将 `DOCONFDEPS` 与生成 `Makefile` 的时间戳钳制在 `SETUP/config` 与存量 `.o` 之间。
+- `xnu26/xcrun` 只在直接执行 `clang`／`clang++` 的分支追加警告选项；`MakeInc.cmd` 用 `-find clang`／`-find clang++` 取得路径后直接运行编译器，该分支不生效。
+- 全量构建前必须核对实际 C／C++ 编译参数，确认包含 `-Wno-reserved-identifier -Wno-reserved-macro-identifier`。构建已大量输出上述重复警告时，先停止构建，关闭这两类已知警告后继续；其他诊断要求保持不变。
+- 通过 `RC_NONARCH_CFLAGS` 显式传入这两个选项，覆盖该变量必须保留清除产物中本机源码路径的 `-ffile-prefix-map`。命令见[开发指南 §5](../development.md#5-构建内核)。
 - 容器内执行后检查文件和 diff 再构建：heredoc 经 stdin 传入要 `docker exec -i`，漏掉时曾退出 0 而文件未改。复制、打包、上传按依赖检查前一步结果；跨环境复制根目录保留目标系统的符号链接语义。
 - 构建命令见[内核构建说明](../analysis/kernel-build-linux.md)，arm64e 用户态产物见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
 

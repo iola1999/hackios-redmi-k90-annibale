@@ -89,6 +89,8 @@ def main():
               f"{'' if started else ', and annsh never started it (is /annibale/bin/annsh in rc.jobs?)'}; "
               f"later lines may be in the round's next s*.log", file=sys.stderr)
         return 3
+    # Keep buffered native output before the completion record in merged logs.
+    sys.stdout.flush()
     print(f"rsh: exit {done.group(1)} after {done.group(2)} ms", file=sys.stderr)
     return int(done.group(1)) & 0xff
 

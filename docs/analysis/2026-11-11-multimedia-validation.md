@@ -1190,7 +1190,7 @@ cd36 沿第 66 节的冻结内核、Metal、AIR、页面和打开探针，仅为
 - 两次接口查询均在 Safari 打开后执行，en0 为 UP／RUNNING，IPv4 地址为空。主机 HTTP 健康请求只覆盖主机，设备路由与设备访问测试服务尚未验证；本轮页面加载、正文与视频验收无效。
 - 13 条采集命令完成，最高 CPU 采样温度为 72.1°C，采样器记录一个覆盖缺口。HTTP 服务和控制器退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 
-静态核对发现，`libsystem_sandbox` 的请求 5 在成功返回后直接使用输出缓冲作为 extension token；MiniSandbox 该分支返回成功却未写入输出。原生库的失败分支释放缓冲并返回 NULL，Foundation 可继续处理这一结果。修复在内核返回 `ENOTSUP`，宿主回归和冻结单对象编译通过，真机复核尚未执行。
+静态核对发现，`libsystem_sandbox` 的请求 5 在成功返回后直接使用输出缓冲作为 extension token；MiniSandbox 该分支返回成功却未写入输出。原生库的失败分支释放缓冲并返回 NULL，Foundation 可继续处理这一结果。内核改为返回 `ENOTSUP`，宿主回归和冻结单对象编译通过；后续真机结果及 Safari 的 NULL 消费路径见第 72 节。
 
 后续先观察开机后的 Wi-Fi 自动连接与已保存网络设置，连接可用后再继续页面和视频测试。原始结果位于本地 `kernel-12377-codex-1112-cd36-safari-exception/`，网络与异常范围见其 `run/device-final-network-exception-review.json`；原生分支分析见本地 `safari-exception-1112/native-exception-current-review.json`，修复与构建见 `safari-sandbox-1113/`。
 
@@ -1198,9 +1198,706 @@ cd36 沿第 66 节的冻结内核、Metal、AIR、页面和打开探针，仅为
 
 本轮使用第 65 节的输入归还内核和 minmax AIR／heap Metal 辅助盘，记录位于本地 `kernel-12377-codex-1113-cd37-wifi-user-review/manifest.json`。该轮由用户操作并观察，以下结果覆盖该次启动。
 
-- 开机等待后 Wi-Fi 自动连接；用户在 01:18 反馈此前约一分钟操作卡顿，尚未完成对应时段的性能分析。
+- 开机等待后 Wi-Fi 自动连接；用户在 01:18 反馈此前约一分钟操作卡顿，性能分析见第 73 节。
 - 闪光灯可用，亮度调节正常；屏幕亮度调整期间没有闪烁。
 - 01:25:15 前后的相机操作没有闪退，顶部绿色隐私指示灯亮起，预览黑屏；真实图像采集仍未通过。
+- 用户在 01:30:04 反馈此前约十秒停顿，对应窗口的原因尚未定位，分析范围见第 73 节。
 - 用户随后反馈整体性能较好、图形渲染错误与功能异常减少。这是本次体验反馈，尚无同条件的版本间帧率与错误数量对照。
 
 `v0.1.3` 按用户选定的范围采用最近验证的组合。已出现首次启动图标缺失的较新 AIR 候选继续单独验证，相机 DMA 开发继续保留在日常工作区。发布构建、版本来源和校验记录见[11-13 发布记录](../progress/2026-11-13-release.md)。
+
+## 71. cd38 至 cd40 的采集边界与控制器修正
+
+本批三轮均未到达页面或 Iris 视频命令。结果按已执行步骤记录，采集流程结束与功能验收分别核对。
+
+| 轮次 | 已执行范围 | 停止原因 | 最高 CPU 采样温度 | 温控覆盖缺口 |
+|---|---|---|---|---|
+| cd38 | 14 项中完成 6 项；第七项已投递 | annsh 起止输出被日志穿插，严格完成解析未通过 | 74.8°C | 0 |
+| cd39 | 14 项中完成 8 项；七项诊断设置均取得退出码 0 | 最新快照已缺失早期解锁记录，控制器错误报告 `startup_readiness_timeout` | 73.3°C | 2 |
+| cd40 | 前 5 条设备状态命令成功，第六项为主机截图脚本 | Python 缺少 NumPy，`tour.py` 导入失败，视频命令未投递 | 72.1°C | 2 |
+
+- cd39 保持 cd38 的载荷与全部 14 项命令，仅把原有 45 秒主机等待移到第一条命令之前。`s008.log` 已保存 `sb26: boot unlock done after 2 attempts`，`s035.log` 仍保存 Home Screen；一次性事件已离开最新滚动窗口。
+- 本地控制器修正分别保存本轮已完成快照中的解锁事件与最新 Main Display 状态。cd39 的实际快照复现旧版错误；修正后的八项检查通过，传输完成、完整 LF、文件稳定性与进程身份检查继续生效。真机复核尚未执行。
+- cd40 保持 cd35 的视频、命令、启动参数、辅助盘其他内容和内核其他对象，只增加 HFI 首次拒绝回复及原始 VT ioctl errno 观测。已核对 371 项依赖、1161 个未变对象与 1172 项冻结链接来源；两份 VT 产物严格签名检查通过。视频步骤未执行，本轮没有首个 HFI／VT 错误数据。
+- 三轮 runner 均退出 0，helper 均退出 1。相关进程结束后分别独立确认 loader 空闲、常驻区为空，真实 LK 重试计数均为 7；三轮至此结束。
+
+原始结果分别保存在本地 `kernel-12377-codex-1113-cd38-safari-sandbox/`、`kernel-12377-codex-1113-cd39-safari-wait/` 与 `kernel-12377-codex-1113-cd40-iris-first-failure/`，各轮结论见 `run/device-final-review.json`。控制器回归见本地 `codex-1113-safari-readiness/review.json`，Iris 交付与本批复盘见本地 `codex-1113-iris-first-failure/`。
+
+下一批使用已有、包含 NumPy 的 Python 环境；全部四个主机脚本的导入、历史原始截图解析和 FFmpeg 拼图已验证，载荷与命令序列保持 cd40 版本。该调整只涉及主机运行环境。
+
+## 72. Safari 原生容器 token 与 NULL 消费
+
+cd39 在显式打开命令执行前启动 MobileSafari，保存到 `SIGNAL 11 at 0x0`。23G90 共享缓存反汇编确认，SafariCore 的 `_WBSSetUpAccessToAppDataContainerWithIdentifier` 调用 `_container_copy_sandbox_token` 后直接调用 `_sandbox_extension_consume`，两次调用之间没有 NULL 检查。消费入口先执行 `strcmp(token, "invalid")`，与本轮故障地址和调用栈一致。
+
+cd39 的请求 5 返回 `ENOTSUP`，原生库释放输出缓冲并返回 NULL。内核提交 `24d33d91` 已实现文件 extension 的签发、消费和普通 handle 释放；Safari 的容器初始化、正文和视频仍待真机复核。
+
+| 请求 | 已确认的 iOS 26 参数布局 | 输出与生命周期 |
+|---|---|---|
+| 5，签发 | 56 字节；class、type、resource、flags、token 输出指针、pid、pidversion，各占 8 字节 | 原生库分配 16,368 字节，成功前须写入完整、以 NUL 结束的 token；失败释放缓冲并保留 errno |
+| 6，消费 | 24 字节；token 指针、含 NUL 的长度、64 位 handle 输出指针 | 验证 token 与目标身份，消费记录独立持有实际资源，返回 handle |
+| 7，释放 | 24 字节；handle、零值、文件路径指针；普通释放的路径为 NULL | 释放当前 owner 的 handle，保留其他消费者；`release_file` 的路径语义仍需核对 |
+
+容器客户端从 XPC token 数组或容器 token 字段复制最多 2,048 个字符。Safari 消费后释放 token 字符串与容器查询，本函数没有保存或释放 handle；消费记录须持续到显式释放或进程终止。请求 80 的输出类型和 `release_file` 的路径语义仍待核对。
+
+原版 `ContainerManagerCommon` 的四份容器配置分别指定 `com.apple.sandbox.container`、`com.apple.sandbox.application-group`、`com.apple.sandbox.system-container` 和 `com.apple.sandbox.system-group`。守护进程通过 `ReplyContainerTokens` 数组返回 token，客户端按容器索引复制字符串；原版 `containermanagerd` 具有 `com.apple.private.security.container-manager` entitlement。
+
+实现范围与验证结果如下：
+
+- 请求 5 支持文件 `type=0`、目标 audit 标志 `flags=0x30000`，校验目标 pid、pidversion、uniqueid，以及签发者的 vnode/DAC 权限；四种容器 class 另校验目录类型与 container-manager entitlement。
+- issued 对象持有实际 vnode；每次消费创建独立的 owner 与 64 位 handle 引用，并再次校验 vnode/DAC。用户复制失败会回滚新增资源。
+- fork 复制独立引用；spawn 在进入 EL0 前通过 exec hook 清理临时引用。exec 清理 consumed 引用与失效 issued 身份，目标退出清理其全部 issued 引用，签发者退出保留目标资源。
+- 199 项宿主断言、原容器检查和完整 XNU 链接通过。候选沿用 cd41，仅替换 `kern_minimac.o`，其余 1,161 个 filelist 对象及额外链接输入保持一致。
+- MiniSandbox 的全局策略保持既有非强制配置；本次验证范围为文件 extension 生命周期。宿主的 VFS、进程和锁使用 stub，真机调度与页面行为仍需验证。
+
+原生参数、分发路径及生命周期来源集中在本地 `safari-extensions-1113/native-contract-review.json`，冻结输入与独立审阅见同目录 `lead-review.json`；cd39 原始片段保存在 `safari-sandbox-1113/`。
+
+## 73. 启动与十秒停顿的性能分析
+
+cd37 的已有日志覆盖用户指定的 01:17～01:18 和 01:29:54～01:30:04 窗口。设备事件时间由相邻墙钟与设备微秒时间关联，主机读取时间只标记快照取得时间；线程异步输出会影响具体事件的时间定位。
+
+- 启动窗口的 SpringBoard 主循环记录到 16.655119 秒与 3.431839 秒的长处理，均发生在开始至提交前；对应提交区间各为一微秒。
+- 第一段长处理的主线程堆栈含 `rw_library_new_function_with_descriptor`、`fsync` 与 `__rename`，后续一段含 `CARenderServerCreateSnapshots`。单个系统调用、锁等待和 UFS 写入耗时尚未测量。
+- 后续十秒窗口没有输入投递记录，只有一个呈现帧。采样器在处理年龄达到两秒后停止输出，已有数据缺少长暂停堆栈，原因尚未定位。
+- 已有快照按完整错误行去重后共有 562 次 `full_fsync` errno 28，其中 20 次落在后续十秒窗口，启动窗口没有这类错误。错误涉及四份 WAL，`bluetoothd` 的设备数据库占 555 次；失败位置及其与界面停顿的关系尚未确认。
+
+`F_FULLFSYNC` 先执行共享映射页写回，再执行全卷元数据同步。冻结源码中可返回 ENOSPC 的分支包括页或索引数组分配失败、磁盘块位图分配失败，以及元数据打包超过 32 MiB 槽位。UFS I/O 层没有生成这个错误码；现有错误行缺少具体返回分支与耗时。
+
+开机恢复计数对应 135,060 个节点和 598,341 个非零块引用，占数据区容量的上限为 8.82%；运行峰值未知。元数据已知下限为 20.83 MiB，槽位有效容量扣除该下限后的差为 11.17 MiB；目录项、xattr、空洞索引和对齐长度尚未取得，实际余量未知。
+
+内核仓提交 `2b3863b` 修改 `rw_air_cache_store()`：磁盘位码与当前内容相同就保留已有文件；文件缺失、内容变化或读取失败继续执行原有原子写入。实现复用已有磁盘内容与 Foundation 比较，没有新增缓存状态或后台写入线程。
+
+主机测试使用真实 Foundation 与临时文件系统，覆盖重复内容保留文件身份、内存淘汰后磁盘命中、内容替换、文件缺失及写入失败后重试。旧实现的重复文件检查失败，修改后通过；arm64e Metal dylib、bundle 编译链接与严格签名检查通过。该修复尚未打包上机，性能收益待测。
+
+时间关联、窗口读数、堆栈、采样器限制和缓存验证集中在本地 `codex-1113-startup-perf/`，ENOSPC 返回分支与容量计算见其中 `full-fsync-review.json`。
+
+保存内容复核确认，启动窗口有 34 条 `CARenderServerCreateSnapshots` 的 Mach IPC 等待样本，最长为 1968 ms；完整等待时长未知。十秒窗口有 181 条 SpringBoard 主线程样本，最长为 102 ms；另有 35 条相机着色器编译队列等待，最长为 189774 μs，各线程区间可能重叠。这些读数未确定用户停顿的原因。
+
+旧日志仍保留，11 份来源和两段原始窗口校验通过，复核结果位于本地 `codex-1113-saved-user-stall-review/`。按用户后续指令，本项保存内容分析结束。
+
+后续诊断轮确认元数据打包超过槽位容量，并记录到 14.258 秒的 `rm_lock` 等待，具体范围见[第 81 节](#81-ramfs-元数据槽位与同步等待)。该轮与用户指定的旧窗口分别记录，二者的因果关系仍未确认。
+
+## 74. 前摄原生首帧的清理异常
+
+内核提交 `00518e64` 实现前摄原厂 mode 4 与单帧 DMA，用户态提交 `3a83298d` 实现 RAW worker、实际 `TorchLevel` 和 `camera_test native`。本批第二轮使用冻结候选启动该测试，内核在 CAPTURE 完成输出前触发 `Unhandled implementation specific error`，没有取得原生退出状态或 RAW 文件。
+
+本轮实际 unstripped 内核将 PC 定位到 `cam_native_release()` 内联的 `cam_smmu_release()`。异常指令为恢复 slot 12 的 saved S2CR 写入；此前禁用路由已执行。捕获进入清理前的失败位置和 saved CB／S2CR 值未取得，仍需按本机原厂 SMMU 初始化与撤销契约核对。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 命令与进程 | `camera_test` 实际启动；主机 rsh 被终止，`host_exit=-15`，`native_exit=null` |
+| 捕获与像素 | 没有 CAPTURE 完成状态，未读回 RAW；真实像素与预览仍待验 |
+| 异常 | `pc=0xfffffff0075ef608`、`lr=0xfffffff0075ef5bc`、`esr=0x96000010`、`far=0xfffffff8de224c30` |
+| 收尾 | 运行器首次读到 `returned-held` 后停止，elapsed 61.909 秒；软件恢复及独立 loader 空闲、空常驻区校验通过 |
+| 温度 | 完整日志峰值 73.6°C；温控 helper 有一个覆盖缺口 |
+
+候选、原始日志、异常窗口、地址定位和恢复记录保存在本地 `codex-1113-camera-native-first-frame/`。预期 RAW 格式与大小仅用于后续读回校验，本轮没有像素验收结果。
+
+## 75. 空 FinishDelayedFrames 修复后的三帧结果
+
+本批第三轮保持 cd41 内核、270 帧样本、启动参数与其余辅助盘内容，仅更新用户态提交 `8caf4a6a` 的空 `FinishDelayedFrames` 入口检查。两份探针增加已有的逐帧文件报告接口，父版本重建与 cd41 逐字节一致；实际 APFS 的 719 个路径中，生产变化仅为 VT 库，另外两处变化为报告探针。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 原生播放器 | 同一 annsh 序列确认退出 0，耗时 19,529 ms；输出 3 帧，收到 EOS，stalls=0 |
+| 首次 Iris 错误 | `HFI_INFO_DATA_CORRUPT`，`sid=1 / hdr=29 / port=2`；随后 ioctl 为 `mode=0 / tag=7 / bytes=6812 / errno=5` |
+| 主机采集 | helper 漏识别正常完成信息，记录 `native_exit=null`、`delivery_rc=3`，完成 0/5；完整报告未读回，离线 decode 未执行 |
+| 验收 | 连续 270 帧验收失败；完整逐帧像素与播放器实际 Iris 会话归属未验证 |
+| 收尾 | controller=1、runner=0、helper=1；121.818 秒后运行器、helper 及其子进程全部结束，独立 loader 空闲、空常驻区与真实 LK retry=7 校验通过 |
+| 温度 | 日志与 helper 峰值均为 74.0°C；helper 有一个覆盖缺口 |
+
+`rsh.py` 将原生输出写到 stdout，将完成信息写到 stderr。两者合并到文件后，stdout 的缓冲内容使完成信息插入一条视频日志中，helper 的行首匹配失败；原始命令应答和同序列退出行均已保留。
+
+主机工具在输出完成信息前刷新 stdout。宿主回放使用本轮原始日志和实际 `rsh.py` 邮箱流程：旧版本复现完成信息没有独立成行，修改后保留一条完整完成行，两版退出码均为 0。该检查没有设备操作，下一批使用修正后的工具。
+
+候选、原始窗口、退出码来源和恢复记录保存在本地 `codex-1113-iris-empty-finish/`，输出顺序回放见 `codex-1113-rsh-output-order/review.json`。本批三轮结束；后续继续核对每帧损坏信息与同包 BUFFER 的归属，并按原生契约完成 DMA 归还和错误回调。
+
+## 76. 文件 extension 候选的 Safari 打开超时
+
+新批第一轮使用内核提交 `24d33d91` 的文件 extension 生命周期候选。相对 cd41 只替换 MiniSandbox 对象，辅助盘、启动参数和页面输入保持一致。主机等待 annsh-ready 后 45 秒再执行一次原生打开，等待期间上传临时签名 opener 并完整读回核对；开机前没有网络查询。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 原生打开 | `LSApplicationWorkspace openSensitiveURL:withOptions:error:` 返回 false；方法耗时 10.338598 秒，`NSPOSIXErrorDomain` code 60，出处为 `LSDispatchUtils.mm:147 / _LSDispatchWithTimeout` |
+| 命令交付 | 同一 annsh 序列 5 退出 1，耗时 10,587 ms，投递应答为 0；后置进程查询与临时 opener 删除均退出 0 |
+| 页面与视频 | 没有设备 HTTP 请求；原生失败分支未取得正文画面，视频未执行，clock、EOS 和媒体错误均未观测 |
+| 收尾与温度 | controller、batch、runner、helper 均退出 0；全部登记进程组结束后，独立核对 loader 空闲、常驻区为空和真实 LK retry=7；峰温 74.4°C，两个当前温度报告，覆盖缺口为 0 |
+
+MiniSandbox 日志确认请求 5、6、7 的全局首次入口已执行，未记录 Safari 对应 token、consume 返回值或 handle。现有显示日志没有本轮 boot unlock done、Home Screen 或实际 MobileSafari 启动记录；Main Display 的已保存布局为 backlightState=0。具体等待位置仍需核对。
+
+第 48 节已确认 LS 超时后已提交的 FBS 请求仍可继续执行。本轮控制器在原生失败后立即结束页面分支，晚到请求与实际失败画面缺少观察。后续保持单次打开与既有期限，补齐该分支的页面等待和截图，再判断应用启动、正文及视频结果。
+
+本轮输入与原始数据保存在本地 `codex-1113-safari-file-extensions/`，完整返回、HTTP 与恢复核对见 `run/device-final-review.json`；显示及启动记录见 `run/lead-ls-window.json`。
+
+## 77. 相机 SMMU 配置的寄存器读回差异
+
+本批第二轮使用内核提交 `8ef92708` 的 Stage-1 旁路与释放顺序修复，仅替换相机对象；辅助盘、启动卷和 `camera_test` 复用上一轮输入。正式配置的 `CAM_NATIVE_TRACE` 默认为 0，本轮候选显式启用。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 原生采集 | `camera_test native` 退出 1，耗时 619 ms；同序列完成信息仅一条，投递应答为 0 |
+| 首次失败 | SMMU bank 5 的 SCTLR 读回 `0xa5f0066`，期望 `0xa5f1066`，相差 bit 12；随后返回配置错误 5 |
+| 采集状态 | `state=5 error=5 flags=0`；尚未启用 DMA，未取得 RAW 文件或首尾行像素，后续状态步骤未执行 |
+| 收尾 | controller=0、runner=0、helper=1；94.862 秒后全部登记进程组结束，独立核对 loader 空闲、常驻区为空及真实 LK retry=7 |
+| 温度 | 峰温 70.5°C，当前温度报告一条，监测覆盖缺口为 0 |
+
+本轮选中 slot 10、bank 5，context 偏移为 `0x85000`；CBA2R 为 `0x1`，CBAR 为 `0x1f300`。初始 SCTLR 为 `0x3577e102`，配置后的首次读回差异出现在 `cmd-1.log` 第 14451 行。该位的有效条件与读回语义仍需核对，真实 RAW 和连续预览尚未验证。
+
+后续提交 `14acadd1` 将固定 M=0 配置的 ASIDPNE 请求设为 0，使用系统 ASID namespace；完整寄存器读回、DMA 停止与同步失败后的资源保留继续生效。原厂旁路配置仍请求 bit 12，具体读回 0 的原因未知。
+
+43 项 SMMU 场景、18 项消融、37 项 native 场景及 8 项消融通过。默认与 trace 内核完整链接，分别相对上一轮仅改变五条 MOVZ 的常量位，其余字节相同；候选包的 43 项宿主回归通过，真机复核待执行。
+
+本轮输入和原始数据保存在本地 `codex-1113-camera-smmu-native-frame/`。完整原生窗口、SMMU 窗口及功能与恢复结果分别见 `run/device-camera-native-window.log`、`run/device-camera-smmu-window.log` 和 `run/device-final-review.json`。
+
+## 78. 同包损坏帧处理后的 165 帧结果
+
+本批第三轮使用内核提交 `e954ef8a` 与用户态提交 `438e0caf`，按同一 HFI 消息校验损坏 RAW 的 DMA 身份，并按精确 out_tag 完成对应 token 的 BadData／FrameDropped／NULL image 回调。其他 pending 帧继续处理；系统错误、畸形消息、BUFFER_OVERFLOW 和停止、关闭、TLB 失败后的保护保持原样。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 原生播放器 | native、主机与投递退出码均为 0，耗时 23,513 ms；收到 EOS，原生摘要记录 frames=165、pixel_errors=0、stalls=0 |
+| 完整逐帧文件 | 165 帧、165 个唯一 PTS、243,302,400 有效字节；153 帧 FNV 与同 PTS 参考一致，12 帧不同，缺少 105 个参考 PTS |
+| 首个损坏消息 | `sid=1 / hdr=29 / port=2`；同包 RAW 为 `index=0 / base=0x60000000 / tag=2`，有效数据 1,474,560 字节 |
+| 验收范围 | 格式、几何、有效字节数、PTS 递增和末行计数通过；完整 270 帧与像素验收失败，离线 decode 步骤未执行，播放器与 Iris 会话归属尚待独立核对 |
+| 收尾 | controller=1、runner=0、helper=1；140.127 秒后全部登记组结束，独立核对 loader 空闲、空常驻区及真实 LK retry=7 |
+| 温度 | 日志与监测峰值均为 72.1°C，当前温度报告三条，覆盖缺口为 0 |
+
+主机 helper 的 summary 解析只接受无进程前缀的行，本轮原生输出具有 `[video_player_test 303]` 前缀，原始摘要已完整保存。私有候选修正该解析，原始日志及八项回放通过；270 帧验收继续失败。原轮输入与运行记录保持原值。
+
+本批三轮结束。下一批 Safari 保留单次打开后的完整 90 秒观察，相机复核第 77 节的固定请求修正；Iris 继续核对参考帧损坏、排空语义及播放器取帧遗漏，下一轮需要取得同轮离线回调来区分输出缺失与显示取帧缺失。
+
+输入、逐帧报告及完整原生窗口保存在本地 `codex-1113-iris-frame-errors/`，独立复算与恢复核对见 `run/lead-final-review.json`，首错原始窗口见 `run/device-iris-first-error-window.log`。主机解析回放见本地 `codex-1113-iris-summary-replay/review.json`。
+
+同轮完整日志的四段 VMC 统计合计 268 帧解码、2 帧丢弃。iOS 26 反汇编确认每次统计后计数清零，四段可以相加；播放器报告与解码数相差 103 帧，这些图像的像素尚未取得。原生日志还列出报告缺失的 PTS `6、266/15、267/15`。
+
+12 个 FNV 差异全部位于首个 GOP，两条同包 `DATA_CORRUPT` 对应 P 参考帧。当前 DRAIN／RESUME 的域、端口、标志和原因值与原厂解码会话一致；实际 pending 的 DRAIN 与尾部 FLUSH 继续保留。分段原始行、计数清零指令及原厂模块对照集中在本地 `codex-1113-iris-165-analysis/lead-vmc-review.json` 和 `native-contract-review.json`，完整播放器 Iris 会话归属仍待核对。
+
+## 79. 单次 Safari 打开后的完整观察
+
+新批第一轮沿用第 76 节的设备输入，仅调整主机采集：原生打开返回后仍观察完整 90 秒，并取得三张完整截图。启动流程保持 annsh-ready 后等待 45 秒，再执行一次原生打开。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 原生打开 | native 与主机均退出 1，投递退出 0，耗时 10,345 ms；BOOL=false，`NSPOSIXErrorDomain` code 60，方法耗时 10.189459 秒 |
+| 晚到窗口 | 原生完成后观察 90.021553 秒；三张 RAW 内容相同，画面仍停在 Apple／100%／显示交接界面 |
+| 页面与视频 | 没有设备 HTTP 请求或 DOM 回报；Main Display backlightState=0，Safari 未显示，视频未执行 |
+| 收尾与温度 | 登记进程组全部结束，独立核验 loader 完整 build、idle、空常驻区与 recovery 锁定，真实 LK retry=7；峰温 71.3°C |
+
+本批第三轮的 RAMFS 诊断候选继续使用同一打开与采集流程，正文实际可读。页面 GET、完整响应和 DOM `page-ready` 回报各一条，加载发生在原生完成后约 56.7 秒。单次结果尚未确认正文能在重复冷启动中及时显示。
+
+| 请求 | 原生方法与返回 | 完成后观察 | 可见结果 |
+|---|---|---|---|
+| 正文 | 10.146130 秒，BOOL=false，POSIX code 60；native 退出 1，耗时 10,162 ms | 90.019822 秒 | Safari 正文和浏览器控件实际显示 |
+| 视频 | 10.026610 秒，BOOL=false，POSIX code 60；native 退出 1，耗时 10,111 ms | 90.017059 秒 | 三张截图仍显示正文；没有视频页面 GET、回报、时钟推进或 EOS |
+
+六张 RAW 各 11,606,240 字节，内容相同。正文与视频的功能结果分别保留，原生打开的十秒超时仍需定位。诊断轮的输入、存储读数与收尾见[第 81 节](#81-ramfs-元数据槽位与同步等待)。
+
+第一轮原始数据保存在本地 `codex-1113-safari-late-window/`；第三轮保存在 `codex-1113-fsync-safari-window/`。两轮的完整原生命令窗口、HTTP 事件、截图和独立核验分别见各自 `run/device-final-review.json` 与 `run/lead-post-run-review.json`。
+
+## 80. ASIDPNE 修正后的相机 TCR2 差异
+
+本批第二轮使用内核提交 `14acadd1`，仅替换相机对象，保留原辅助盘、启动卷和原生采集命令。ASIDPNE=0 通过此前的 SCTLR 检查，下一处完整回读差异位于 TCR2。
+
+| 项目 | 本轮结果 |
+|---|---|
+| 原生采集 | native 与主机均退出 1，投递退出 0，耗时 578 ms；prepare／CSID error=0 |
+| 首次差异 | `bank=5 reg=0x10 value=0x70 expected=0x10`；`0x10` 为 TCR2，TTBR0 偏移为 `0x20` |
+| 资源与像素 | 随后 SMMU error=5，资源保持 HELD=5；尚未启用 DMA，未取得 RAW |
+| 清理阶段 | SCTLR 读回 `0xa5f0066 expected=0`；最后清 SCTLR 的写入尚未执行 |
+| 收尾与温度 | 登记进程组全部结束，独立核验 loader idle、空常驻区、recovery 锁定与真实 LK retry=7；峰温 72.5°C |
+
+ARM IHI0062D.c §16.5.39 将差异 `0x60` 定义为 TBI0 bit 5 与 TBI1 bit 6，涉及完整 64 位 tagged ATS 地址。冻结 trace 对象确实写入 `0x10`，后续 TCR／TTBR 写入没有重叠；本机读回两个 TBI 位为 1 的具体原因仍未知。后续按实际地址宽度与 ATS 使用条件核对真实请求，完整寄存器比较、DMA 停止、同步失败后的资源保留继续生效。
+
+原始窗口保存在本地 `codex-1113-camera-asidpne-native-frame/`，首错位于 `returned-held.log` 的 LF13522。原生命令窗口为 LF13422～LF13529，独立核验见该轮 `run/lead-post-run-review.json`；寄存器定义与冻结指令对照保存在本地 `codex-1113-camera-tcr2-contract/`。
+
+后续 TCR2 请求修正已通过配置并取得 CAPTURE 完成报告，RAW 读回仍失败，见[第 83 节](#83-tcr2-修正后的采集报告与-raw-读回)。
+
+## 81. RAMFS 元数据槽位与同步等待
+
+本批第三轮只替换开启 `RAMFS_SYNC_ORIGIN_DIAG=1` 的冻结 `ramfs.o`。其他 1,161 个 filelist 对象、10 个显式链接输入、辅助盘、启动卷及 Safari 流程保持一致，1,174 项输入核验通过。诊断代码保存在本地忽略目录，正式构建开关默认为 0。
+
+首次完整错误来自元数据打包超过槽位有效容量：`used=33550336 needed_end=33550488 cap=33550336`。`needed_end` 是首次被拒记录的结束位置，完整所需容量尚未取得。该出口尚未执行本次 payload 或 super 写入。
+
+| 已保存日志范围 | 结果 |
+|---|---|
+| 字段完整、按文本去重的诊断记录 | 41,477 条，其中 errno 28 为 41,468 条；另有 23 条交错或字段缺失记录 |
+| 恢复状态 | slot 1、generation 740584、137,084 nodes |
+| `metadata.lock` | `ino=2 tid=1787`，等待 14.258136 秒，errno=0 |
+| `metadata.slot_limit`／`fsync.metadata` | 同一 tid 分别为 14.271794 秒与 14.271800 秒，errno=28 |
+| `mapping` | `ino=14752 tid=3046`，8.002285 秒，errno=0；该阶段的具体组成仍需核对 |
+
+上述数量仅覆盖已保存快照中的不同日志文本，多层诊断可以来自同一次同步，不能推出操作总数。`metadata.lock` 从调用 `lck_mtx_lock(&rm->rm_lock)` 前计时，到获得锁后记录；14.258 秒主要覆盖锁等待。后两项包含该等待和随后的约 13.6 ms 打包，单次 UFS 写入耗时尚未由这组数据确定。
+
+该轮的 Safari 结果见[第 79 节](#79-单次-safari-打开后的完整观察)。controller、batch、runner 和 helper 均退出 0，helper 完成 6/6 项，server 正常结束为 -15。峰温 74.4°C，当前温度报告七份，覆盖缺口五个，没有热停止。
+
+全部登记进程组结束后，独立核验 loader 完整 build、idle、空常驻区与 recovery 锁定通过，真实 LK retry=7。本批三轮结束，继续核对锁持有者、重复同步和元数据容量组成；保持现有数据、双 32 MiB 槽位原子性及持久化边界。
+
+冻结来源与构建核验保存在本地 `codex-1113-fsync-safari-window/`，原始阶段记录、67 份日志清单和 14 个原生 JSON 事件见 `run/device-final-review.json` 及 `run/device-log-windows/`。后续锁等待与容量分析集中在本地 `codex-1113-fsync-result-analysis/`。
+
+## 82. 同轮硬解报告与 24 MHz 播放时钟
+
+本批第一轮取得播放器与离线解码的完整逐帧报告。第三轮保留同一辅助盘、样本、启动卷、参数和测法，只替换三个时钟对象；其余 1,159 个 filelist 对象保持一致。
+
+| 项目 | 第一轮 | 24 MHz 私有候选 |
+|---|---|---|
+| 播放器正式退出与耗时 | 0，21,999 ms | 0，20,902 ms |
+| 播放器完整报告 | 164 帧，152 帧 FNV 匹配，12 帧不同，缺 106 个 PTS | 268 帧，256 帧 FNV 匹配，12 帧不同，缺 `1/5、2/5` |
+| 离线硬解 | 270 帧及所有 FNV 匹配，2,911 ms | 270 帧及所有 FNV 匹配，3,517 ms |
+| 播放器原生命令窗口的 AudioSessionClock 警告 | 13 条 | 0 条 |
+| 离线解码窗口的同类警告 | 0 条 | 0 条 |
+
+两轮播放器的 12 个 FNV 差异都位于首个 GOP，差异 PTS 和实际哈希逐字相同。第三轮四段 VMC 统计合计 268 帧解码、2 帧丢弃，全部注明硬件解码；播放器已取得这 268 帧。`1/5、2/5` 对应此前的两个损坏参考帧，首个 GOP 的损坏仍需定位。
+
+私有候选将 19.2 MHz 硬件计数换算为 24 MHz Mach ticks，并将 Mach 定时期限换算回硬件计数。用户态选择 `USER_TIMEBASE_NONE`，通过标准取时接口取得换算后的时间；硬件定时器频率保持 19.2 MHz。
+
+iOS 26 共享缓存的直接计数指令扫描已完成，相关 USER_TIMEBASE 与 CONT_HWCLOCK 分支有标准取时路径。缓存外系统二进制、动态代码和系统调用成本仍有验证边界；本轮使用私有链接内核，发布资格尚未验证。后续生产集成见[第 86 节](#86-时钟生产集成与默认构建)。
+
+两个原生步骤均正式退出 0，报告均完整读回。第三轮播放器收到 EOS、stalls=0，离线解码的 create／drain 硬件属性、270 个 sample、PTS、格式和 398,131,200 有效字节通过。真实 pending DRAIN、EOF FLUSH、DMA 停止与 HELD 保护继续保留，完整播放和像素验收仍失败。
+
+本批三轮已复盘，全部登记进程组结束，三轮独立 loader 空闲、空常驻区、recovery 锁定及真实 LK retry=7 核验通过。第三轮 139 项冻结输入、101 份原始文件、归档和原始窗口均经独立核对。
+
+第一轮数据保存在本地 `codex-1113-iris-all-callbacks/`，第三轮在 `codex-1113-audio-24mhz-iris/`；各轮独立复算见 `run/lead-post-run-review.json`。时钟源码、换算与直接计数分支检查集中在本地 `codex-1113-audio-clock-analysis/`，完整播放器代理与内核会话的 IPC 绑定仍缺直接记录。
+
+## 83. TCR2 修正后的采集报告与 RAW 读回
+
+本批第二轮使用内核提交 `9b5011dd`，将旁路域的 TCR2 请求设为 `AS|TBI0|TBI1`。相对上一相机轮只替换相机对象，辅助盘、启动卷和原生采集命令保持一致。
+
+| 项目 | 本轮结果 |
+|---|---|
+| CAPTURE 报告 | `state=3 error=0 flags=0x3f sequence=1` |
+| 帧几何 | 2592×1458，stride=3248，bayer=2 |
+| 保存报告 | RAW payload 为 4,735,584 字节，含公共帧头的文件为 4,735,704 字节 |
+| 正式完成与读回 | 退出行被 Wi-Fi 日志交错破坏；`native_exit=null`、host_exit=3，helper 0/3，RAW 未读回 |
+| 停止与同步 | 已记录 pipeline powered down 与 SMMU bypass complete=1 |
+| 验收范围 | 实际 RAW 内容、物理 CFA、连续采集吞吐与 Camera 预览均未验证 |
+
+公共帧头按 C ABI 为 120 字节，sequence／time 偏移为 40／48；128 字节是 profile 结构大小。原冻结 parser 使用了 128 字节，本轮输入和失败结果保留原值；新的独立 parser 已校正头部、保存长度和首尾行位置。
+
+新 parser 的 8 项主机检查、6 项消融和 2 项既有用户态回归通过，C 宿主 ABI 执行及 Darwin arm64e 编译通过。下一轮先以完整正式完成状态读回 RAW，再验证同 fd 连续 CAPTURE 与原生预览路径。
+
+本轮 48 项冻结输入、43 份原始日志和原始窗口核验通过，独立 loader 空闲、空常驻区、recovery 锁定及真实 LK retry=7 通过。`fsr=0x400` 不命中当前源码的 fault mask，完整含义仍待核对。
+
+相机输入与原始数据保存在本地 `codex-1113-camera-tcr2-native-frame/`，独立审核见 `run/lead-post-run-review.json`；正确帧头、RAW10 与 CFA 的主机校验集中在本地 `codex-1113-camera-readback-review/`。内核日志与 TTY 的交错问题正在通过独立私有候选验证。
+
+## 84. RAMFS 零尾候选与 Safari 读回失败
+
+新批第一轮保留上一 Safari 轮的辅助盘、启动卷、页面和打开接口，只替换元数据 writer 的末尾零块扫描。既有 annsh-ready 后自然等待 45 秒，随后上传并读回原生 opener。
+
+19 份原始日志按完整语法及时间字段去重后，有 9,262 条完整 `ramfs-sync` 记录，均返回 errno=28。多层记录可以来自同一次同步，各阶段数量分别列出。
+
+| 项目 | 已保存结果 |
+|---|---|
+| 恢复状态 | slot 0、generation 740621、137,110 nodes、601,571 非零块引用 |
+| 首个容量拒绝 | `used=33550192 needed_end=33550344 cap=33550336` |
+| `metadata.slot_limit` | 3,086 条完整返回记录 |
+| `fsync.metadata`／`barrier_fsync.metadata` | 2,965／119 条完整返回记录 |
+| 最大完整 `fsync.metadata` | 290,708 µs；同线程 `metadata.slot_limit` 为 290,699 µs |
+| 索引数组分配 | 三组 `grow_slots`／`store.grow_slots` 记录，`Z_NOWAIT` 分配失败后返回 ENOSPC |
+
+零尾扫描后仍触及 32 MiB 槽容量出口，实际节省字节量和完整待写容量尚未取得。本轮没有保存完整的 `metadata.lock`／`metadata.wait`／`metadata.total` 成功记录；既有诊断只输出错误或耗时至少两秒的记录，快速成功和缺失记录仍有观测边界。
+
+opener 拉取正式退出 0，耗时 78 ms。随后 fetch 报 `expected offset 58656, got 58704`；原始 58,656 字节行前缀被相邻 fsync 日志拆开，整文件读回失败。Safari 正文、视频打开和截图均未执行，持久化成功与性能改善均未验证。
+
+89 份原始来源、归档、三个原始字节窗口、19 份 FS 索引和 59 项冻结输入经独立核对。全部登记进程组结束，完整 loader、idle、空常驻区、recovery 锁定及真实 LK retry=7 核验通过。
+
+本轮原始数据与独立审核位于本地 `codex-1113-ramfs-zero-tail-safari/run/`，FS 分支与去重统计位于 `codex-1113-ramfs-zero-tail-review/`。旧十秒停顿的保存内容分析见[第 73 节](#73-启动与十秒停顿的性能分析)，二者的因果关系尚未确认。
+
+## 85. 正式相机采集完成与 Wi-Fi 日志交错
+
+新批第二轮使用第 83 节实际 TCR2 相机对象，保留辅助盘、启动卷、参数及 `camera_test native`。相对该基线只更换三个 console／TTY 对象，并将主机 parser 校正为公共 120 字节帧头。
+
+| 项目 | 已保存结果 |
+|---|---|
+| 原生采集 | 正式退出 0，2,593 ms；唯一完成记录、delivery_rc=0 |
+| 采集状态 | `state=3 error=0 flags=0x3f sequence=1` |
+| 保存报告 | 2592×1458，stride=3248，bayer=2，4,735,704 字节 |
+| RAW 读回 | fetch 报 `expected offset 7632, got 7728`，host_exit=1 |
+| 原始失败行 | 7,632 与 7,680 字节行内容连续完整，行首分别含 Wi-Fi 日志片段；7,728 字节行完整 |
+| 验收边界 | 宿主 RAW、首尾行、物理 CFA、连续采集与 Camera 预览均未取得 |
+
+实际 `annibale_wifi_say()`／`annibale_wifi_tell()` 在完整 console 捕获前仍逐字符调用 `loader_log_putc()`。这条前置路径使相机读回行进入 Wi-Fi 日志中间，严格行首解析失败。早期主机夹具只覆盖整条 console 输出，遗漏了该实际调用路径。
+
+Wi-Fi 的 `printf` 副本还会通过 255 字节的 console print buffer 分段；本轮有一条含换行的 350 字节 peer-assoc 记录可触发该分支。只替换四个逐字符循环的私有候选通过短 scan 记录复现，长记录仍失败，后续继续修正完整记录的输出路径。
+
+本轮 74 项冻结输入、67 份原始来源、归档和三个原始窗口经独立核对。全部六个登记进程组结束，完整 loader、idle、空常驻区、recovery 锁定及真实 LK retry=7 核验通过；未重跑失败轮。
+
+本轮原始数据与独立审核位于本地 `codex-1113-camera-console-raw/run/`；正确 filelist 与全链接核验位于 `codex-1113-console-record-analysis/full-link/`，Wi-Fi 实际路径复现位于 `codex-1113-wifi-console-record/`。临时载荷继续保留私有诊断范围。
+
+## 86. 时钟生产集成与默认构建
+
+内核提交 `865b235d` 完成第 82 节时钟候选的生产集成，涉及四份 XNU 补丁、补丁清单和一份 37 行共享头。共享头复用既有 PExpert 频率字段，分别在硬件取时和 RTC 写入处转换单位。
+
+| 入口或字段 | 当前单位与处理 |
+|---|---|
+| 硬件计数、decrementer 与 WFE | 保持 19.2 MHz |
+| Mach 取时与期限 | 24 MHz；取时计算 `floor(5 * hardware_ticks / 4)`，写 decrementer 计算 `ceil(4 * mach_interval / 5)` |
+| 用户态取时 | 发布 `USER_TIMEBASE_NONE=0`、`CONT=0`，通过标准取时接口取得 Mach ticks，关闭 EL0 原始计数器访问 |
+| 其他板型与频率组合 | 转换条件不成立，取时和期限保持原值 |
+
+`mk-ath12k.sh`、头文件导出和完整默认内核构建均退出 0。五份展开源码与私有候选逐字相同，10 个对象函数窗口及 21 个最终内核函数窗口通过核验；stripped 与 unstripped 的对应指令相同。
+
+生产预处理确认 `ANNIBALE_IRIS_BUFFER_DIAGNOSTICS=0`，`ANNIBALE_IRIS_HOST_TEST` 未定义；本次未增加诊断默认开关。57 份封存文件与 108 个不同路径的文件身份经独立核对，最终内核没有构建目录或本机用户目录字符串。
+
+本轮完成源码集成、整数换算、默认构建和最终产物检查，新的完整生产内核尚未上机。系统调用实际开销、可听音质、卡顿及跨时基休眠恢复仍待实测；私有候选的播放结果继续以第 82 节为准。
+
+生产来源、整数检查、完整构建和独立审核保存在内核仓本地 `codex-1113-audio24-production/` 的 `production-review.json`、`production-clock-test-results.json`、`production-build-review.json` 与 `lead-review.json`。
+
+## 87. 相机第三轮与原生预览的后续范围
+
+本批第三轮只替换实际 Wi-Fi 日志的完整记录输出对象，保留第 85 节的相机、辅助盘、启动卷和命令。原生采集正式退出 0，耗时 1009 ms；完整宿主 RAW 验收仍失败。
+
+| 项目 | 已保存结果 |
+|---|---|
+| 采集状态 | `state=3 error=0 flags=0x3f sequence=1`，唯一完成记录，delivery_rc=0 |
+| 保存报告 | 2592×1458，stride=3248，bayer=2，4,735,704 字节 |
+| RAW 读回 | `expected offset 1471056, got 1471200`；宿主未取得完整文件与首尾行 |
+| 原始失败行 | 三条 RAW 数据完整，行首包含 `adreno8: page tables published...` 的分段日志 |
+| 温度与收尾 | 峰温 71.7°C，六份有效温度报告、两处采样缺口；全部登记进程组结束，完整 loader、idle、空常驻区、recovery 锁定与真实 LK retry=7 通过 |
+
+实际 `adreno8_say()` 将已格式化日志逐字符写入 loader，能够破坏严格 RAW 行首。该入口修复尚未实现；日志入口扩展已结束，后续功能验证继续使用现有工具。
+
+cd37 的默认 Camera 请求 `PortTypeBack`、format 5，`configure:` 返回 int 0 后，`BWGraph _resolveFormats:` 返回 `-666`；停止记录为 0 frames／0 pictures。保存内容缺少具体 connection 与 requirements，尚未区分 attached-media 条件冲突和 common buffer format 解析失败。
+
+当前前摄声明三个 profile／ISP 格式，后摄 formats 为空并提供闪光灯控制。后续独立验证原生 Camera 切换前摄后的格式解析、pool、Start 和可见帧；同 fd 连续采集、完整 RAW 与真实后摄仍各自待验。
+
+95 项冻结输入、191 份原始来源、120,555,423 字节归档内容和五段原始窗口经独立核对。本批三轮均结束，失败轮未重跑；原始结果位于本地 `codex-1113-camera-wifi-record/`，原生 graph 分析位于 `codex-1113-camera-cd37-graph-review/`。临时诊断继续只用于私有载荷。
+
+## 88. 原生打开与解码输出顺序
+
+本批第一轮在 annsh-ready 后自然等待 45 秒，再使用第 79 节的原生打开接口与页面。opener 完整读回通过，Safari 正文打开正式退出 1，耗时 10,060 ms；随后完整观察 90 秒，正文 HTTP 请求为 0，视频未执行。三张相同截图均显示 Apple 启动进度与启动控制台，正文未通过验收。
+
+第二轮保留既有辅助盘、启动卷、参数、样本和测法，只在 HFI START 前发送 `HFI_PROP_DECODE_ORDER_OUTPUT=0x0300015b`，类型为 U32、端口为 BITSTREAM、值为 1。
+
+| 项目 | 第二轮已保存结果 |
+|---|---|
+| 播放器原生完成 | 退出 0，20,317 ms |
+| 完整报告 | 43,728 字节，224 帧全部 FNV 匹配，`pixel_errors=0` |
+| 首个 GOP | 30 帧全部存在并匹配参考，第 82 节的 12 个差异 PTS 在本轮匹配 |
+| 缺少的参考 PTS | 索引 39～84，共 46 帧；相邻采样耗时由 4,784 ms 跳至 7,953 ms，间隔 3,169 ms |
+| VMC 统计 | 同一 VMC 的四段 recent stats 合计解码 270 帧，丢弃及输出迟到均为 0 |
+| 离线步骤 | 主机关闭检查失败后停止，离线 decode 与报告未执行 |
+
+播放器按 host time 向 `AVPlayerItemVideoOutput` 取得最新帧，逐幅同步计算 FNV 并运行 NSRunLoop。本轮缺口位于上述采样间隔，VMC 统计和播放器保存数量分别记录。完整固件 BUFFER token 与 VT emit 的逐帧归属仍缺，完整播放和 270 帧像素验收继续失败。
+
+输出端口 STOP 与 CLOSE 回包在播放器 annsh 退出后完成，随后 TLB 清理成功；`iris: close done slot=1 wire=1` 位于退出后的第 8 个 LF 行。旧主机检查要求 open／close 同处原生命令起止窗口，未覆盖代理异步销毁。下一批调整为离线 decode／完整报告后再运行 player／完整报告，原报告解析、参数和内核 STOP／CLOSE／TLB／HELD 保护保持一致。
+
+第三轮沿用第 87 节的内核、payload、辅助盘和启动卷，只将测试入口改为打开系统 Camera。annsh-ready 后自然等待 45 秒，使用盘内 `/annibale/bin/trollstorehelper open com.apple.camera`，随后取得实际截图。
+
+| 项目 | 第三轮已保存结果 |
+|---|---|
+| 原生打开 | 正式退出 0，104 ms，delivery_rc=0 |
+| FBS 前台状态 | Camera PID 270 已记录 `ForegroundRunning`、`foreground:[com.apple.camera]` 和 `Fullscreen` |
+| 实际画面 | 首张完整 1156×2510 截图显示 SpringBoard 桌面，Wi-Fi 图标可见；该截图未显示 Camera 界面 |
+| 操作与验收 | 未发送 tap 或 home，前摄未测；可见 Camera 界面与预览未通过验收 |
+| 温度 | 峰温 75.6°C，未触发温控停止 |
+
+原生 scene 同步提交可以提前发送无错误的打开完成回调，后续 scene 更新继续执行。上述打开完成、FBS 前台状态和实际画面各自保留；对应日志位置与调用路径见本地 `codex-1113-safari-native-resume/camera-helper-third-lifecycle.json`。后续通过实际桌面图标进入 Camera，再按本轮截图操作前摄切换按钮；原生 graph 与可见帧分别验收。
+
+本批三轮全部登记进程组结束，独立 loader 空闲、空常驻区、recovery 驻留与真实 LK retry=7 核验通过。失败轮未重跑，生产源码未因上述测量调整而改变。
+
+原始结果和独立审核保存在本地 `codex-1113-safari-console-record/`、`codex-1113-iris-order-run/`、`codex-1113-camera-native-preview/` 的本轮 `run/lead-post-run-review.json`。采样与资源所有权核对位于 `codex-1113-iris-order-result-resume/analysis.json`。
+
+## 89. Iris 完整像素与播放验收
+
+本次持续运行使用第 88 节的输出顺序候选，先完成离线解码，再执行 AVPlayer 播放。两个步骤的 270 个唯一 PTS 和逐帧 FNV 均匹配独立软件参考。验证覆盖同一份 1280×768、15 fps、18 秒 H.264 样本。
+
+| 项目 | 本次保存结果 |
+|---|---|
+| 离线原生完成 | 退出 0，3144 ms；submitted、accepted、callbacks、frames 均为 270 |
+| 离线内容 | 270 个唯一 PTS、sample 1～270、sample 与 PTS 对应、全部 FNV、duration 与错误状态通过 |
+| 离线硬件 | create／drain 的 hardware=1，software=0；callback_errors、dropped、empty、pixel_errors 均为 0 |
+| 像素布局 | NV12，1280×768，每帧有效字节 1,474,560，合计 398,131,200 字节 |
+| 离线报告传输 | 首次读取缺少 48 字节，宿主未生成完整报告；内容结论来自已保存的完整原生回调日志 |
+| 播放器原生完成 | 退出 0，18695 ms；ready、playing、advanced、ended 均为 1，stalls=0 |
+| 播放器报告 | 完整读回 52,622 字节；270 帧、270 个唯一 PTS、全部 FNV 及原有完整覆盖检查通过 |
+| 播放时钟 | 到达约 18.001127 秒，结束通知通过 |
+
+| 原生播放关联 | 本次保存结果 |
+|---|---|
+| 进程与会话 | 播放器 PID 396、mediaplaybackd PID 353、Iris 服务 PID 290，以及同一次播放的 player／item tag、VMC 和唯一新建 decoder 已关联 |
+| VMC 统计 | 四段 decoded 合计 270，dropped 与 late 均为 0 |
+
+离线 wire 1 和播放器 wire 2 均保存了 INPUT STOP、RAW STOP、CLOSE 的请求及成功回复，随后出现各自的 `close done`。候选源码在全部 session buffers 释放成功后才输出该记录；释放要求 SMMU unmap 和 TLB 同步成功。
+
+`video_player_test` 没有 UIView、AVPlayerLayer 或屏幕提交，本节只验收输出像素、媒体时钟、结束状态和会话关闭。可见视频播放使用 Safari 的实际画面另行验收。样本每 30 帧重复一次，逐帧校验的覆盖范围保留该内容周期限制。
+
+内核提交 `b562c3c5` 仅增加 START 前的 `HFI_PROP_DECODE_ORDER_OUTPUT` 设置及常量定义。本次真机使用私有链接载荷，只替换一个 HFI 对象，其余 1161 个链接对象保持原内容。
+
+| 生产与宿主验证 | 本次结果及范围 |
+|---|---|
+| 默认 HFI 单对象 | 编译成功，`ANNIBALE_IRIS_BUFFER_DIAGNOSTICS=0` |
+| 对象字符串 | 没有本机用户目录字符串 |
+| 协议与诊断场景 | 213 项协议场景和 24 项诊断场景均成功 |
+| 错误变体 | 92 组变体执行的 111 个预期失败场景均被拒绝 |
+| 完整默认生产内核 | 构建通过，默认 `ANNIBALE_IRIS_BUFFER_DIAGNOSTICS=0`；新的完整产物尚未上机 |
+| HEVC | 本次仅验证宿主协议 |
+
+完整默认构建、实际编译输入和最终产物检查通过，详细审核位于内核仓本地 `codex-1113-iris-order-production-build/production-build-review.json`。
+
+| 完整默认产物 | 本次结果 |
+|---|---|
+| 链接与编译参数 | 1,162 条链接对象记录、1,135 条 C／C++ 编译参数通过核对 |
+| 展开源码 | 202 份文件与跟踪来源一致 |
+| 最终属性调用 | 属性、端口、载荷类型和值符合源码 |
+| 剥离前后代码 | 两个非空代码段共 10,479,036 字节逐字一致 |
+| 路径字符串 | 没有本机源码、工作区或用户目录字符串 |
+| 内核字节数 | 20,569,392 |
+| SHA-256 | `c0b3c30c2991c9d40a68e508ef8534e743d43927df0d599a8cf7f65270a5925a` |
+| 源码提交 | `b562c3c5f1659c801636cd5a6e8e3b8b525a102d` |
+
+完整回调、播放器报告、原始会话日志和独立审核保存在本地 `codex-1113-iris-order-result-resume/` 与 `codex-1113-iris-live/final-review/audit.json`。默认单对象编译和协议场景结果保存在内核仓本地 `codex-1113-iris-order-production-check/`，完整构建与审核位于 `codex-1113-iris-order-production-build/`。
+
+## 90. Safari 正文与网页硬解播放
+
+本次与第 89 节共用一次 iOS 开机，正文页和视频页通过既有原生打开接口进入。单项测试结束后系统继续运行，随后验证相机配置。
+
+| 项目 | 本次保存结果 |
+|---|---|
+| 正文请求与脚本 | HTTP 200，完整写出 1,900 字节；收到 `page-ready`，attempt=0、error=0 |
+| 正文实际画面 | `shot-13567.png`、`shot-15691.png` 的按钮与 JSON 可读，Wi-Fi 图标可见 |
+| 视频 HTTP | 页面返回 200；MP4 范围请求返回 206，响应完整写出 |
+| 首次视频结束 | `ended/complete`，time=duration=18、error=0、readyState=4；`shot-16904.png` 显示最后一帧 |
+| 原生视频格式 | `avc1 (HW decoder)`，420v，1280×768 |
+| 播放中画面 | 同页通过原生按钮重播，投递后 3.011／10.017 秒取得 `shot-19420.png`／`shot-19490.png`，图案位置和方向发生变化 |
+| 播放中页面时钟 | 两图最后一次 `timeupdate` 分别为约 3.005／9.776 秒，paused=false、error=0 |
+| 重播末图 | `shot-22345.png` 为 pause，time=duration=18、error=0；播放按钮动作正式退出 0，136 ms |
+| 原生硬解归属 | Iris 插件 PID 290、wire 4、对应 VMC 与 `com.apple.WebKit(697)` 播放路径关联 |
+| VMC 输出统计 | 五段 decoded 合计 1+79+91+90+9=270，dropped、black-frame replacement、output-late 均为 0；末次 PTS 约 17.933 秒 |
+
+源样本将 30 帧／2 秒的图像序列重复 9 次，烧录计时和图像索引随周期重复。两张播放中截图分别显示 0.933 秒／索引 14 与 1.933 秒／索引 29，结束画面也显示索引 29。当前结果确认周期内画面变化，整 30 帧周期的偏移仍有样本限制。
+
+本次视频静音，音频输出继续单独验收。截图与最后一次 `timeupdate` 没有逐帧同步，可见播放的观察范围为上述三处时刻及结束状态。
+
+本次没有新增 Safari 功能修复。原始请求、页面事件、截图和运行日志位于本地 `codex-1113-live-tests/http/` 与 `codex-1113-iris-order-result-resume/`；原生播放器归属和统计复核集中在 `codex-1113-safari-native-resume/live-safari-hardware-review.json`。
+
+### 90.1 非周期样本的可见播放
+
+新的 18 秒 H.264 样本保留 1280×768、15 fps、270 帧和原 AAC 包，每帧的图像、全局帧号、FNV 与 SHA-256 均不重复。重新编码改变了码率与 SPS／PPS；第二次软件解码的全部帧摘要和帧号标记通过核对。样本与独立参考位于本地 `codex-1113-safari-nonperiodic/`。
+
+宿主在前次播放结束、活跃媒体请求为 0 后替换 HTTP 服务中的样本，页面和服务保持原值。随后同次开机执行一次原生打开，正式退出 1，耗时 10,031 ms，原接口只返回 Boolean false。
+
+该失败调用没有新增 HTTP 请求或页面事件，视频、重播和截图均未执行。随后通过保留原生 NSError 的一次 `openURL:withOptions:error:` 调用打开同页；UnlockDevice 与 sensitive 选项保持原生调用值，返回 accepted=true，耗时约 230.201 ms，NSError 为空，正式退出 0，360 ms。前次十秒失败的具体原因仍未知。
+
+| 非周期播放 | 本次保存结果 |
+|---|---|
+| 视频 HTTP | 完整写出 3,388,071 字节，实体摘要与非周期样本一致 |
+| 首播结束 | `ended/complete`、time=duration=18、error=0；`shot-65622.png` 显示全局 FRAME 269／269、PTS 17.933 |
+| 原生重播操作 | 同页播放按钮只触摸一次，正式退出 0，123 ms |
+| 重播第一幅 | 请求在投递后约 3.042 秒，`shot-66940.png` 为 FRAME 040、PTS 2.666；页面 timeupdate 约 2.755、paused=false、error=0 |
+| 重播第二幅 | 请求在投递后约 10.040 秒，`shot-67012.png` 为 FRAME 148、PTS 9.866；页面 timeupdate 约 9.777、paused=false、error=0 |
+| 重播末图 | `shot-67142.png` 为 FRAME 269、PTS 17.933，页面为 pause、time=18、error=0；本次没有新增 ended 事件 |
+
+四幅画面和页面事件经独立核对。截图请求时间、实际画面帧号与页面最后一次 timeupdate 各自保留，三者没有逐帧同步。该样本没有图像周期重复；本次复用了已运行媒体测试的开机，独立开机后的结果见第 90.3 节，音频验收继续待完成。
+
+原始调用、HTTP 区间、截图与运行状态位于本地 `codex-1113-iris-order-result-resume/` 的 `run/lsop-safari-final-report.json`。单项结束后设备继续运行，随后以同一样本验证离线与 AVPlayer 的完整像素输出。
+
+### 90.2 非周期样本的离线像素与播放器差异
+
+同次开机的离线解码原生退出 0，耗时 2,463 ms。完整报告中的 270 个 PTS、原包 sample、NV12 FNV 与独立软件参考全部匹配，总有效像素为 398,131,200 字节。创建与 drain 均报告 hardware=1，software=0；读取到 EOF，未触发帧数上限。
+
+AVPlayer 原生退出 0，耗时 18,400 ms，报告 ended=1、stalls=0、媒体时钟到达 18 秒，共取得 268 帧。完整报告第一次读取缺少一行，未重取；现有 stdout 中七条帧记录经核对，五条匹配，两条早期 B 帧存在以下差异。
+
+| PTS | 独立参考 FNV | AVPlayer 取得的 FNV |
+|---|---|---|
+| 1/15 秒 | `a8988a6ef9a6fbda` | `d9cdb4ec1476dde0` |
+| 2/15 秒 | `073de4a17e389c5b` | `1ca6d6e83d5ab6f2` |
+
+上述两个摘要没有匹配参考中的其他帧。播放器完整像素验收失败，少取两帧的具体 PTS 尚未确认；硬件输出、VT 交付和 AVPlayer 取帧之间的差异来源继续待查。原生代理缓冲的定点分析未发现足以修改分配 token 或输出 token 的依据，现有缓冲、DRAIN／EOF FLUSH 与 DMA 保护保持。
+
+独立逐帧核对与静态分析位于本地 `codex-1113-iris-nonperiodic/review.json` 和 `static-review.json`。本次设备样本的完整文件 SHA 未读回，源文件 SHA、传入字节与离线全部解码帧分别核对；单次运行快照未取得本次会话关闭归属。
+
+### 90.3 新开机的首项媒体测试
+
+更换 Front 相机载荷后，沿既有 annsh-ready 自然等待 45 秒，再打开同一非周期视频页。此前没有运行离线解码或 AVPlayer CLI。原生打开只执行一次，正式退出 0，耗时 1,036 ms；视频播放与重播结束后设备继续运行。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 页面传输 | HTTP 200，完整写出 1,892 字节 |
+| 视频传输范围 | MP4 范围请求返回 206，实体摘要与源样本一致；两段写出抛出 `BrokenPipeError`，完整文件传输字节数未确认 |
+| 首播中段 | `shot-03220.png` 显示正文、Wi-Fi 图标和 FRAME 149／PTS 9.933；页面 time 约 9.884、paused=false、error=0 |
+| 首播结束 | `shot-05262.png` 为 FRAME 269／PTS 17.933，页面 `ended/complete`、time=duration=18、error=0 |
+| 原生重播 | 播放按钮只触摸一次，正式退出 0，耗时 128 ms |
+| 重播第一幅 | 投递后约 3.045 秒请求 `shot-06032.png`，FRAME 35／PTS 2.333；页面 time 约 2.253、paused=false、error=0 |
+| 重播第二幅 | 投递后约 10.027 秒请求 `shot-06103.png`，FRAME 143／PTS 9.533；页面 time 约 9.524、paused=false、error=0 |
+| 重播末图 | 投递后约 23.046 秒请求 `shot-06230.png`，FRAME 269／PTS 17.933；页面 pause、time=18、error=0，没有新增 ended 事件 |
+
+实际图片与页面记录经独立核对，确认新开机后的正文可见及上述时刻的视频推进。视频保持静音，完整像素比较和音频继续分别验收；本次未取得可归属到该播放会话的新硬解统计。原始结果位于本地 `codex-1113-camera-native-preview/consumer-candidate/evidence/`，集中记录为 `safari-final-report.json` 和 `safari-root-visual-review.json`。
+
+### 90.4 首个 GOP 的完整像素与交付复核
+
+同次开机安装私有 VT 观测库后，仅运行一次 AVPlayer helper，正式退出 0，耗时 18,796 ms。新进程实际加载 UUID `0501E106-64E1-3397-B7D5-7C40659AB0AD`，与候选库一致；两份定点记录和完整报告各读取一次。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 完整播放器报告 | 268 帧、268 个唯一 PTS；241 帧的有效 NV12 FNV 匹配独立参考，27 帧失败 |
+| 失败范围 | 全部位于首个 GOP 的帧 1～29；帧 0 与帧 30～269 全部匹配 |
+| 缺失 PTS | `1/5` 秒与 `2/5` 秒 |
+| 首批输入 | tag 1～8 的原包长度与 FNV 均匹配参考 |
+| 两条早期 B 帧 | ioctl 返回后的 FNV 已与参考不同；Emit 前和 player 读取的摘要与 ioctl 阶段一致，数值见第 90.2 节 |
+| 完整字节读回 | 五份 NV12 各一次上传，正式退出 0、HTTP 200；设备、回执与宿主 SHA-256／FNV 全部一致，每份 1,474,560 字节 |
+| 首 I 帧 | ioctl、Emit 前、player 三份完整文件逐字相同，匹配参考 |
+| B 帧文件范围 | 仅取得 player 的两份完整文件；producer 的 RAW 定点未命中，硬件输出与内核复制仍待区分 |
+| 实际画面 | player 的 PTS `1/15` 秒图像有大面积灰色及残缺文字、色块，与完整参考不同 |
+
+MP4 的 video edit list 使用 `media_time=2048`、timescale=15360。Producer 的样本 PTS／DTS 比 player 与参考多 `2/15` 秒；该偏移解释了原观测器未保存两个 B 帧的 producer RAW，不能用未命中的文件作像素判断。
+
+首包 tag 1 后依次出现 DRAIN、首 I 帧输出和 `eof_flush pending=0`，随后才输入 tag 2～8。当前原生 `FinishDelayedFrames` 与 HFI DRAIN／RESUME 的参考帧契约继续核对；上述顺序尚未确认是首个 GOP 错误的根因。现有 DRAIN、真正 EOF FLUSH、DMA 停止及同步保护保持。
+
+普通卸载私有 VT union 返回 errno 16（`Resource busy`），挂载与源目录保留，设备继续运行。原始报告、五份文件、edit list 解析与逐帧复核集中在本地 `codex-1113-iris-nonperiodic/experiment/run-1/`，独立记录为 `root-player-and-time-review.json`、`root-edit-list-review.json` 和 `root-five-frame-byte-review.json`。
+
+### 90.5 首包 Finish 的离线对照
+
+同次开机依次运行同一份私有 `video_decode_test`，输入同一份非周期 H.264。两次运行使用独立进程，仅第二次在提交首包后调用一次公共 `FinishDelayedFrames`；既有 marker 未加入中途 Wait，真正 EOF 的等待路径保持。
+
+| 观察项 | 常规解码 | 首包后 Finish |
+|---|---|---|
+| 原生退出与耗时 | 0，3,836 ms | 1，3,735 ms |
+| 提交／接受／回调 | 各 270 | 各 270 |
+| 可用像素帧 | 270 | 268 |
+| 完整像素比较 | 270 帧匹配 | 241 帧匹配，27 帧失败 |
+| 失败及缺失范围 | 全部匹配 | 首个 GOP 的帧 1～29 中有 27 帧失败；帧 3、6 无像素，分别对应 PTS `1/5`、`2/5` 秒 |
+| 首包后 Finish | 未调用 | 位于 submit 1 返回与 submit 2 之间，返回 0，回调计数从 0 增至 1 |
+| 错误回调 | 0 | sample 2、5 均为 status=`-12909`、flags=`0x2`、bytes=0 |
+| 最终状态 | hardware=1、reader EOF、最终等待返回 0 | hardware=1、reader EOF、最终等待返回 0 |
+
+两次原生 stdout 均保存完整的 270 个 callback，sample 无重复，PTS 与参考的偏移为 0。常规解码的独立报告完整取回；首包 Finish 的独立报告取回失败，逐帧比较直接使用该次完整 stdout。27 个错误帧的 FNV 与第 90.4 节 AVPlayer 的对应帧全部相同，缺失帧也相同；帧 0 和帧 30～269 全部匹配。
+
+公共 Finish 已在离线路径复现相同的像素与缺帧范围。随后只增加启动身份输出再执行一次首包 Finish，CLI 已加载和当前可见的 VT UUID 均为 `0501E106-64E1-3397-B7D5-7C40659AB0AD`；原生汇总仍为 270 回调、268 帧、两条错误，正式退出 1，耗时 4,184 ms。
+
+该身份运行的 stdout 保存 269 条唯一回调，缺少 sample 251，不能用于完整 270 帧验收。实际 CLI PID 对应的 producer 文件单次读取返回 `No such file or directory`，HFI DRAIN 和 Close 归属尚未取得；运行身份及原始返回保存在本地 `codex-1113-iris-drain-native/startup-identity/run-1/`。
+
+原始调用和复核集中在本地 `codex-1113-iris-nonperiodic/midfinish/run-1/`，逐帧记录为 `control-review.json`、`finish-first-stdout-pixel-review.json` 和 `root-finish-player-comparison.json`。设备保持运行。
+
+### 90.6 排空恢复的输出发布顺序
+
+[Linux 有状态解码器规范](https://docs.kernel.org/userspace-api/media/v4l/dev-decoder.html#drain)要求 Drain 后的 `V4L2_DEC_CMD_START` 保留排空前全部状态。原厂 `msm_vdec_start_cmd` 先调用 `queue_deferred_buffers` 发布 RAW 输出缓冲，成功后再调用 `msm_vidc_process_resume`；实际调用已经追踪到 `venus_hfi_queue_buffer` 的 HFI 发布。
+
+当前 `iris_finish_drain` 先发送 BITSTREAM 和 RAW 的 RESUME，再重新发布 `IRIS_RAW_HOST` 缓冲，顺序与原厂有差异。单变量候选仅把原有 RAW 发布循环移到两个 RESUME 之前，flags、reason 和状态条件保持，净新增代码为 0 行。
+
+独立复核确认，重新发布只覆盖 HOST 缓冲；仍由固件持有的 QUEUED 缓冲跳过。DRAIN ACK、LAST 和输入归还检查保持，发布成功后才设置 QUEUED；失败由 `iris_collect_output` 保存至 session，原有 Close 和 DMA 资源保留条件继续生效。
+
+候选的 213 项协议用例、24 项诊断用例和 8 项定向次序及失败用例成功，92 个删除保护的变体被拒绝；原顺序在实际 HFI 次序断言失败。独立记录保存在本地 `codex-1113-iris-order-audit/`。
+
+私有内核和载荷构建通过，当前基线内核重新链接后逐字相同。1,172 项冻结链接输入和两套 372 项编译依赖核对通过，filelist 的 1,162 个对象仅替换 Iris HFI；载荷仅 kernel entry 改变，Camera、时钟、控制台、辅助盘、启动卷与启动参数保持原值。
+
+新候选的首包 Finish 测试取得完整回调，首 GOP 故障仍然复现。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 执行与回调 | 正式退出 1，耗时 4,181 ms；270 条唯一回调 |
+| 像素 | 268 帧有像素，241 帧匹配，27 帧不匹配；帧 0 及 30–269 匹配 |
+| 缺帧与错误 | 缺少第 3、6 帧；错误回调为 sample 2、5，status=-12909、flags=2、bytes=0 |
+| 时间戳 | PTS 偏移为 0 |
+| 错误帧对照 | 27 个错误帧的 FNV 与第 90.5 节原首包 Finish 及 AVPlayer 对应帧全部相同 |
+
+RAW 发布顺序修改没有改变本样本的首 GOP 故障。候选继续留在私有诊断目录，下一步核对排空后的参考状态和缓冲所有权。
+
+原厂反汇编、私有候选及输入审核集中在本地 `codex-1113-iris-drain-native/` 和其 `raw-before-resume/` 子目录。完整 stdout、逐帧复核及原测试对比分别为 `finish-after-first-native.log`、`root-runtime-CLI-review.json` 和 `root-runtime-original-comparison.json`；本项 helper 已结束，设备保持 iOS 运行。
+
+### 90.7 原生解码的执行进程
+
+本轮客户端实际加载的 VT 库 UUID 已确认，既有 console 的 create、start、decoder 和 session 记录位于 `videocodecd`。客户端 PID 对应的诊断文件单次读取返回 ENOENT；客户端库加载记录仅覆盖该进程。
+
+原版 `VTDecompressionSessionCreate` 把 options 传为 NULL。原生选择逻辑在服务进程判定与本地创建偏好均为 0 的分支调用 remote wrapper，XPC 名称分别为 `com.apple.coremedia.videocodecd.decompressionsession.xpc` 和 `com.apple.coremedia.decompressionsession.xpc`；前者由原版 `com.apple.videocodecd.plist` 发布。服务端 handler 在服务进程再次调用 `CreateWithOptions`，本地创建从该进程的 FigRegistry 取得 factory。
+
+上述静态路径与已有 console 的进程归属一致。服务端实际库 UUID 尚未取得，诊断文件写入失败仍需结合其原生 open／write 返回值判断。定向反汇编、缓存代码摘要及本轮 console 行号保存在本地 `codex-1113-iris-drain-native/execution-owner/`。
+
+## 91. 相机 Front 原生配置
+
+同次开机已经从桌面进入 Camera 并操作前摄切换，`shot-09687.png` 显示相机控件和隐私指示灯，预览仍为黑屏。原始截图和操作记录位于本地 `codex-1113-iris-order-result-resume/`。
+
+原 V57 配置中的 `Front Virtual Camera` 生成 deviceType 11，请求 `PortTypeFrontSuperWide`，既有日志记录返回 -12780。新增 canonical `Front Camera` 条目沿原生名称规则生成 position 2、deviceType 2，并请求现有 `PortTypeFront`。
+
+候选仅新增上述设备，原九个设备和其他顶层字典保持原值。三档 `420f` 输出与当前 mode4 profile、FES 几何和 fps 对应，静态来源及配置差异位于本地 `codex-1113-camera-native-preview/front-wide/source-review.json` 和 `config-review.json`。旧载荷的资源安装结果及输入边界见第 91.1 节，匹配载荷的真实采集与预览结果见第 91.2 节。
+
+### 91.1 运行态安装与相机输入边界
+
+私有安装 helper 通过 `com.apple.private.bindfs-allow` entitlement 执行只读资源挂载，正式退出 0，耗时 147 ms，errno=0。随后精确匹配的 Camera／cameracaptured 进程收到 SIGKILL；该命令不等待新进程启动。
+
+图标触摸后两张完整截图相隔约 215.1 秒，均显示部分桌面和中部黑色区域，没有 Camera 控件或前摄切换按钮。没有继续切换前摄，也没有取得新的 Front／RequestStreams 记录。挂载与源文件保持原状，设备继续运行；原始结果位于本地 `codex-1113-iris-order-result-resume/` 的 `run/front-v3-install-result.json`。
+
+本节所记旧载荷的相机输入与第 83 节的真实采集候选存在以下差异。
+
+| 输入 | 当前轮已核对的范围 |
+|---|---|
+| 辅助盘媒体库 | `/annibale/lib/libannibale-media.dylib` 为旧版三 stream 库；保存到的 cameracaptured 加载 UUID 与该库一致，加载记录早于资源挂载 |
+| 传感器 profile | 辅助盘缺少 `/annibale/fw/camera-ov20b-front-mode4.tab` |
+| 相机内核接口 | 当前镜像只识别旧 `G_INFO`，没有 profile／CAPTURE 实现，也不发布 `FRONT_MODE4` |
+| 新消费者校验 | 新媒体库要求 `FRONT_MODE4`；缺少该位会返回 `ENOTSUP` |
+| 软件诊断路径 | 当前轮的 1920×1080 几何与旧软件诊断帧入口对应 |
+
+仅安装媒体库与 profile 无法完成真实预览。匹配载荷需同时使用已验证的 TCR2 相机实现、新消费者与原厂 profile；Iris、时钟和控制台输入保留已通过的版本。后续匹配载荷的结果见第 91.2 节。
+
+### 91.2 匹配载荷的连续 RAW 与黑屏预览
+
+更换匹配的相机载荷后，先完成第 90.3 节的 Safari 测试，再安装 canonical Front V57 资源并精确重启 Camera／cameracaptured。五步安装全部正式退出 0，挂载 errno=0；设备继续运行。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 连续采集 | 同一 fd 完成三次 CAPTURE 与完整 read，单次 helper 正式退出 0，耗时 2,023 ms |
+| 每次采集状态 | state=3、error=0、flags=0x3f，sequence 为 1、2、3，time 递增 |
+| 文件与声明几何 | 每文件 4,735,704 字节，含 120 字节 `RWFRAME1` 头；2592×1458、stride=3248、RAW10、bayer=2、sensor=2 |
+| 完整读回 | 三文件各一次 Wi-Fi 上传，正式退出 0、HTTP 200；设备、接收回执和宿主整文件 SHA-256 全部一致，总字节 14,207,112 |
+| RAW 内容 | 三帧均很暗且有水平条纹，按声明 RAW10 解码无法辨认正常室内场景；用户确认前摄无遮挡 |
+| 原生前摄操作 | 切换正式退出 0，耗时 127 ms；`shot-14268.png` 与约十秒后的 `shot-14358.png` 显示前摄控件，预览均黑屏，两份 framebuffer RAW 摘要一致 |
+| 媒体库归属 | 载荷中的媒体库 UUID 已核对；本次新进程实际加载 UUID 及 pool、Start、首帧记录尚未取得 |
+
+三份原始 RAW 的空间分布经独立核对。每份包含 9,249 个完整的 512 字节块，每块前 256 字节有数据、后 256 字节全零，另有 96 字节尾段。按声明 stride 保留原始字节偏移，仅解码完整落在有数据区域中的 RAW10 像素组，三帧范围分别为 52–82、48–84、50–82，均值约 64.8；这些读数没有确认物理 CFA 或真实场景内容。
+
+实际运行内核的缓存维护为 `dc civac`、步长 64 字节及 `dsb sy`；读回复制每次完整复制 256 字节并同步增加源、目标地址。固定零区域的来源继续核对传感器模式、CSI 与 DMA 写入布局；完整传输和连续采集已经通过，真实图像及原生预览验收失败。
+
+原始 RAW、接收回执和独立复核位于本地 `codex-1113-camera-live-execution/`，集中记录为 `raw-review/three-raw-host-review.json` 和 `raw-review/root-periodic-zero-review.json`。操作及预览结果位于 `codex-1113-camera-native-preview/consumer-candidate/evidence/` 的 `capture3-summary.json` 和 `front-preview-root-visual-review.json`。
+
+### 91.3 原生打开成功后的输出配置
+
+同次开机的独立单帧 helper 完成 profile 安装、CAPTURE 与完整 read，正式退出 0，耗时 1,068 ms。同一 fd 返回 state=3、error=0、flags=0x3f，文件长度 4,735,704 字节；该文件保存在设备，未再次上传。用户确认拍摄环境为正常室内，前摄无遮挡。
+
+随后安装仅记录原生打开各阶段返回值的私有媒体库，并重启 Camera／cameracaptured。新进程实际加载 UUID `837C7A3A-B6D9-3F08-BAA3-BA9BA7201224`；观测默认关闭，关闭后产物与此前媒体库逐字相同。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| profile 文件 | open 成功，fstat 长度 6,440，read 一次返回 6,440；errno 均为 0 |
+| 原生设备打开 | 枚举及 worker 的 open 均成功；第一次 G_INFO 返回 0、flags=0x4c |
+| profile 安装 | write 返回完整 6,464 字节；第二次 G_INFO 返回 0、flags=0x6c；errno 均为 0 |
+| Front 请求 | 三个格式，RequestStreams 返回 0，stream 保持 WARMING=1 |
+| 首帧采集 | read 返回 4,735,704；state=3、error=0、flags=0x3f、sequence=1；RAW 几何与第 91.2 节相同 |
+| 原生输出 | 六个输出的 config、pool、handler 均为空，enabled=0；首帧后至归还 stream 未记录 Start 或输出配置入口 |
+| 停止 | stop 记录 136 帧，worker 最终 137 帧，交付图片为 0；测试 helper 全部结束 |
+| 实际预览 | 切 Front 正式退出 0，127 ms；等待约十秒后的 `shot-77653.png` 仍黑屏 |
+
+本次原生打开与 RAW 采集已经执行，预览输出尚未进入缓冲池和回调路径。继续核对原生格式发布、RequestStreams 后的输出配置与 Start 契约，RAW 固定零区域仍按第 91.2 节独立调查。
+
+观测文件一次完整取回 22,071 字节，包含此前进程和本次新进程的记录。本次按实际新 UUID 及 PID 选择记录，完整返回、输出字段和图像索引集中在本地 `codex-1113-camera-native-preview/native-open-runtime/run-1/device-final-review.json`，设备保持 iOS 运行。
+
+### 91.4 控制请求后的属性调用
+
+新增属性观测仅记录现有回调的返回值。默认关闭后的对象和签名库与第 91.3 节输入逐字相同；生产源码保持原文件。新 cameracaptured 实际加载 UUID `8B6A5E19-DB50-3CBF-9F27-B95A6F5E519F`，本次连续 100 条记录完整取回。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| Front 属性与格式 | SupportedProperties 有 53 项，所查九项的 mask=0x1ff；formats 有 3 项，返回 0 |
+| 控制请求 | RequestStreams 返回 0，stream 保持 WARMING；MultipleOutputSupportEnabled 设置返回 0 |
+| 属性返回 | 共 9 次观测调用，status 全部为 0 |
+| 后续读取 | 没有 Clock、ModuleInfo、FormatIndex 或三项输出属性回调 |
+| 原生输出 | 没有 configure、pool、prepare 或 Start 记录；首次 worker 最终 136 帧，交付图片为 0 |
+| 实际预览 | 切换前摄并等待约十秒后的 `shot-18741.png` 仍黑屏；helper 已结束，设备保持运行 |
+
+原版 `BWFigCaptureDevice -requestControlOfStreams:clientPriority:` 在 RequestStreams 成功后逐流设置 MultipleOutputSupportEnabled，并返回控制请求结果。必需的 Clock 读取位于另一个方法 `BWFigVideoCaptureDevice -_initWithCaptureDevice:…`，ModuleInfo 读取位于随后的视频 stream 初始化。
+
+当前记录已覆盖控制请求成功后的属性调用，视频包装器的必需读取尚未出现。下一步追踪 Generic Vendor 设备到视频包装器和 graph 初始化的调用关系。对应方法入口、读取位置与完整记录保存在本地 `codex-1113-camera-native-preview/output-setup-observation/` 和 `format-consumption-review/`。
+
+### 91.5 单帧 A5 预填的保留范围
+
+本次以已上机的 RAW-before-RESUME Iris 内核为基线，只把 Camera 提交前的预填调用由全零改为 `memset(..., 0xa5, ...)`。相机 profile、DMA 停止与同步、Iris 对象、辅助盘、启动卷和启动参数保持原输入；冻结链接输入和载荷差异经独立审核。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 单帧采集 | helper 正式退出 0，耗时 1,015 ms；STOPPED、error=0、flags=0x3f、completed=1 |
+| 完整读回 | 一次 POST，正式退出 0、HTTP 200；4,735,704 字节，设备、接收回执和宿主整文件 SHA-256 相同 |
+| RAW 归属 | `RWFRAME1` 的 sequence、time 与采集记录相同，保存前与宿主 RAW FNV 相同 |
+| 原零区域 | 9,249 个完整 512 字节块的后 256 字节全部保留 A5，共 2,367,744 字节 |
+| 其余区域 | 每块前 256 字节均有区别于预填值的数据，96 字节尾段也有数据 |
+| 声明 RAW10 相位 | 保留原行首和字节偏移，共 465,016 个完整组；像素范围 52–82、均值约 64.0 |
+
+原零区域没有显示采集内容替换预填值的结果。下一步核对 WM、CPAS 的 DMA 写入范围与字节使能，并独立确认 CPU 缓存可见性。前半段仍很暗，真实场景内容和曝光继续保留为待确认项。
+
+原始 RAW 留在本地 `codex-1113-camera-prefill-a5/run-1/raw-frames/`，单变量构建、执行返回和独立分析集中在 `codex-1113-camera-prefill-a5-on-iris/`，完整字节统计为 `root-raw-review.json`。本项测试进程已结束，设备保持 iOS 运行。

@@ -1,15 +1,15 @@
 # 多媒体待办
 
-本表集中相机、视频与音频的剩余工作，2026-11-12 整理。当前多媒体批次持续更新[验证结果](../analysis/2026-11-11-multimedia-validation.md)，实现状态、运行产物和轮次结果以该文为准。其他主题见[待办入口](README.md)。
+本表集中相机、视频与音频的剩余工作，2026-11-13 整理。当前多媒体批次持续更新[验证结果](../analysis/2026-11-11-multimedia-validation.md)，实现状态、运行产物和轮次结果以该文为准。其他主题见[待办入口](README.md)。
 
 ## 1. 当前验证
 
 | 编号 | 事项 | 当前边界 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
-| M1 | Iris 硬件解码出帧 | 进行中；生产配置的 90 帧短样本像素校验通过；270 帧长样本离线硬解完成，269 条回调匹配参考；AVPlayer 输入归还修复后仍三帧且两帧哈希不同，关闭 EIO 保留资源；逐帧文件报告宿主验证通过 | 核对帧间 FinishDelayedFrames 排空契约与首次失败 ioctl 状态，验连续出帧及像素；真机验证完整逐帧报告，显示、音频与其他格式另验 | [多媒体验证 §60、§67、§68](../analysis/2026-11-11-multimedia-validation.md#67-输入归还修复后仍只有三帧)、[视频分析](../analysis/2026-11-05-video-decode.md) |
-| M2 | 真实相机流与 DMA | 进行中；CCI 后摄与 GPIO I²C 前摄的正式两字节身份读取通过，生产提交 `84e3437e`；VFE 新地址及七项组合探针通过；11-13 人工确认相机没有闪退、隐私指示灯亮起，预览黑屏；`hw_dma=0` | 已完整导出原厂 V5 模式与寄存器；先核对前摄 mode 4 的 PHY／CSID lite980／VFE lite98x，再实现 streaming 与 DMA、验首尾行像素 | [多媒体验证 §59、§64](../analysis/2026-11-11-multimedia-validation.md#64-原厂-v5-模式与寄存器导出)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
+| M1 | Iris 硬件解码出帧 | 周期 H.264 的完整像素、时钟及会话关闭通过；非周期常规离线 270 帧匹配，首包后公共 Finish 复现 AVPlayer 首 GOP 的 27 帧像素错误及两帧缺失；RAW 发布先于 RESUME 的候选取得完整 270 回调，错误帧散列及缺帧与原测试一致；实际创建位于 videocodecd，服务端库 UUID 待确认；完整默认生产内核上机待复核 | 核对排空后的参考状态、缓冲所有权及实际服务端库，形成有原厂来源的修复；复核完整默认生产内核；继续验证 HEVC 等格式和边界尺寸，保持 DMA 停止、TLB 同步及 HELD 保护 | [首包 Finish 对照](../analysis/2026-11-11-multimedia-validation.md#905-首包-finish-的离线对照)、[恢复顺序结果](../analysis/2026-11-11-multimedia-validation.md#906-排空恢复的输出发布顺序)、[执行进程](../analysis/2026-11-11-multimedia-validation.md#907-原生解码的执行进程)、[完整验收](../analysis/2026-11-11-multimedia-validation.md#89-iris-完整像素与播放验收)、[生产时钟](../analysis/2026-11-11-multimedia-validation.md#86-时钟生产集成与默认构建) |
+| M2 | 真实相机流与 DMA | 连续三帧及完整 RAW 读回通过；原生打开、profile 安装与首帧成功；9 次观测属性均返回 0，控制请求后的必需 Clock、ModuleInfo 读取未出现，输出配置为空，预览仍黑；A5 单帧确认全部原零块后半段保留预填值；正常室内场景仍无法辨认，后摄 formats 为空 | 追踪 Generic Vendor 到视频包装器和 graph 初始化的原生返回，修复可见预览；核对 WM、CPAS 写入范围与 CPU 缓存可见性，再核对曝光及真实场景；保持停止与同步保护；后摄核对厂商 profile 和采集路径 | [属性调用](../analysis/2026-11-11-multimedia-validation.md#914-控制请求后的属性调用)、[A5 预填范围](../analysis/2026-11-11-multimedia-validation.md#915-单帧-a5-预填的保留范围)、[连续 RAW 与预览](../analysis/2026-11-11-multimedia-validation.md#912-匹配载荷的连续-raw-与黑屏预览)、[上游相机对照](../analysis/2026-11-12-upstream-review.md#21-相机-dma-提交顺序与像素布局) |
 | M3 | 扬声器实际出声 | 待验证；AudioQueue、PCM 完成及双功放 operating 已有结果 | 先核对功放配置与软件保护；缺少 DSP 扬声器保护的首次出声按原调研使用低增益并由人在场确认。冷启动播放已知音频，结合路由、PCM 完成和听音验收左右声道与音量 | [多媒体验证 §2](../analysis/2026-11-11-multimedia-validation.md)、[音频分析](../analysis/2026-11-02-audio-and-volume.md) |
-| M4 | 冷启动播放器与 Safari 视频 | 进行中；本地与 HTTP 零幅 AVPlayer 首次／重复播放结束且全局 DSP 排空；Safari 三帧正文持续空白，后续诊断取得 sandbox token 编码异常且无 IPv4，页面验收无效；请求 5 原生失败修复宿主验证通过 | 先观察 Wi-Fi 自动连接与已保存设置，再真机复核请求 5 修复并取得同页面绘制数据、验正文和媒体；补齐目标 DSP 帧归属和输出设备 ID 含义，软解与硬解分别标明 | [多媒体验证 §40、§61、§69](../analysis/2026-11-11-multimedia-validation.md#69-safari-异常与本轮网络缺口)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
+| M4 | 冷启动播放器与 Safari 视频 | 新开机首项媒体测试的正文可读，非周期静音 H.264 首播到达 ended，重播画面推进到第 269 帧及 18 秒末位置；周期样本已有 Iris 解码 270 帧的归属统计；音频待验，此前一次打开失败的原因仍未知 | 复核带音频的首次播放、容器 token 消费、目标 DSP 帧归属与输出设备 ID；新的打开失败需保留原生 NSError | [新开机播放](../analysis/2026-11-11-multimedia-validation.md#903-新开机的首项媒体测试)、[网页硬解播放](../analysis/2026-11-11-multimedia-validation.md#90-safari-正文与网页硬解播放)、[输出与时钟](../analysis/2026-11-11-multimedia-validation.md#89-iris-完整像素与播放验收)、[音频与组件诊断 §2、§3](../progress/2026-11-08-audio-widget-diagnostics.md) |
 
 NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查已经通过，原版 SLM 两条管线构造也已通过。这些结果作为后续回归基线。
 
