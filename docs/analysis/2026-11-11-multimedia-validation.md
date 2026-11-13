@@ -1801,6 +1801,24 @@ RAW 发布顺序修改没有改变本样本的首 GOP 故障。候选继续留�
 
 上述静态路径与已有 console 的进程归属一致。服务端实际库 UUID 尚未取得，诊断文件写入失败仍需结合其原生 open／write 返回值判断。定向反汇编、缓存代码摘要及本轮 console 行号保存在本地 `codex-1113-iris-drain-native/execution-owner/`。
 
+### 90.8 七次提交后的公共 Finish
+
+同次 A5 开机使用第 90.5 节的非周期样本，把中途公共 `FinishDelayedFrames` 移到第七次提交返回之后。其余输入、既有 marker 和真正 EOF 的等待路径保持。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 原生退出与耗时 | 0，4,167 ms |
+| 提交／接受／回调 | 各 270，sample 唯一且完整 |
+| 完整像素比较 | 270 帧的有效字节数与 FNV 全部匹配独立参考，PTS 偏移为 0 |
+| 错误与缺失 | 错误回调、空帧、缺帧和重复 sample 均为 0 |
+| 中途 Finish | 位于 submit 7 与 8 之间，返回 0；调用前后回调计数均为 7 |
+| EOF 与解码选择 | reader_status=2、limit_reached=0、markers=4；最终等待返回 0；hardware=1、software=0 |
+| 内核归属与关闭 | 实际 create／start 位于服务进程；slot 1、wire 1 的 close done 已保存 |
+
+调用中途 Finish 前，七个 callback 已全部完成。当前 VT 库在 pending 为空的首次循环直接返回 0，既有 console 也没有本次 DRAIN published／done 记录。本项覆盖七个 callback 完成后的公共 Finish、完整解码和 EOF 等待；实际中途 HFI DRAIN 的参考状态仍需验证，第 90.5 节的首包 Finish 故障继续调查。
+
+客户端已加载和当前可见的 VT UUID 均为 `0501E106-64E1-3397-B7D5-7C40659AB0AD`，实际服务端库 UUID 仍待确认。原始 stdout、独立逐帧比较与内核行号集中在本地 `codex-1113-iris-drain-native/finish-seven/`，对应记录为 `independent-runtime-review.json` 和 `device-run/console-iris-lines.json`。本项 helper 已结束，设备保持 iOS 运行。
+
 ## 91. 相机 Front 原生配置
 
 同次开机已经从桌面进入 Camera 并操作前摄切换，`shot-09687.png` 显示相机控件和隐私指示灯，预览仍为黑屏。原始截图和操作记录位于本地 `codex-1113-iris-order-result-resume/`。
@@ -1901,3 +1919,43 @@ RAW 发布顺序修改没有改变本样本的首 GOP 故障。候选继续留�
 原零区域没有显示采集内容替换预填值的结果。下一步核对 WM、CPAS 的 DMA 写入范围与字节使能，并独立确认 CPU 缓存可见性。前半段仍很暗，真实场景内容和曝光继续保留为待确认项。
 
 原始 RAW 留在本地 `codex-1113-camera-prefill-a5/run-1/raw-frames/`，单变量构建、执行返回和独立分析集中在 `codex-1113-camera-prefill-a5-on-iris/`，完整字节统计为 `root-raw-review.json`。本项测试进程已结束，设备保持 iOS 运行。
+
+### 91.6 Generic stream 到视频包装器的调用范围
+
+同次 A5 开机新增原调用观测，合并记录 Vendor 的 public／private copyStreams、原 CMBase RequestStreams 和 Video initializer。三处完整方法 ABI 匹配，32 字节 `audit_token_t` 与其他参数原样转发；默认关闭后对象和签名库逐字复现原输入，生产源码保持原文件。
+
+本次新 cameracaptured 实际加载 UUID `09B17B4B-576C-30F5-9C37-BD1ABFA8E038`。唯一一次取回的阶段文件为 40,735 字节，新 PID 的 record 0～134 连续完整。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| Back Generic 请求 | position=1、deviceType=15；public／private 原数组均为空，error=-12780 |
+| Front Generic 请求 | position=2、deviceType=15；public／private 返回同一原数组，count=1、error=0 |
+| Front 对象关系 | BWFigCaptureDevice、BWFigCaptureStream 的原 CMBase 指针有效，invalidated=0；port=`PortTypeFront` |
+| 原控制请求 | RequestStreams 的原数组含同一 CMBase stream，status=0；后续 MultipleOutputSupportEnabled 设置返回 0 |
+| 视频包装器 | ABI 观测已安装，没有实际 Video initializer enter／returned 记录 |
+| 采集与输出 | 首帧完整 read 返回 4,735,704，STOPPED、error=0、flags=0x3f；六路输出的 config、pool、handler 均为空，enabled=0 |
+| 停止 | stop 记录 140 帧，worker 最终 141 帧，交付图片为 0 |
+| 实际预览 | 选择 Front 正式退出 0，125 ms；约十秒末截图仍黑屏 |
+
+实际 public 调用栈来自 `FigCaptureSessionObservatory` 初始化，并经过 CSStreamOpener 的请求入口。该入口构造 Generic stream 支持信息，Video initializer 位于后续 Source 激活路径。本项确认初始化中的 backing 枚举与 Front Generic 请求成功；Source 属性转换、激活函数是否被实际调用及其原生返回继续核对。
+
+原调用、调用栈和独立复核集中在本地 `codex-1113-camera-native-preview/generic-video-observation/run-1/`，对应记录为 `camera-consumer-observation.log` 和 `root-runtime-review.json`。返回桌面与测试进程清理成功，单次卸载新增 union 返回 errno 16，相关挂载和源文件保留；设备继续运行。
+
+### 91.7 RAW 复制前的物理页缓存同步
+
+保持第 91.5 节的 A5 预填与原采集参数，在 `cam_native_read` 原 RAW `uiomove` 前逐页调用 `pmap_sync_page_attributes_phys`。原生函数通过物理地址映射执行缓存清理与失效；复制期间相机缓冲仍有线且持有 `cam_lock`，原 STOPPED、DMA 停止与同步要求保持。
+
+更换候选后自然等待至少 45 秒，只采集一帧并发送一次 RAW。用户确认前摄无遮挡、处于正常室内。
+
+| 观察项 | 本次保存结果 |
+|---|---|
+| 单帧采集 | 原生退出 0，834 ms；completed=1、same_fd=1 |
+| 停止与完整性 | state=3、error=0、flags=0x3f；RAW 文件为 4,735,704 字节 |
+| 传输与对应关系 | 单次 POST 返回 200；设备、接收回执与独立主机 SHA-256 相同；RAW FNV、头部序列与时间匹配采集输出 |
+| 完整 512 字节块 | 共 9,249 块，每块后 256 字节仍全部为 A5，与第 91.5 节基线逐字相同 |
+| 前半段与尾段 | 每块前 256 字节均与基线不同；96 字节尾段有数据 |
+| 原偏移 RAW10 统计 | 465,016 个完整组、1,860,064 个像素，范围 51～84，均值约 63.985；统计仅覆盖原前半段内的完整组 |
+
+新增的物理页缓存同步没有改变 A5 保留范围。DMA 写入范围、Stage-2 属性与系统缓存仍需核对，真实场景和可见预览继续保留在待办。
+
+原始 RAW、唯一回执、采集与发送返回位于本地 `codex-1113-camera-cpu-read-nc/run-1/`；独立比较为同目录上一级的 `root-raw-review.json`。本项六个宿主 helper 组已结束，设备保持 iOS 运行。候选继续留在本地诊断目录。

@@ -2,7 +2,7 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 155 个参数。
+共 158 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
@@ -87,11 +87,13 @@
 | `haptic_amp` | `bsd/dev/annibale/annibale_haptic.c` |
 | `hv_haptic` | `bsd/dev/annibale/annibale_haptic.c` |
 | `hv_wdt_pet` | `osfmk/arm64/loader_return.c` |
+| `iris_hw` | `bsd/dev/annibale/annibale_iris_hw.c` |
 | `loader_return_after` | `osfmk/arm64/loader_return.c` |
 | `lowdma` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
 | `lowdma_mb` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
 | `machine_name` | `iokit/Kernel/GenericARMPE.cpp` |
 | `metal` | `iokit/Kernel/MiniFramebufferUserClient.inc` |
+| `metal_native` | `iokit/Kernel/MiniFramebufferUserClient.inc` |
 | `mic` | `bsd/dev/annibale/annibale_mic.c` |
 | `modem` | `bsd/dev/annibale/annibale_modem.c` |
 | `net_names` | `bsd/dev/annibale/annibale_net.c` |
@@ -117,6 +119,7 @@
 | `prox_near` | `bsd/dev/annibale/annibale_sensors.c` |
 | `qrtr_answer` | `bsd/dev/annibale/annibale_qrtr.c` |
 | `rd` | `bsd/kern/bsd_init.c`、`iokit/bsddev/IOKitBSDInit.cpp` |
+| `reach_sync` | `bsd/dev/annibale/annibale_audio_reach.c` |
 | `rec_sound` | `bsd/dev/annibale/annibale_audio.c` |
 | `rec_sound_fed` | `bsd/dev/annibale/annibale_audio.c` |
 | `rec_sound_mic` | `bsd/dev/annibale/annibale_audio.c` |
