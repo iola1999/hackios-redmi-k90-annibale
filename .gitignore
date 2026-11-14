@@ -4,10 +4,19 @@ out/
 .DS_Store
 .agents/
 __pycache__/
+.pytest_cache/
 *.log
 logs
 logs-fetch.log
 tools/qemu-efi/*.fd
+
+# Agent 协作过程生成的本地测试脚手架与报告（不入库）
+/PROJECT.md
+/TEST_INFRA.md
+/TEST_READY.md
+/report.json
+/report.xml
+/tests/
 
 # 本地凭据与环境变量配置
 .env
