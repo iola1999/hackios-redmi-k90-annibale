@@ -2,7 +2,7 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 158 个参数。
+共 159 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
@@ -43,6 +43,7 @@
 | `apfs_root_c` | `bsd/miscfs/apfs/apfs_vfsops.c` |
 | `apfs_root_v` | `bsd/miscfs/apfs/apfs_vfsops.c` |
 | `apfs_round` | `bsd/miscfs/apfs/apfs_vfsops.c` |
+| `apfs_rw` | `bsd/miscfs/apfs/apfs_vfsops.c` |
 | `apfs_skip` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_sparse` | `bsd/dev/annibale/annibale_sparse.c` |
 | `apfs_store_len` | `bsd/dev/annibale/annibale_apfs_check_write.c` |

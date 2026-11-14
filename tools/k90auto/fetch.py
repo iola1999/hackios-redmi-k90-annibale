@@ -5,8 +5,8 @@ usage: tools/k90auto/fetch.py ROUND_DIR DEVICE_PATH OUT
 
 Each "cat PATH OFFSET" answers as many 48-byte lines as fit in one command's output and says where
 the next one starts ("cat end SIZE next AT"); this asks again from there until the whole file is
-read. A line the console dropped shows up as a hole in the offsets, and the fetch stops rather than
-write a file with a gap in it. Exit status: 0, or 1 when the file could not be read whole.
+read. OUT is written only after all offset, Base64, footer and size checks pass. A failed read
+preserves its verified prefix in OUT.partial. Exit status: 0 for a complete file, 1 for a failed read.
 """
 import base64
 import re
@@ -15,6 +15,17 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+
+
+def incomplete(out, data):
+    partial = out.with_name(out.name + ".partial")
+    try:
+        partial.write_bytes(data)
+    except OSError as error:
+        print(f"fetch: incomplete: could not write {partial}: {error}", file=sys.stderr)
+    else:
+        print(f"fetch: incomplete: saved {len(data)} verified bytes to {partial}", file=sys.stderr)
+    return 1
 
 
 def main():
@@ -31,7 +42,7 @@ def main():
             print(f"fetch: rsh failed at offset {before} with exit {result.returncode}", file=sys.stderr)
             print(result.stdout, end="", file=sys.stderr)
             print(result.stderr, end="", file=sys.stderr)
-            return 1
+            return incomplete(out, data)
         answer = result.stdout
         size = after = None
         for line in answer.splitlines():
@@ -39,27 +50,28 @@ def main():
             if m:
                 if int(m.group(1)) != len(data):
                     print(f"fetch: expected offset {len(data)}, got {m.group(1)}: the console dropped a line")
-                    return 1
+                    return incomplete(out, data)
                 try:
                     data += base64.b64decode(m.group(2), validate=True)
                 except ValueError as error:
                     print(f"fetch: invalid base64 at offset {len(data)}: {error}")
-                    return 1
+                    return incomplete(out, data)
                 continue
             m = re.match(r"\s*cat end (\d+) next (\d+)$", line)
             if m:
                 size, after = int(m.group(1)), int(m.group(2))
+        # Only earlier responses have passed the footer checks.
         if size is None or after != len(data):
             print(f"fetch: no end line for offset {len(data)}:\n{answer[-400:]}")
-            return 1
+            return incomplete(out, data[:before])
         if len(data) > size:
             print(f"fetch: received {len(data)} bytes, exceeding declared file size {size}")
-            return 1
+            return incomplete(out, data[:before])
         if len(data) == size:
             break
         if len(data) == before:
             print(f"fetch: no progress at offset {before}, declared file size {size}")
-            return 1
+            return incomplete(out, data)
     out.write_bytes(bytes(data))
     print(f"fetch: {path}: {len(data)} bytes to {out}")
     return 0

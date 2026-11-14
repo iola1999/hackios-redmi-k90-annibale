@@ -10,7 +10,7 @@
 | S2 | 异常复位与写缓存一致性 | 元数据双槽恢复已有实现；数据页原位覆盖、立即复用和设备写缓存仍需分析 | 完整 VFS 场景覆盖回收前 fsync 失败、备用旧槽恢复；核对 F_FULLFSYNC、WRITE FUA、SYNCHRONIZE CACHE 与 UFS 缓存；明确正常重启与异常复位的保证范围 | [系统契约 §3](../analysis/2026-11-12-system-contracts.md)、[上游对照 §3.3](../analysis/2026-11-12-upstream-review.md#33-ufs-完成等待与缓存同步) |
 | S4 | 原生应用卸载 | 重复删除逻辑已移除，宿主及目标库检查通过，真机待验 | 用可重装测试 App 验证资格检查、数据容器清理、错误回调、卸载后重装 | [系统批次 S4](../plan/2026-11-12-system-followup.md)、[注入钩子分析](../analysis/2026-11-09-injection-hooks.md) |
 | S5 | 后台应用切回前台 | 固定诊断轮的设置冷启动已显示首页，进程与 scene 对照成功；历史后台复用仍待复现 | 确认后台实例及启动来源，再同轮对照复用、重新启动和多任务卡片 | [执行计划](../plan/2026-11-12-app-foreground.md)、[核查记录](../analysis/2026-11-12-app-foreground.md) |
-| S9 | 持久化同步的 CPU 开销 | CRC 已完成三轮对照与部署；打包重复清零已减少，31,890 次字节对照和目标编译通过；11-13 诊断确认元数据槽位容量不足，并记录到 14.258 秒的 `rm_lock` 等待；零尾扫描候选仍返回 ENOSPC，完整所需容量尚未取得 | 核对容量组成、锁持有者与重复同步，保留双槽原子性和已有数据；测量打包、UFS 完成及交互帧时，宿主数据不用于推断设备收益 | [渲染核查 §5](../analysis/2026-11-12-rendering-runtime.md#5-元数据打包的重复写入)、[槽位与等待](../analysis/2026-11-11-multimedia-validation.md#81-ramfs-元数据槽位与同步等待)、[零尾候选](../analysis/2026-11-11-multimedia-validation.md#84-ramfs-零尾候选与-safari-读回失败) |
+| S9 | 持久化同步的 CPU 开销 | 已提交检查点接近槽位上限，AIR 缓存占用最多，生产 C 复算完成；容量失败状态修复已通过宿主故障、并发检查及完整内核链接，真机待验 | 核对缓存增长与运行态待写容量，对照未变化请求与真实变化后的同步；保留双槽原子性和失败返回；验收设备锁等待、固定交互长帧及退出读回 | [性能核查 §2](../analysis/2026-11-13-performance-log-review.md#2-s9容量失败与重复同步)、[执行安排](../plan/2026-11-12-system-followup.md#5-性能分析与验证安排)、[渲染核查 §5](../analysis/2026-11-12-rendering-runtime.md#5-元数据打包的重复写入)、[零尾候选](../analysis/2026-11-11-multimedia-validation.md#84-ramfs-零尾候选与-safari-读回失败) |
 
 S3 温度上报列在[外设与电源](platform.md)，S6／S7 列在[图形与显示](graphics.md)，S8 列在[外设与电源](platform.md)。当前批次已有负责人，接续前先核对其最新结果与修改范围。
 

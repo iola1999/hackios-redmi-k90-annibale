@@ -33,6 +33,7 @@ class FetchTests(unittest.TestCase):
     def invoke(self, replies, previous=None):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "received.bin"
+            partial = target.with_name(target.name + ".partial")
             if previous is not None:
                 target.write_bytes(previous)
             output, errors = io.StringIO(), io.StringIO()
@@ -41,15 +42,18 @@ class FetchTests(unittest.TestCase):
                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
                 status = fetch.main()
             return status, target.read_bytes() if target.exists() else None, \
+                partial.read_bytes() if partial.exists() else None, \
                 output.getvalue() + errors.getvalue(), run.call_args_list
 
     def assert_rejected(self, response, diagnostic):
         for previous in (None, b"existing artifact"):
             with self.subTest(previous=previous):
-                status, data, output, calls = self.invoke([response], previous)
+                status, data, partial, output, calls = self.invoke([response], previous)
                 self.assertEqual(status, 1)
                 self.assertEqual(data, previous)
+                self.assertEqual(partial, b"")
                 self.assertIn(diagnostic, output)
+                self.assertIn("incomplete", output)
                 self.assertEqual(len(calls), 1)
 
     def test_command_failure_preserves_diagnostics_and_target(self):
@@ -76,14 +80,76 @@ class FetchTests(unittest.TestCase):
     def test_missing_chunk_is_rejected(self):
         self.assert_rejected(reply("cat 3 YWJj\ncat end 6 next 6\n"), "expected offset 0")
 
+    def test_missing_chunk_preserves_contiguous_prefix(self):
+        for previous in (None, b"existing artifact"):
+            with self.subTest(previous=previous):
+                status, data, partial, output, calls = self.invoke([
+                    reply("cat 0 YWJj\ncat end 12 next 3\n"),
+                    reply("cat 3 ZGVm\ncat 9 amts\ncat end 12 next 12\n")], previous)
+                self.assertEqual(status, 1)
+                self.assertEqual(data, previous)
+                self.assertEqual(partial, b"abcdef")
+                self.assertIn("expected offset 6, got 9", output)
+                self.assertIn("incomplete: saved 6 verified bytes", output)
+                self.assertIn("received.bin.partial", output)
+                self.assertEqual([c.args[0][-1] for c in calls], ["0", "3"])
+
+    def test_invalid_base64_preserves_contiguous_prefix(self):
+        for previous in (None, b"existing artifact"):
+            with self.subTest(previous=previous):
+                status, data, partial, output, calls = self.invoke([
+                    reply("cat 0 YWJj\ncat end 9 next 3\n"),
+                    reply("cat 3 ZGVm\ncat 6 !!!!\ncat end 9 next 9\n")], previous)
+                self.assertEqual(status, 1)
+                self.assertEqual(data, previous)
+                self.assertEqual(partial, b"abcdef")
+                self.assertIn("invalid base64 at offset 6", output)
+                self.assertIn("incomplete: saved 6 verified bytes", output)
+                self.assertEqual([c.args[0][-1] for c in calls], ["0", "3"])
+
     def test_failure_after_progress_keeps_existing_target(self):
-        status, data, output, calls = self.invoke([
-            reply("cat 0 YWJj\ncat end 6 next 3\n"),
-            reply("", 2, "rsh: loader refused command\n")], b"existing artifact")
+        for previous in (None, b"existing artifact"):
+            with self.subTest(previous=previous):
+                status, data, partial, output, calls = self.invoke([
+                    reply("cat 0 YWJj\ncat end 6 next 3\n"),
+                    reply("cat 3 ZGVm\ncat end 6 next 6\n", 2,
+                          "rsh: loader refused command\n")], previous)
+                self.assertEqual(status, 1)
+                self.assertEqual(data, previous)
+                self.assertEqual(partial, b"abc")
+                self.assertIn("rsh: loader refused command", output)
+                self.assertIn("incomplete: saved 3 verified bytes", output)
+                self.assertEqual([c.args[0][-1] for c in calls], ["0", "3"])
+
+    def test_invalid_footer_preserves_only_completed_responses(self):
+        responses = (
+            ("cat 3 ZGVm\n", "no end line"),
+            ("cat 3 ZGVm\ncat end 9 next 7\n", "no end line"),
+            ("cat 3 ZGVm\ncat end 5 next 6\n", "size 5"),
+            ("cat end 9 next 3\n", "no progress"),
+        )
+        for body, diagnostic in responses:
+            for previous in (None, b"existing artifact"):
+                with self.subTest(body=body, previous=previous):
+                    status, data, partial, output, calls = self.invoke([
+                        reply("cat 0 YWJj\ncat end 9 next 3\n"), reply(body)], previous)
+                    self.assertEqual(status, 1)
+                    self.assertEqual(data, previous)
+                    self.assertEqual(partial, b"abc")
+                    self.assertIn(diagnostic, output)
+                    self.assertIn("incomplete: saved 3 verified bytes", output)
+                    self.assertEqual([c.args[0][-1] for c in calls], ["0", "3"])
+
+    def test_partial_write_failure_keeps_original_diagnostic_and_status(self):
+        with patch.object(fetch.Path, "write_bytes", side_effect=OSError("write denied")):
+            status, data, partial, output, calls = self.invoke([reply("cat 3 YWJj\n")])
         self.assertEqual(status, 1)
-        self.assertEqual(data, b"existing artifact")
-        self.assertIn("rsh: loader refused command", output)
-        self.assertEqual([c.args[0][-1] for c in calls], ["0", "3"])
+        self.assertIsNone(data)
+        self.assertIsNone(partial)
+        self.assertIn("expected offset 0", output)
+        self.assertIn("incomplete: could not write", output)
+        self.assertIn("write denied", output)
+        self.assertEqual(len(calls), 1)
 
     def test_successful_file_uses_contiguous_chunk_offsets(self):
         payload = bytes(range(100))
@@ -92,15 +158,19 @@ class FetchTests(unittest.TestCase):
             chunk = payload[offset:offset + 48]
             encoded = base64.b64encode(chunk).decode("ascii")
             replies.append(reply(f"cat {offset} {encoded}\ncat end 100 next {offset + len(chunk)}\n"))
-        status, data, _, calls = self.invoke(replies, b"older file")
+        status, data, partial, output, calls = self.invoke(replies, b"older file")
         self.assertEqual(status, 0)
         self.assertEqual(data, payload)
+        self.assertIsNone(partial)
+        self.assertNotIn("incomplete", output)
         self.assertEqual([c.args[0][-1] for c in calls], ["0", "48", "96"])
 
     def test_empty_file_is_valid(self):
-        status, data, _, calls = self.invoke([reply("cat end 0 next 0\n")])
+        status, data, partial, output, calls = self.invoke([reply("cat end 0 next 0\n")])
         self.assertEqual(status, 0)
         self.assertEqual(data, b"")
+        self.assertIsNone(partial)
+        self.assertNotIn("incomplete", output)
         self.assertEqual(len(calls), 1)
 
 
