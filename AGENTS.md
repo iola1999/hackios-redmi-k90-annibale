@@ -96,4 +96,5 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
   - 超过 50 MB 的构建日志在这一批结束后用 `zstd -19 --rm` 压缩。
   - `/tmp` 下挂载的镜像用完即用 `diskutil eject` 卸载；镜像文件删除后，挂载期间仍占用磁盘空间。
   - 每次清理的删除、压缩和克隆清单记录在 `out/cleanup-<日期>/`。
+- 内核构建与日志重定向约束：XNU 26 内核构建（`hackios-xnu-kernel/xnu26/build-macos.sh`）默认在 `gmake` 参数中固化 `CWARNFLAGS_ADD="-Wno-reserved-identifier -Wno-reserved-macro-identifier" CXXWARNFLAGS_ADD="-Wno-reserved-identifier -Wno-reserved-macro-identifier"` 屏蔽保留标识符告警；执行构建时必须将标准输出与标准错误全量重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止未重定向输出倾入终端或工具管道造成缓冲区反压阻塞编译进程。
 - 项目状态与已完成里程碑集中在[进度表](docs/plan/2026-10-23-tracking.md)，选任务与未完成事项集中在[待办目录](docs/backlog/README.md)。进度表保持简练，待办按主题记录下一步与验收，技术分析和实测只在专题文档展开。上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)。

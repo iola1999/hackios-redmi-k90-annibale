@@ -19,6 +19,7 @@
 | 批次 | 当前安排与结果 |
 |---|---|
 | 系统可靠性与原生契约 | [系统后续事项](../plan/2026-11-12-system-followup.md)、[系统契约核查](../analysis/2026-11-12-system-contracts.md) |
+| 全仓过渡方案收敛与性能对齐 | [性能与原生硬件对齐改造方案](../plan/2026-11-14-performance-and-native-alignment-plan.md)、[全工作区瓶颈源码审计](../analysis/2026-11-14-temporary-architecture-audit.md) |
 | 相机、视频与音频 | [多媒体设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md) |
 | 上游参考 | [11-12 上游与同类项目对照](../analysis/2026-11-12-upstream-review.md)，包含 HakiOS、UniXNU、Pagani、Mesa 与 Mu-Silicium |
 

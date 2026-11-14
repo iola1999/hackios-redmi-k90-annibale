@@ -60,14 +60,13 @@ hackios-xnu-userland/ios26/fetch.sh
 
 按[内核仓库说明](../hackios-xnu-kernel/README.md) §2 构建。执行 `xnu26/build-macos.sh` 之前必须先运行 `hackios-xnu-kernel/tools/mk-ath12k.sh`，生成 `hackios-xnu-kernel/xnu-deps/build/ath12k/out/ath12k.o`；`build-macos.sh` 只在该文件存在时把 WCN7850 的 `ath12k` 驱动与 FreeBSD LinuxKPI 层链接进内核，缺少时编出的内核没有 Wi-Fi。
 
-全量构建前按[协作手册 §3](plan/debugging-and-collaboration.md#3-沿实际使用的数据追踪源码与产物)检查保留标识符警告选项。在工作区根目录执行下面的命令，源码目录由 `env-macos.sh` 按当前配置选择：
+`build-macos.sh` 已默认在 `gmake` 参数中固化 `CWARNFLAGS_ADD` 与 `CXXWARNFLAGS_ADD` 屏蔽 `-Wreserved-identifier` 与 `-Wreserved-macro-identifier` 警告。执行全量或增量构建时，建议将标准输出与标准错误重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止管道缓冲反压降低编译吞吐。在工作区根目录执行命令如下：
 
 ```sh
 bash <<'BASH'
 source hackios-xnu-kernel/xnu26/env-macos.sh
-XNU26_SRC="$(cd "$XNU26_SRC" && pwd)" || exit
-bash "$XNU26_ROOT/xnu26/build-macos.sh" \
-  "RC_NONARCH_CFLAGS=-ffile-prefix-map=$XNU26_SRC/= -Wno-reserved-identifier -Wno-reserved-macro-identifier"
+mkdir -p "$XNU26_ROOT/out"
+bash "$XNU26_ROOT/xnu26/build-macos.sh" > "$XNU26_ROOT/out/xnu26-build.log" 2>&1
 BASH
 ```
 

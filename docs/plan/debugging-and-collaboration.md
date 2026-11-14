@@ -51,8 +51,7 @@
   - Xcode clang 21 在 `-Weverything` 下会对内核头文件双下划线宏输出数百 MB 的 `-Wreserved-identifier` 诊断，拖慢全量构建。
 - `xnu26/build-macos.sh` 已自动剔除外层 `-j` 并将 `DOCONFDEPS` 与生成 `Makefile` 的时间戳钳制在 `SETUP/config` 与存量 `.o` 之间。
 - `xnu26/xcrun` 只在直接执行 `clang`／`clang++` 的分支追加警告选项；`MakeInc.cmd` 用 `-find clang`／`-find clang++` 取得路径后直接运行编译器，该分支不生效。
-- 全量构建前必须核对实际 C／C++ 编译参数，确认包含 `-Wno-reserved-identifier -Wno-reserved-macro-identifier`。构建已大量输出上述重复警告时，先停止构建，关闭这两类已知警告后继续；其他诊断要求保持不变。
-- 通过 `RC_NONARCH_CFLAGS` 显式传入这两个选项，覆盖该变量必须保留清除产物中本机源码路径的 `-ffile-prefix-map`。命令见[开发指南 §5](../development.md#5-构建内核)。
+- `xnu26/build-macos.sh` 已在 `gmake` 调用中追加 `CWARNFLAGS_ADD` 与 `CXXWARNFLAGS_ADD` 默认屏蔽 `-Wreserved-identifier` 与 `-Wreserved-macro-identifier` 警告。执行构建时需将标准输出与标准错误全量重定向到磁盘日志文件，消除管道缓冲区反压对编译进程的阻塞。命令见[开发指南 §5](../development.md#5-构建内核)。
 - 容器内执行后检查文件和 diff 再构建：heredoc 经 stdin 传入要 `docker exec -i`，漏掉时曾退出 0 而文件未改。复制、打包、上传按依赖检查前一步结果；跨环境复制根目录保留目标系统的符号链接语义。
 - 构建命令见[内核构建说明](../analysis/kernel-build-linux.md)，arm64e 用户态产物见 [arm64e 构建路径](../analysis/2026-10-28-arm64e-userland-build-path.md)。
 

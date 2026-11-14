@@ -7,6 +7,7 @@
 - [进度表](plan/2026-10-23-tracking.md)：项目状态与已完成里程碑。
 - [待办与候选](backlog/README.md)：按系统、图形、多媒体、外设、工程分类选择任务。
 - [系统后续事项](plan/2026-11-12-system-followup.md)：当前系统批次的执行安排。
+- [性能与原生硬件对齐改造方案（2026-11-14）](plan/2026-11-14-performance-and-native-alignment-plan.md)：全仓 18 项过渡方案与性能瓶颈的具体架构设计和分批切分。
 - [架构总览](plan/architecture.md)：代码分层、接口与职责。
 - [路线图](plan/2026-10-26-roadmap.md)：系统与图形路线选择、约束和验收目标。
 - [11-05 用户确认的方向](plan/2026-11-05-next-work.md)：原始要求与后续结果入口。
@@ -33,6 +34,7 @@
 - [26 线 arm64e 用户态产物的宿主构建路径（2026-10-28）](analysis/2026-10-28-arm64e-userland-build-path.md)。
 - [方案架构审查与全面建议（2026-11-08）](analysis/2026-11-08-architecture-review.md)。
 - [用户态与驱动隐式状态机收敛及超长文件拆分（2026-11-09）](analysis/2026-11-09-implicit-state-machines.md)。
+- [全工作区早期过渡方案与性能瓶颈源码审计（2026-11-14）](analysis/2026-11-14-temporary-architecture-audit.md)。
 - [annibale UEFI 与 loader 镜像构建](analysis/annibale-uefi-build.md)。
 - [内核启动参数目录](analysis/boot-args.md)。
 - [xnu-8796 内核的 Linux 容器构建](analysis/kernel-build-linux.md)。
