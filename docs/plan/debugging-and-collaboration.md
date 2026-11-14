@@ -46,7 +46,7 @@
 - 接口是否存在按编译或运行结果、代码实际用法、头文件的顺序采信，并写明是哪棵树：`xnu12377` 的 `ctl_bind` 在 `<sys/kern_control_private.h>` 的 `KERNEL_PRIVATE` 段里。
 - 容器不可用时，从构建树 `BUILD/obj/DEVELOPMENT_ARM64_BCM2837/compile_commands.json` 取同类文件的 `arguments` 编单个文件，再用 `nm -u` 对照 `mach.development.bcm2837.unstripped`，能确认编译与符号可见性。
 - `xnu26/build-macos.sh` 内核构建有以下约束：
-  - `*/conf/Makefile.template` 含 `${OBJS}: $(firstword $(MAKEFILE_LIST))`，修改 `*/conf/files` 触发 `doconf` 重写 `Makefile` 后会让该子系统全部 `.o`／`.cpo` 全量重编，把 `Makefile` 时间戳改回早于 `BUILD/obj/SETUP/config` 又会让 `gmake` 重跑所有子系统的 `doconf`。
+  - `*/conf/Makefile.template` 含 `${OBJS}: $(firstword $(MAKEFILE_LIST))`，修改 `*/conf/files` 触发 `doconf` 重写 `Makefile` 后会让该子系统全部 `.o`／`.cpo` 全量重新编译，把 `Makefile` 时间戳改回早于 `BUILD/obj/SETUP/config` 又会让 `gmake` 重跑所有子系统的 `doconf`。
   - `makedefs/MakeInc.cmd` 已对子 make 传 `MAKEJOBS=--jobs=$(hw.ncpu)`，外层再传 `-jN` 会重置 jobserver 并成倍派生编译进程。
   - Xcode clang 21 在 `-Weverything` 下会对内核头文件双下划线宏输出数百 MB 的 `-Wreserved-identifier` 诊断，拖慢全量构建。
 - `xnu26/build-macos.sh` 已自动剔除外层 `-j` 并将 `DOCONFDEPS` 与生成 `Makefile` 的时间戳钳制在 `SETUP/config` 与存量 `.o` 之间。
@@ -66,7 +66,7 @@
 - device 成员只执行设备命令、固定手势和日志采集，静态分析、反编译与数据解读由 lead 交给其他成员。连续测试使用一个无人值守入口串起候选切换和收尾，避免 device 成员在分析期间让设备空闲。
 - 周期采样配合区间峰值和状态转换计数；频率请求、协议应答、软件档位和实际时钟分别报告。统计脚本先用已知日志核对字段与单位，零个异常只在有效样本存在时有意义。
 - 地址分析用本轮实际运行的二进制。短暂故障在运行期间保存快照并记主机单调时间，一次请求超时只说明该请求未在限时内完成。`sort -u` 后是文本序，带时间语义的序列按 `tl:` 等锚点重建时间轴。
-- 一行日志先读产生它的代码再推断含义：`NOT_RUNNING hung-held` 只在 `getvar result` 不为 `running` 时打印，`hung-held` 是 loader 那一刻的应答，据字面推断「起轮时设备停在 hung-held」是错的。转述别人的结论时标明推断部分。
+- 一行日志先读产生它的代码再推断含义：`NOT_RUNNING hung-held` 只在 `getvar result` 不为 `running` 时打印，`hung-held` 是 loader 那一刻的应答，据字面推断「启动测试轮时设备停在 hung-held」是错的。转述别人的结论时标明推断部分。
 - 枚举类命令输出不截断：`adb devices | tail -2` 会漏掉第二台设备。搜索遵守 `AGENTS.md` §6 的检索约束，实测见[运行规则 §4](k90auto-run-protocol.md#4-轮次目录与固定收尾)。
 
 ## 5. 用状态和资源归属理解设备行为
@@ -88,9 +88,9 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 ### 缓冲和镜像都有生命周期
 
 - `oem log`、`oem screenshot` 准备数据，`get_staged` 读最近一次准备的内容，要成对、串行执行。内核正常返回后先取 `result` 再读已合并日志，额外调 `oem log` 会重新生成内容。
-- 启动卷 `flashboot.apfs` 作为 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 作为 `md1` 挂到 `/annibale`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径已通过真机临时启动、写入 `boot_a` 和正常重启验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
+- 启动卷 `flashboot.apfs` 用作 `md0`，本轮构建为 4 MiB；辅助盘 `root.apfs` 用作 `md1` 挂到 `/annibale`。`init` 从 UFS `darwin` 挂载系统卷并切根。自动流程依次上传 payload、执行 `oem ramdisk`、上传启动卷，再核对长度与内存窗口。该路径已通过真机临时启动、写入 `boot_a` 和正常重启验证，见[根文件系统说明](../analysis/rootfs-strategy.md)。
 - 主机超时后设备端 USB DMA 请求可能还没结束，只有匹配的终止通知才能解除缓冲归属，见 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)。
-- 电源票值先分清是本方请求、聚合状态还是实际供给（ARC 读数只描述 DRV2 的请求）；读完只清理本轮新增的控制位。
+- 电源投票值先分清是本方请求、聚合状态还是实际供给（ARC 读数只描述 DRV2 的请求）；读完只清理本轮新增的控制位。
 
 ### 恢复能力也是完成条件
 
@@ -131,7 +131,7 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 - 用户质疑某个改动能否解决问题，先测量它对应的执行阶段，再解释收益范围。
 - 用户暂时不能操作设备，优先跑能自行结束、保存结果并返回已知状态的一轮；光亮、震感和真实按压仍要人观察。
 
-用户定下的长期规则：
+用户定下以下五项长期规则。
 
 - 性能按日用标准：验收口径是「不受热限制时 ≥60 fps」，附从冷机开始维持满频的时长，目标接近同一台手机上 Android 的表现。允许推翻现方案、大幅重构；先有可复现的持续重绘测量再优化。
 - 改系统镜像是最后手段：先改本项目的 payload（`package.py` 的 job 清单、`JOB_USERS`、`var.skel`、shim 与 AIR 库），再改内核与启动参数，最后才改 iOS 系统镜像。改镜像前在 `docs/` 写下改动清单（路径、原因、有无原生替代、去掉后能否正常启动），一次只改一处。
@@ -139,11 +139,11 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 - 温度安全优先：测试不触发九十多度的温度，宁可功能验证不完整也不继续升温。
 - 调频策略由操作系统决定；采用自建策略前说明已检查的路径和原因，并保留替换条件。
 
-会话与任务之间：
+会话与任务之间按以下四项要求协作。
 
 - 同一设备只由一个任务发命令；共享构建树、overlay 和文档分别确认修改归属。长队列固定运行脚本及分析器版本，新脚本在独立副本准备。
 - 派出子任务时写清实际输入、最后通过的步骤、首个失败动作、允许改的文件和交付要求；交付包含源码位置、实际修改、验证范围和未确认项。整合时统一选定文件版本、构建和上机，再查跨模块的单位、布局和生命周期。
-- 历史记录与当前脚本冲突，先核对时间和实际行为。前提被推翻时，建立在它上面的建议一并撤回，并逐处点名已按它写下的产物。
+- 历史记录与当前脚本冲突，先核对时间和实际行为。前提被推翻时，建立在它上面的建议一并撤回，并逐处标明已按它写下的产物。
 - 重写远端可达历史（force push、删除远端分支或标签、改写已推送的提交）前停下等用户确认，说明将覆盖什么、内容保全怎么验证、误覆盖后的恢复路径。
 
 ## 9. 怎样维护这份知识
@@ -157,7 +157,7 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 
 ## 10. 合入前检查
 
-改动合入前跑与改动对应的主机检查，比较改动前后的结果。各套测试里已有改动前就失败的项（2026-11-09 的清单见[交接](../progress/2026-11-09-handoff.md)），门槛是没有新增失败。
+改动合入前跑与改动对应的主机检查，比较改动前后的结果。各套测试里已有改动前就失败的项（2026-11-09 的清单见[交接](../progress/2026-11-09-handoff.md)），合入要求是没有新增失败。
 
 | 改动范围 | 检查 |
 |---|---|

@@ -1,4 +1,4 @@
-# annibale 触摸、按键、电量与 CPU 拓扑的硬件读法
+# annibale 触摸、按键、电量与 CPU 拓扑的硬件读取方法
 
 本文整理 K90 触摸、实体按键、电量与充电状态、CPU 拓扑和 GPU 早期初始化的硬件事实与判断方法，主要来自 2026-10-23～10-24 的真机调试，之后的改动在文中标出处。通用方法见[项目排查与协作手册](../plan/debugging-and-collaboration.md)，命令见[真机调试手册](../plan/device-test-playbook.md)，设备树资源见[硬件资源图谱](annibale-hw-map.md)。
 
@@ -9,7 +9,7 @@
 | TLMM GPIO | 厂商 DT 资源为 `0x0f000000 + 0x202000`；主线 SM8750 的 GPIO 寄存器窗口为 `0x0f100000 + 0x102000`，寄存器按 GPIO 号乘 `0x1000` 访问 | 资源起点与 GPIO 寄存器起点分开算，核对 `0x100000` 的子窗口偏移只加了一次 |
 | RPMh 命令数据库 | DT 声明在 `0x81c60000 + 0x20000`；从 SMEM 扫描时在 `0x81d9e004` 触发同步外部异常；改为定点读取后找到 `ldob12 = 0x40a00`（触摸 I/O 电源） | 先按 DT 确定资源范围再定点读，不从旧机型的布局推扫描范围 |
 | GCC 时钟 | SM8750 的 QUP1 AHB 时钟寄存器偏移为 `0x23140`／`0x23144`，SE2 的时钟停止标志在 bit 31 | 名称相同也要逐项核对寄存器偏移与位域 |
-| 机型识别脚 | annibale 没有旧机型的触摸识别脚，代码用占位值 `NO_STRAP=1000`；早期诊断打印把它当 GPIO 号去读 | 占位值要在访问前处理，诊断代码同样遵守板型约束 |
+| 机型识别脚 | annibale 没有旧机型的触摸识别脚，代码用占位值 `NO_STRAP=1000`；早期诊断打印误将其用作 GPIO 编号读取 | 占位值要在访问前处理，诊断代码同样遵守板型约束 |
 
 - 旧的 TLMM 地址计算少了 `0x100000`，诊断输出停在 GPIO43 配置读取之前，随后设备回到 Android。改正后同组 GPIO 与时钟读数正常，供电与 SPI 初始化继续执行。地址错误期间各次重启的完整异常原因没有全部取得。
 - 在 Android 里整组读取 `pinmux-pins`／`pinconf-pins` 调试文件后也丢过 USB、设备回到 Android，没有区分是哪一项读取。调试文件的读取可能调用驱动、访问硬件；不要整组读，先从保存的 DT、驱动源码和单项状态核对。
@@ -46,9 +46,9 @@
 - 旧代码按 `core << 8` 换算地址，`bootcpu=7 cpus=2` 时 loader 尝试 MPIDR `0x700`，固件返回 PSCI 错误（`no-such-core 6 0`），内核没有进入。修复用逐核 MPIDR 表，并在内核 CPU 查找、secondary 入口和 GIC SGI 编码里保留 Aff2，设备生成脚本也输出完整表。只改 loader 的启动地址，其他使用者仍会截断核心身份。
 - 带 L2 access penalty 标记（loader 的 small-core）的非启动核默认在开机 28 秒后才启动（`xnu/files/iokit/Kernel/GenericARMPE.cpp`，`small_cores_after=S`，0 为立即启动）。早期日志里的 `1 of 2 processors are running` 不说明第二个核启动失败，要看完整生命周期的日志。`cycle.py` 用 `cpus=4 bootcpu=7 small_cores_after=0`。
 
-## 6. GPU 早期初始化的硬件读法
+## 6. GPU 早期初始化的硬件读取方法
 
-GPU 阶段定义与后续验收见 [A830 命令执行案例](2026-10-24-a830-command-startup.md)，这里只留早期阶段确认的硬件读法。GMU 是运行管理固件的 GPU 管理单元，HFI 是主机与 GMU 固件的通信接口。
+GPU 阶段定义与后续验收见 [A830 命令执行案例](2026-10-24-a830-command-startup.md)，这里只留早期阶段确认的硬件读取方法。GMU 是运行管理固件的 GPU 管理单元，HFI 是主机与 GMU 固件的通信接口。
 
 - QFPROM 速度档熔丝：Linux v6.17 的 `qfprom.c` 用对齐的 `readl`，本机 DT 的 `bits = <0 9>` 描述所需字段。对 `0x221c8138` 做两次字节读取时设备复位；改成一次对齐的 32 位读取再取低 9 位（`& 0x1ff`）后读到 `0x400400e8`，speed bin 为 232（`0xe8`）。`speed_bin` 与 SKU 来自不同字段。
 - 固件型号：本机 Android 日志与厂商配置指向 gen80000，按相近编号选 gen80200 是错的。资料冲突时回查实际使用方和本机运行记录，换型号后重新检查所有派生参数。

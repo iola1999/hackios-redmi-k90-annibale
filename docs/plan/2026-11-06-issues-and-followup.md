@@ -133,7 +133,7 @@
 - **现象**：Safari 播放视频时报错拒绝导入格式 500（`MTLPixelFormatYCBCR8_420_2P`）纹理。
 - **修复**：在 [`annibaledrawable.m`](../../hackios-xnu-kernel/tools/userland-driver/annibaledrawable.m) 与 [`annibalemetal_yuv.inc`](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal_yuv.inc) 中拦截 `newTextureWithDescriptor:iosurface:plane:`，传入格式 500 且 `plane == 0` 时分别将平面 0 绑定为 R8、平面 1 绑定为 RG8，调用 BT.601 Compute Shader（`ycbcr_420v_to_rgb`）转换为 RGBA8 纹理。
 
-### 1.15 AudioReach 空转与 Wi-Fi DMA 冲突、跨页拖动断触、音量滑块及关机看门狗喂狗
+### 1.15 AudioReach 空转与 Wi-Fi DMA 冲突、跨页拖动断触、音量滑块及关机看门狗重置
 
 1. **AudioReach 空转与 WCN7850 Wi-Fi DMA 冲突**：
    - [`annibale_audio_reach.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_audio_reach.c) 的 `reach_feeder_thread` 在 DSP 未就绪时缺少休眠，导致单核 100% 空转并刷屏 `daudio:` 日志；同时将 64 KiB 音频 DMA 缓冲硬编码在 `lowdma` 起始地址 `0xc776f000`，覆盖了 [`mhi_pcie.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/mhi/mhi_pcie.c) 与 `ath12k` 的控制环，导致 WCN7850 报 `ctl_resp never came in (-60)`。
@@ -159,7 +159,7 @@
    - **Metal 与 AIR 8 颜色附件清屏掩码**：在 [`annibalemetal.m`](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal.m) 与 [`air_metal.c`](../../hackios-xnu-userland/tools/mesa/air/air_metal.c) 中遍历全部 8 个颜色附件，将每个附件的 `MTLLoadActionClear` 编码至 `draw->discard` 高 8 位并按位设置 `PIPE_CLEAR_COLOR0 << i` 与动态 `colormask`，修复 `iconservicesagent` 在 3 颜色附件模式下附件 1、2 未清屏导致的图标灰底问题。
    - **应用安装与卸载**：注册第三方应用时将 `IsDeletable` 设为 `@YES`，收敛后台 `watch` 仅监听暂存目录（消除开机轮询解压导致的 `ramfs` 膨胀），并预装 `TrollStore.app` 与 `trollstorehelper`。
    - **loader 切槽保护**：在 [`loader_06_usb_entry.inc`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 的 `oem android` 中校验 `kernel_resources_held`，内核未完全停止时拒绝切槽。
-3. **外设驱动骨架、小米 MCA `pmic_glink` 充电对齐与按需自动解锁（R6～R7，内核 `39f0e46`、`b8a5926`，用户态 `9ff8901`、`732d49d`）**：
+3. **外设驱动框架、小米 MCA `pmic_glink` 充电对齐与按需自动解锁（R6～R7，内核 `39f0e46`、`b8a5926`，用户态 `9ff8901`、`732d49d`）**：
    - 新增以下驱动代码：
      - SM8750 CAMSS（[`annibale_camera.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera.c)）。
      - LPASS ADSP（[`annibale_adsp.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_adsp.c)）。
@@ -173,7 +173,7 @@
      - 反汇编 `LinuxLoader.efi` 的 `LoadImageAndAuthVB2`（`0x3a6d4`）与 `avb_vbmeta_image_verify`（`0x44744`）查明，`boot_a` 末尾 `0x05ffffc0` 的 `AVBf` 页脚指向 `vbmeta_offset = 0x022b9000`。
      - 该处 `"AVB0"` 头被早期 51.3 MiB 大镜像覆盖后返回码为 `2`（转成槽位校验返回码 `6` `ERROR_INVALID_METADATA`），不在解锁放行掩码 `0x39`（`{0, 3, 4, 5}`）内，导致 ABL 调用 `HandleActiveSlotUnbootable(0)` 将 `boot_a` 标为 `unbootable` 并切回 B 槽。
      - 同时无 AVB 属性时 ABL 检查 `boot.img` 偏移 `0x2c` 的 `os_version != 0`。
-     - 在 [`reseal-loader-img.py`](../../hackios-xnu-kernel/tools/reseal-loader-img.py) 中传入 `--os_version 15.0.0 --os_patch_level 2026-02` 并恢复 `boot_a` 偏移 `0x022b9000` 的 `AVB0` 块后解决，详见[引导目标切换 SOP §4](device-boot-target-sop.md#4-陷阱均为实测)。
+     - 在 [`reseal-loader-img.py`](../../hackios-xnu-kernel/tools/reseal-loader-img.py) 中传入 `--os_version 15.0.0 --os_patch_level 2026-02` 并恢复 `boot_a` 偏移 `0x022b9000` 的 `AVB0` 块后解决，详见[引导目标切换 SOP §4](device-boot-target-sop.md#4-常见问题与注意事项均为实测)。
    - **4K 扇区 + VFAT LFN `modem_a` 固件读取与 TrustZone SMC 互斥**：修复 [`annibale_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 的 `annibale_ufs_fat16_fw_read()` 支持 4096 字节逻辑扇区与 VFAT LFN 长文件名，从 `modem_a` 成功读取 `adsp_dtb.mdt` 与 `adsp.mdt`；在 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 导出 `adreno8_init_done`，令 `annibale_adsp_boot_thread()` 等待 Adreno 830 完成初始化后再发起 TrustZone PAS SMC 调用，消除并发 `SMC_EBUSY` 导致 GPU 退回软件渲染的问题。
    - **注入库签名与启动早期崩溃修复**：[`package.py`](../../tools/k90auto/package.py) 改为每次从源码编译并 ad-hoc 签名 `libannibale.dylib`、`libannibale-media.dylib` 与 `libannibale-app.dylib`；修复 [`inject_app.c`](../../hackios-xnu-userland/userland/src/inject/inject_app.c) 在 `Foundation` 初始化前调用 `NSUserDefaults` 导致的早期崩溃，并从 [`inject_cellular.inc`](../../hackios-xnu-userland/userland/src/inject/inject_cellular.inc) 移除因共享缓存 `__LINKEDIT` `fileoff` 无符号减法下溢触发 `SIGSEGV` 的 `rebind_image_symbols()`。
    - **相机 V57 格式匹配与硬件时钟对时**：

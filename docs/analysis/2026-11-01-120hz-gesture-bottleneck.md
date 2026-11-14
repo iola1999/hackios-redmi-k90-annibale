@@ -1,10 +1,10 @@
-# 120 Hz 手势帧率的卡点（rt2 离线分析，2026-11-01）
+# 120 Hz 手势帧率的耗时瓶颈（rt2 离线分析，2026-11-01）
 
 本文用 `kernel-12377-rate1-rt2` 的日志逐帧拆分手势动画的耗时，找出离 120 帧／秒还差在哪里。逐帧数字都可以用 `python3 tools/k90auto/frame-split.py <轮次目录> 120` 复现。轮次见[120 Hz 轮次记录](../progress/2026-11-01-120hz-rounds.md)；按本文结论做的 GPU 升频和之后的长帧拆分见 [GPU 升频之后的长帧](2026-11-02-120hz-after-gpu-clock.md)。
 
 ## 1. 结论
 
-- GPU 时间是 rt2 的第一卡点。4393 个动画帧里有 1921 帧（44%）的 GPU 时间超过一个节拍（8.33 ms）；1492 个长帧（显示间隔两拍及以上）中，1294 个的 GPU 时间超过一拍。
+- GPU 时间是 rt2 的第一项耗时瓶颈。4393 个动画帧里有 1921 帧（44%）的 GPU 时间超过一个节拍（8.33 ms）；1492 个长帧（显示间隔两拍及以上）中，1294 个的 GPU 时间超过一拍。
 - rt2 的 GPU 最高 342 MHz：`package.py` 不设 `GPU_SPEED` 时默认 3，`bo58` 之后各轮都按 3 打包，`bo40`～`bo57` 用的是 7（607 MHz）。`cycle.py` 从 11-02 起默认 `GPU_SPEED=14`（1100 MHz）。
 - 掉到 60 帧／秒以下的有两段：控制中心下拉（53.5 帧／秒，GPU 时间中位数 17.4 ms），以及壁纸扩展 MercuryPosterExtension 和 backboardd 同时在画的一段（62.7 帧／秒）。
 - backboardd 处理器侧排第二：131 个长帧是 P 超过一拍。其中外部 buffer 解除映射前等 GPU 空闲的时间，用户手动滑动期间每 5 秒累计 150～499 ms；`12377-rate2` 起解除映射不再等 GPU（[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §3）。
@@ -71,15 +71,15 @@ tour 动作对应的动画段：
 
 - `fb_queue=1` 时，SwapEnd 一直阻塞到上一帧的像素拷完，backboardd 的下一帧从那个时刻才开始做，相邻两帧的 P + G + bw + C 必须放进两拍（16.67 ms）。
 - 一拍帧：P、G、C 的中位数合计 3.27 + 7.37 + 2.50 = 13.1 ms，剩下的时间由 bw 吸收。
-- 两拍帧：P 中位数 7.60 ms、C 中位数 3.10 ms，G 降到 6 ms 左右时三项合计约 16.7 ms，这条链路会成为卡点。
-- `fb_queue=2` 能把两帧共用的预算放宽到三拍，但 iOS 26 的 CoreAnimation 只在两块 surface 之间轮换，`bo55` 因此改成 1；要改回 2，得先解决这个问题。
+- 两拍帧：P 中位数 7.60 ms、C 中位数 3.10 ms，G 降到 6 ms 左右时三项合计约 16.7 ms，这条链路会成为瓶颈。
+- `fb_queue=2` 能把两帧共用的预算放宽到三拍，但 iOS 26 的 CoreAnimation 只在两块 surface 之间轮换，`bo55` 因此改成 1；须先解决这个问题才能改回 2。
 
 ## 7. 120 Hz 的开关
 
 `cycle.py` 的 `FIXED_ARGS` 默认带下面这组开关，各开关的实现说明在内核源码注释里：
 
 - `fb_hz=120`：面板驱动按 120 Hz 的节拍出帧。
-- `fb_ca_hz=120`：发布 `IOMFBDisplayRefresh`，告诉 CoreAnimation 刷新间隔（`MiniFramebufferPacing.inc`）；不设时 CoreAnimation 按固定 60 Hz 出帧。rt1 起 CoreAnimation 采用了 120 Hz，见[轮次记录](../progress/2026-11-01-120hz-rounds.md)。
+- `fb_ca_hz=120`：发布 `IOMFBDisplayRefresh`，向 CoreAnimation 通告刷新间隔（`MiniFramebufferPacing.inc`）；不设时 CoreAnimation 按固定 60 Hz 出帧。rt1 起 CoreAnimation 采用了 120 Hz，见[轮次记录](../progress/2026-11-01-120hz-rounds.md)。
 - `dl_max=1`：SpringBoard 丢掉 UIKit 进程内动画（iOS 26 的类名 `UIKit.InProcessAnimationManager`）的 display link 速率请求，这类动画按显示的速率出帧，rt2 起生效。
 - `fb_flip=2`：启动帧缓冲与 splash 区里的第二块缓冲轮流显示，显示控制器在刷新开始时换地址（`MiniFramebufferFlip.inc`）。
 - `fb_beat=0`：GPU 完成后立即显示，不等驱动自己的节拍，11-02 起默认（[11-02 轮次记录](../progress/2026-11-02-120hz-gpu-clock-rounds.md) §3）。

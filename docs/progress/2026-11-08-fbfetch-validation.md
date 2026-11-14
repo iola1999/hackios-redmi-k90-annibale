@@ -30,7 +30,7 @@ device 成员使用上述基线临时启动，未写入 `boot_a`。探针和 bit
 
 当前 fastboot 状态为 `product=xnuloader`、`result=returned 1444016 0`、`ramdisk-state=ready 400000 400000 300000000`。这个状态不满足下一轮的 `result=idle` 前置条件。
 
-`device-run/teardown-ended-kernel.log` 的末尾记录 UFS 在途请求为 0 和 `== END OF LOG ==`。同一份日志还记录 `adreno8: secure service closed; all pages retained until cold reset`，所以 GPU 资源仍保留到冷复位，不能把 stop 返回或 `returned` 状态写成设备已恢复正常。
+`device-run/teardown-ended-kernel.log` 的末尾记录 UFS 在途请求为 0 和 `== END OF LOG ==`。同一份日志还记录 `adreno8: secure service closed; all pages retained until cold reset`，所以 GPU 资源仍保留到冷复位，不能仅凭 stop 返回或 `returned` 状态判定设备已恢复正常。
 
 loader 源码 `xnuloader/loader_06_usb_entry.inc:1183-1189` 在 one-shot `run_kernel` 返回后调用 `boot_fallback_enter()`，`xnuloader/loader_06a_screen_ui.inc:1041` 固定绘制 recovery 横幅。横幅文字本身不能单独证明内核 panic；当前 recovery 界面、GPU 保留状态和非 idle 状态均为实际观测结果。
 

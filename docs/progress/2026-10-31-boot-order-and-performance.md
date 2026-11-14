@@ -26,19 +26,19 @@
 - 每次绘制的驱动耗时：SpringBoard 由 `rest2` 的 1233.9 微秒降到 `wait1` 的 383.9，backboardd 由 131.2 降到 96.1。`wait1` 之前 `adreno8_context_done` 每次查询都读三套 SMMU 故障寄存器、GMU 中断与 HFI 队列。
 - `bo3` 的翻页帧率在约 54 与约 23 帧／秒两档之间切换，与 GPU 频率无关（160 MHz 时也有 56 帧／秒）。慢的时段对应集群 1 的温度限制：读到 70 °C 就降到最低档 1017 MHz，直到所有传感器低于 60 °C。
 - `12377-cmd33` 改为逐档升降：达到 70 °C 时每 50 毫秒降一档，低于 65 °C 时每 200 毫秒升一档，之间保持，75 °C 或没有读数时直接到最低档。`bo4` 集群 1 最高 68～71 °C，没有再长时间停在最低档。
-- 巡检的陷阱：主屏图标按住约 700 毫秒进入编辑模式，翻页途中进入编辑模式说明有超过 700 毫秒的停顿，之后图标持续抖动，帧率读数不能用。`bo5` 起翻页从屏幕边缘起手，并定期按主屏键。
+- 巡检注意事项：主屏图标按住约 700 毫秒进入编辑模式，翻页途中进入编辑模式说明有超过 700 毫秒的停顿，之后图标持续抖动，帧率读数不能用。`bo5` 起翻页从屏幕边缘起手，并定期按主屏键。
 
 ## 4. 开机图标
 
-首个 SpringBoard 的主线程在启动阶段等 CoreServices 的锁，lsd 在逐个读应用的 Info.plist；重启 SpringBoard 后图标全部出现。根因是每次开机 `/private/var` 都是空的，LaunchServices 数据库要重建，带开机种子的 `warm4` 首个 SpringBoard 显示全部图标。排除过的假设与改法见[每次开机都是首次开机](../analysis/2026-10-31-every-boot-is-first-boot.md)。
+首个 SpringBoard 的主线程在启动阶段等 CoreServices 的锁，lsd 在逐个读应用的 Info.plist；重启 SpringBoard 后图标全部出现。根因是每次开机 `/private/var` 都是空的，LaunchServices 数据库要重建，带开机种子的 `warm4` 首个 SpringBoard 显示全部图标。排除过的假设与修改方案见[每次开机都是首次开机](../analysis/2026-10-31-every-boot-is-first-boot.md)。
 
 ## 5. 观测与迭代工具
 
 - `rwsh` 的 `cat PATH [OFFSET]`、`ls PATH`、`rm PATH`，`tools/k90auto/fetch.py` 用 `cat` 分段取回设备上的文件；`tools/k90auto/roundstat.py` 按轮次并排打印手势帧率、每次绘制的驱动耗时与 buffer 纹理上传次数。
 - `tools/k90auto/prof.py --threads PID` 把 `dump PID` 的回溯按共享缓存映像命名并合并相同的栈，驱动与 AIR 的地址按 `images: driver ... air ...` 行命名；`12377-cmd28` 起回溯最多 32 帧，`usertrap=1` 只打印用户态异常。
 - Android DSU：系统盘经 USB 上传约 123 秒；loader v11 起的 `oem dsu load` 从闪存读入 4.94 GB 用 1.29 秒（`bo45`），v12 起 `oem dsu crc` 加 `getvar dsu-crc` 供 `run-auto.py` 按 1 GiB 分段比对 CRC-32，不一致就改走 USB。磁盘部署见 [README](../../README.md) §4。
-- 看门狗：loader v11 起在 K90 上武装，主机 180 秒不发命令就停止喂狗，`oem hang` 实测第 37 秒复位、第 60 秒回到 loader，不需要按键。完整的 loader 镜像可以从 LK 用 `fastboot boot` 引导，约 18 秒后枚举，不刷 `boot_a`，也不扣 A 槽的重试次数。
-- 内核录屏：`rec_secs=N rec_ring=1 rec_mb=M` 把上屏的帧缩小后存进预留内存，`hackios-xnu-kernel/tools/recording.py` 转成视频。占着 GPU 的内核不回到 loader，要在轮次停止之前用 loader v13 起的 `oem stage ADDRESS LENGTH` 取回（`tools/k90auto/fetch-recording.sh`，402 MB 用 9.3 秒），收尾会复位。
+- 看门狗：loader v11 起在 K90 上武装，主机 180 秒不发命令就停止刷新看门狗，`oem hang` 实测第 37 秒复位、第 60 秒回到 loader，不需要按键。完整的 loader 镜像可以从 LK 用 `fastboot boot` 引导，约 18 秒后枚举，不刷 `boot_a`，也不扣 A 槽的重试次数。
+- 内核录屏：`rec_secs=N rec_ring=1 rec_mb=M` 把上屏的帧缩小后存进预留内存，`hackios-xnu-kernel/tools/recording.py` 转成视频。占用 GPU 的内核不回到 loader，要在轮次停止之前用 loader v13 起的 `oem stage ADDRESS LENGTH` 取回（`tools/k90auto/fetch-recording.sh`，402 MB 用 9.3 秒），收尾会复位。
 
 ## 6. 应用、显示与交互（`bo43`～`bo63`）
 

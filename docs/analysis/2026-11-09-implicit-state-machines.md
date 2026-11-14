@@ -11,10 +11,10 @@
 | SM-02 | Metal 命令缓冲区生命周期 | `tools/userland-driver/annibalemetal_commandbuffer.inc`、`annibalemetal_completion.inc` | `_status` 同时表达生命周期阶段与执行成败；`-commit` 中途失败导致提前唤醒等待者或信号量漏发；`-addScheduledHandler:` 无锁竞态；`calloc` 失败导致 `-waitUntilCompleted` 永久阻塞 | 已修复 |
 | SM-03 | Metal 编码器与 Blit 阶段 | `tools/userland-driver/annibalemetal.m`、`annibalemetal_blit.inc` | Compute 编码器 `_complained` 与 LOD 告警共用同一布尔位导致后续 dispatch 静默丢弃；Clear 跳过时丢失 `_discards`；Blit mipmap 漏设 `textureCount = 1`；`-endEncoding` 可重复入队 | 已修复 |
 | SM-04 | Metal 资源与管线所有权 | `tools/userland-driver/annibalemetal.m`、`annibalemetal_texture.inc`、`annibalemetal_pipecache.inc` | Compute／Render 管线未持有 `_owner`；`AnnibaleMetalBuffer` 映射失败返回半初始化对象；IOSurface 首次只读后转渲染目标产生双份拷贝缓冲；管线缓存并发插入重复项 | 已修复 |
-| SM-05 | 触控边缘手势与亮屏门控 | `userland/src/services/input26_service.c`、`userland/src/inject/inject_touch.inc` | `waking` 位图与 `fingers[]` 结构体分离，模式切换或丢包后槽位残留旧状态 | 已修复 |
+| SM-05 | 触控边缘手势与亮屏拦截 | `userland/src/services/input26_service.c`、`userland/src/inject/inject_touch.inc` | `waking` 位图与 `fingers[]` 结构体分离，模式切换或丢包后槽位残留旧状态 | 已修复 |
 | SM-06 | 相机流与 ISP 3A 状态机 | `userland/src/services/camera_device.c`、`camera_device_stream.inc`、`camera_isp.c` | `running` 与 `graph_running` 拆分导致预热及故障态脱节；`af_now` 跨线程无锁访问；`asked` 布尔位在 IPC 丢包后锁死 AE／AF | 已修复 |
 | SM-07 | SpringBoard 解锁与壁纸联动 | `userland/src/inject/inject_sb26.c`、`inject_posterboard.c` | 多路解锁触发缺少统一收敛函数；PosterBoard 晚启动漏收解锁通知；3 处钩子共用单布尔 `hooks_installed` | 已修复 |
-| SM-08 | 蜂窝状态缓存与类加载钩子 | `userland/src/inject/inject_cellular.inc`、`inject_app.c` | `cell_cache` 多线程无锁读写；失网退回时残留旧算子与信号格数；在网判定阈值 `>= 3` 与 `>= 4` 混用；`dyld` 回调按单布尔门控全部蜂窝类 | 已修复 |
+| SM-08 | 蜂窝状态缓存与类加载钩子 | `userland/src/inject/inject_cellular.inc`、`inject_app.c` | `cell_cache` 多线程无锁读写；失网退回时残留旧算子与信号格数；在网判定阈值 `>= 3` 与 `>= 4` 混用；`dyld` 回调按单布尔控制全部蜂窝类 | 已修复 |
 | SM-09 | `eagl` 帧生命周期与延迟清屏 | `userland/src/gfx/eagl.c`、`eagl_shaders_vblur.inc`、`eagl_groups_plain.inc` | `clear_now()` 未保存／恢复 `GL_COLOR_WRITEMASK` 与 `GL_DEPTH_WRITEMASK`；`group_draw_begin()` 在 `group_read()` 前漏调 `clear_now()`；`frame_end()` 中 `target_to_surface()` 先清 `image->drawn` 导致 `mirror != 0` 跳过 `show_texture()` | 已修复 |
 | SM-10 | `eagl` Group 合成与可重入 | `userland/src/gfx/eagl_groups_plain.inc` | `group_draw_begin()` 读取／扁平化纹理前未冲刷挂起清屏，导致读取未清屏旧内容 | 已修复 |
 | SM-11 | `eagl` Plain Draw 与模糊链失效 | `userland/src/gfx/eagl.c`、`eagl_groups_plain.inc` | `drawing()` 写入绑定纹理时未失效引用该纹理的 `chains[i].made`；`plain_draw_begin()` 部分分支未初始化 `enabled[3]` 而 `plain_draw_end()` 无条件恢复 | 已修复 |
@@ -43,7 +43,7 @@
 
 - `AnnibaleMetalComputeEncoder` 新增独立布尔位 `_warnedLodClamp` 记录采样器 LOD 夹紧告警，保留 `_complained` 专用于空管线或越界线程组拒绝。
 - `AnnibaleMetalRenderEncoder` 在 `-recordPassClear` 因附件非 `MTLLoadActionClear` 跳过独立清屏工作项时，将 `_discards` 转移给首个 `-recordDraw:...` 工作项（`work->discards = _discards; _discards = 0;`）。
-- `AnnibaleMetalRenderEncoder`、`AnnibaleMetalComputeEncoder` 与 `AnnibaleMetalBlitEncoder` 全部补齐 `_ended` 门控。
+- `AnnibaleMetalRenderEncoder`、`AnnibaleMetalComputeEncoder` 与 `AnnibaleMetalBlitEncoder` 全部补齐 `_ended` 状态检查。
 - `tools/userland-driver/annibalemetal_blit.inc` 的 `-generateMipmapsForTexture:` 补设 `work->textureCount = 1`，由 `[work retainResources]` 持有目标纹理至命令缓冲区完成。
 - `tools/userland-driver/annibalemetal_stitch.inc` 的 `-[AnnibaleMetalSpecializedFunction annibaleUnspecializedFunction]` 在 `_cachedBitcode != nil` 时返回 `nil`，与 `-respondsToSelector:` 保持一致，并移除 `-forwardingTargetForSelector:`、`-methodSignatureForSelector:`、`-forwardInvocation:` 中不可达的 `bitcodeData` 分支。
 
@@ -54,7 +54,7 @@
 - `tools/userland-driver/annibalemetal_texture.inc` 的 `rw_surface_through_copy` 首次为 IOSurface 创建平面拷贝缓冲时，将 `usage` 放宽为 `MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView`。
 - `tools/userland-driver/annibalemetal_pipecache.inc` 的 `rw_pipe_keep` 在持锁状态下先查重，若同 `(device, key)` 已由并发线程插入则复用已有槽位并销毁多余副本。
 
-### 2.4 SM-05：触控边缘手势与亮屏门控
+### 2.4 SM-05：触控边缘手势与亮屏拦截
 
 - `userland/src/services/input26_service.c` 与 `userland/src/inject/inject_touch.inc` 将 `waking` 位图与 `fingers[]` 合并为显式单指状态枚举 `enum ann_finger_state`（`ANN_FINGER_IDLE`、`ANN_FINGER_WAKE_SWALLOWED`、`ANN_FINGER_ACTIVE_INNER`、`ANN_FINGER_ACTIVE_EDGE`）。
 - 收到 `TOUCH_MODE_WAKE` 或 `0xff` 重置字节时清空全部槽位状态；收到新的 `ANNIBALE_TOUCH_DOWN` 时按当前坐标重新定界。
@@ -68,7 +68,7 @@
 
 ### 2.6 SM-07 与 SM-20：SpringBoard 解锁、壁纸协同与 RunLoop 卡顿检测
 
-- `userland/src/inject/inject_sb26.c` 提取 `sb26_on_unlocked()` 统一收敛开机自动解锁、`com.annibale.unlock` 通知及手动解锁后的动作，移除 `isUILocked` 早期返回 `NO` 时的抢跑通知，并通过 `notify_set_state` 在 `"com.annibale.wallpaper.suspend"` 令牌上持久化 `0`（已解锁）或 `1`（锁屏挂起）。
+- `userland/src/inject/inject_sb26.c` 提取 `sb26_on_unlocked()` 统一收敛开机自动解锁、`com.annibale.unlock` 通知及手动解锁后的动作，移除 `isUILocked` 早期返回 `NO` 时的过早通知，并通过 `notify_set_state` 在 `"com.annibale.wallpaper.suspend"` 令牌上持久化 `0`（已解锁）或 `1`（锁屏挂起）。
 - `userland/src/inject/inject_posterboard.c` 用位掩码 `s_mercury_hooks_mask`（`PB_HOOK_DISPLAYLINK | PB_HOOK_CMDBUF | PB_HOOK_NOTIFY`）按项追踪钩子安装，启动注册通知后立即调用 `notify_get_state` 同步当前锁屏状态，并在 `mercury_set_suspended()` 内对重复目标状态去重。
 - `userland/src/inject/inject_sb26_rate.c` 的 `stall_watch` 线程将 `uint64_t began = turn_began;` 移至 `usleep(10000)` 之后，使睡眠期间开始的 RunLoop turn 立即进入耗时判定。
 
@@ -103,7 +103,7 @@
 
 其余超过 1200 行的存量文件经评估保持原状，原因如下：
 
-- `hackios-xnu-kernel/tools/mesa/air/`（`air_metal.c` 6782 行、`air_to_nir.c` 3461 行、`air_run.c` 2093 行、`air_module.c` 1950 行、`air_metal.h` 1438 行）：受 `tools/mesa-stamp.sh` 的 `mesa_air_stamp` 与 `air-build-record.json` 源码哈希强校验保护，任何文件变动都会使预构建 `libannibaleair.dylib` 印章失效，已记入[进度表](../plan/2026-10-23-tracking.md) §2 待后续重编 AIR 时一并按职责拆分。
+- `hackios-xnu-kernel/tools/mesa/air/`（`air_metal.c` 6782 行、`air_to_nir.c` 3461 行、`air_run.c` 2093 行、`air_module.c` 1950 行、`air_metal.h` 1438 行）：受 `tools/mesa-stamp.sh` 的 `mesa_air_stamp` 与 `air-build-record.json` 源码哈希强校验保护，任何文件变动都会使预构建 `libannibaleair.dylib` 印章失效，已记入[进度表](../plan/2026-10-23-tracking.md) §2 待后续重新编译 AIR 时一并按职责拆分。
 - `hackios-xnu-userland/userland/src/inject/inject_store.c`（1827 行）：App Store 诊断与钩子模块，按[方案架构审查](2026-11-08-architecture-review.md) §21 明确不做。
 - `hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/`（`apfs_lib.c` 4062 行、`apfs_vfsops.c` 1462 行、`apfs_vnops.c` 1261 行、`deflate_decompress.c` 1208 行）：只读 APFS 容器解析、B-tree 查找与解压算法实现，职责单一且本轮无修改。
 - 独立测试与离线工具（`userland/src/tests/metal_drv_test.m` 7799 行、`tools/mesa/air/air_metal_test.c` 6931 行、`userland/src/tests/triangle_app.m` 1273 行、`tools/air/*.py`）：单文件验收测试集，不参与系统运行态镜像。

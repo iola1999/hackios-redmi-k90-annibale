@@ -68,12 +68,12 @@
 
 ## 12. 没有反应的手势
 
-- 现象：`bo16` 的 84 步里 7 次滑动没有出帧，内核记下了全部触摸采样，之后没有 `tl: Q`、`tl: s`、`tl: v`。停住的触点被当成长按，主屏或今天视图进入编辑模式。
-- 原因：`/dev/annibale-touch` 有两个读者，`input26-service` 与 `libannibale.dylib` 在 backboardd 里起的输入线程（`inject.c` 的 `input_start()`，2026-10-29 起随 `package.py` 的 `INJECT` 装进 backboardd，`00810fb`）。每个采样只被先拿到锁的一方读走，两边都丢弃没有见过按下的移动与抬起，按下与抬起落在不同读者时 backboardd 里的触点一直停在按下状态。
+- 现象：`bo16` 的 84 步里 7 次滑动没有出帧，内核记下了全部触摸采样，之后没有 `tl: Q`、`tl: s`、`tl: v`。停住的触点被判定为长按，主屏或今天视图进入编辑模式。
+- 原因：`/dev/annibale-touch` 有两个读者，`input26-service` 与 `libannibale.dylib` 在 backboardd 里启动的输入线程（`inject.c` 的 `input_start()`，2026-10-29 起随 `package.py` 的 `INJECT` 装进 backboardd，`00810fb`）。每个采样只被先拿到锁的一方读取，两边都丢弃没有见过按下的移动与抬起，按下与抬起落在不同读者时 backboardd 里的触点一直停在按下状态。
 - 判读：backboardd 开机日志第二次「digitizer attached」带「*** already have a main display digitizer」；没有反应的滑动在 `TouchEvents` 里没有「contact 1 presence: none」，下一次按下记「range-in for pathIndex with existing contact -- using existing」。
-- 改法：`inject.c` 在 `/annibale/LaunchDaemons/com.annibale.input26.plist` 存在时不调用 `input_start()`，打印「annibale: input: input26-service reads the touch queue, so no service of ours」；`libannibale.dylib` 仍注入 backboardd，提供 `tl: b`。`userland/build.sh` 对 `inject.conf` 有同样的冲突检查，`package.py` 没有。
+- 修改方案：`inject.c` 在 `/annibale/LaunchDaemons/com.annibale.input26.plist` 存在时不调用 `input_start()`，打印「annibale: input: input26-service reads the touch queue, so no service of ours」；`libannibale.dylib` 仍注入 backboardd，提供 `tl: b`。`userland/build.sh` 对 `inject.conf` 有同样的冲突检查，`package.py` 未做此检查。
 - `bo23`（`12377-cmd44`）：开机日志只有一块触摸屏，40 次翻页每次 30～33 帧，今天视图 16 次滚动每次 27～32 帧。
-- 看门狗（`12377-cmd42` 起）：手指采样开始一个手势 400 ms 后面板仍没有新帧，就转储 backboardd、SpringBoard 与 `input26-service` 的线程，并打印 `/dev/annibale-touch` 里没读走的采样数；`12377-cmd44` 起主屏键不触发，卡顿转储要求最后一个手指采样在 100 ms 以内。
+- 看门狗（`12377-cmd42` 起）：手指采样开始一个手势 400 ms 后面板仍没有新帧，就转储 backboardd、SpringBoard 与 `input26-service` 的线程，并打印 `/dev/annibale-touch` 里未读取的采样数；`12377-cmd44` 起主屏键不触发，卡顿转储要求最后一个手指采样在 100 ms 以内。
 
 ## 13. 探针的开销（二）
 

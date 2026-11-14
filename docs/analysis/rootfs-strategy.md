@@ -8,7 +8,7 @@
 
 - 内核 `e8b499c` 与顶层 `bc20def` 加入 DSU 系统镜像读取：loader 把整个镜像读入常驻内存。
 - 内核 `08170b1` 把独立启动镜像接到 `darwin` 分区，`rdfile` 仍把整个系统镜像读入内存。
-- 内核 `9657ff3` 实现 `/private/var` 文件数据直写 `darwin_var`、按需读入数据页，以及双 32 MiB 元数据槽位；用户态 `fcaf0f5` 接入 UFS 系统卷切根并移除定时归档任务。这两笔提交已有落盘实现，但当时 standalone 和自动跑轮仍使用完整系统镜像的常驻内存路径。
+- 内核 `9657ff3` 实现 `/private/var` 文件数据直写 `darwin_var`、按需读入数据页，以及双 32 MiB 元数据槽位；用户态 `fcaf0f5` 接入 UFS 系统卷切根并移除定时归档任务。这两笔提交已有落盘实现，但当时 standalone 和自动测试轮仍使用完整系统镜像的常驻内存路径。
 - 2026-11-08 的只读查询得到 `ramdisk-state: ready 160bc1000 160bc1000 300000000`：常驻镜像为 5,917,904,896 字节，约 5.51 GiB。这段内存位于交给 XNU 的窗口内，布局将其纳入 `topOfKernelData`，启动后占用内存。
 - 同次真机日志确认 XNU 正在运行，系统卷仍由 `rdfile` 全量载入；`/private/var` 已从 UFS 恢复。旧 loader 的 standalone 入口遗漏 `running` 状态更新，导致 `getvar result` 错报 `idle`；本轮将更新放到共同的内核运行入口。
 - 当前工作树的 `annibale` loader 已拒绝 `rdfile` 载荷；主机端 `make-payload.py` 和 `mkstandalone.py` 也禁止自动流程携带该入口。QEMU 仍保留 `rdfile` 以支持离线兼容测试。
@@ -29,7 +29,7 @@
 
 在 `hackios-xnu-kernel/` 执行 `FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash userland/build.sh`，只编译 `stage0` 并生成 `userland/flashboot.apfs`。该卷有一个文件与七个目录，本轮构建为 4 MiB；驱动固件由辅助盘或 `modem_a` 提供。
 
-- 自动跑轮：`make-payload.py` 记录启动卷的路径、大小和 SHA-256。`run-auto.py` 先校验载荷实际启动参数与 manifest，再确认 loader idle 且常驻区为空；随后先上传 payload，使 loader 按本轮参数分配窗口，再上传启动卷。实际接收长度与窗口均匹配才启动内核。
+- 自动测试轮：`make-payload.py` 记录启动卷的路径、大小和 SHA-256。`run-auto.py` 先校验载荷实际启动参数与 manifest，再确认 loader idle 且常驻区为空；随后先上传 payload，使 loader 按本轮参数分配窗口，再上传启动卷。实际接收长度与窗口均匹配才启动内核。
 - 独立启动：`mkstandalone.py --boot-image ...` 将启动卷放入 `rdimage` 条目；loader 校验内存布局后复制它。系统卷的部署按[双系统手册](../plan/dual-boot-setup.md)执行。
 
 ## 4. 内存与载荷限制
@@ -44,7 +44,7 @@
 
 K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限，并拒绝 `rdfile` 系统卷预读；布局检查仍覆盖 `rdimage` 与 `rdres`。其他平台沿用内存窗口边界，QEMU 的完整系统镜像启动用例通过离线检查。
 
-本轮已在旧内核正常返回后清理完整系统镜像，再从 LK 临时启动新镜像。旧 loader 的 `idle` 回答不足以确认内核已停止，必须核对运行日志与实际复位结果，操作条件见[引导 SOP](../plan/device-boot-target-sop.md#4-陷阱均为实测)。
+本轮已在旧内核正常返回后清理完整系统镜像，再从 LK 临时启动新镜像。旧 loader 的 `idle` 回答不足以确认内核已停止，必须核对运行日志与实际复位结果，操作条件见[引导 SOP](../plan/device-boot-target-sop.md#4-常见问题与注意事项均为实测)。
 
 ## 5. 数据盘挂载与恢复
 
@@ -58,7 +58,7 @@ K90 loader 在 USB 单次/分块接收和 DSU 接收入口检查启动卷上限�
 
 ## 6. 验证结果与待办
 
-本轮离线验证已通过：主机工具 26 项测试、起轮状态 5 项测试、standalone 与启动安全 11 项测试、loader 接收与布局 887 项检查及 7 项故障注入、原有 loader 生命周期测试，以及切根、数据盘挂载和 ANNFS 恢复测试。ANNFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
+本轮离线验证已通过：主机工具 26 项测试、启动测试轮状态 5 项测试、standalone 与启动安全 11 项测试、loader 接收与布局 887 项检查及 7 项故障注入、原有 loader 生命周期测试，以及切根、数据盘挂载和 ANNFS 恢复测试。ANNFS 测试使用实际 C 函数并开启 AddressSanitizer 与 UndefinedBehaviorSanitizer，覆盖设备缺失、分配/I/O 失败、双槽损坏、空元数据、少量节点、旧槽恢复与写入失败重试。
 
 内核、loader、用户态、AIR 与辅助盘构建通过。APFS 读取工具确认启动卷包含一个 `stage0` 文件及七个目录。Linux `apfsck` 在本机 macOS 缺少所需头文件，完整文件系统检查未执行。最终启动镜像为 24,031,232 字节，SHA-256 为 `8a187c03a7a723a1c3d921e425bf157a019a76b02ed381918f083312f116ee17`；解压后的完整 XNUP、内核、辅助盘与启动卷均已逐项核对。
 

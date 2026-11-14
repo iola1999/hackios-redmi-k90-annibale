@@ -4,7 +4,7 @@
 
 ## 1. 当前进展、任务与决策
 
-- [进度表](plan/2026-10-23-tracking.md)：项目状态与已完成里程碑。
+- [进度表](plan/2026-10-23-tracking.md)：项目状态与已完成阶段。
 - [待办与候选](backlog/README.md)：按系统、图形、多媒体、外设、工程分类选择任务。
 - [系统后续事项](plan/2026-11-12-system-followup.md)：当前系统批次的执行安排。
 - [性能与原生硬件对齐改造方案（2026-11-14）](plan/2026-11-14-performance-and-native-alignment-plan.md)：全仓 18 项过渡方案与性能瓶颈的具体架构设计和分批切分。
@@ -35,6 +35,7 @@
 - [方案架构审查与全面建议（2026-11-08）](analysis/2026-11-08-architecture-review.md)。
 - [用户态与驱动隐式状态机收敛及超长文件拆分（2026-11-09）](analysis/2026-11-09-implicit-state-machines.md)。
 - [全工作区早期过渡方案与性能瓶颈源码审计（2026-11-14）](analysis/2026-11-14-temporary-architecture-audit.md)。
+- [多轮代码、提交与真机回归审查记录（2026-11-15）](analysis/2026-11-15-code-and-commit-review.md)。
 - [annibale UEFI 与 loader 镜像构建](analysis/annibale-uefi-build.md)。
 - [内核启动参数目录](analysis/boot-args.md)。
 - [xnu-8796 内核的 Linux 容器构建](analysis/kernel-build-linux.md)。
@@ -60,7 +61,7 @@
 - [backboardd 合成路径的处理器开销（2026-10-31）](analysis/2026-10-31-compositor-cpu-path.md)。
 - [每次开机都是首次开机（2026-10-31）](analysis/2026-10-31-every-boot-is-first-boot.md)。
 - [锁屏壁纸：MercuryPosterExtension 的渲染链路（2026-10-31）](analysis/2026-10-31-mercury-wallpaper.md)。
-- [120 Hz 手势帧率的卡点（rt2 离线分析，2026-11-01）](analysis/2026-11-01-120hz-gesture-bottleneck.md)。
+- [120 Hz 手势帧率的耗时瓶颈（rt2 离线分析，2026-11-01）](analysis/2026-11-01-120hz-gesture-bottleneck.md)。
 - [GPU 升频之后的长帧（2026-11-02）](analysis/2026-11-02-120hz-after-gpu-clock.md)。
 - [状态栏时间与电池的横向位置](analysis/2026-11-02-status-bar-layout.md)。
 - [ir3 磁盘缓存跨开机实测与根因修复](analysis/2026-11-09-ir3-disk-cache.md)。
@@ -97,7 +98,7 @@
 ## 7. 硬件、网络与多媒体
 
 - [annibale（REDMI K90 / SM8750「sun」）真机设备树硬件资源图谱](analysis/annibale-hw-map.md)。
-- [annibale 触摸、按键、电量与 CPU 拓扑的硬件读法](analysis/2026-10-24-interactive-runtime.md)。
+- [annibale 触摸、按键、电量与 CPU 拓扑的硬件读取方法](analysis/2026-10-24-interactive-runtime.md)。
 - [MiCode K90 官方内核源码调研（2026-10-24）](analysis/2026-10-25-micode-annibale-reference.md)。
 - [K90 Wi-Fi：Android cnss2 的上电与 WLFW 顺序（2026-11-01 实测）](analysis/2026-11-01-android-cnss2-wlan-bringup.md)。
 - [K90 音量与声音输出调研（2026-11-02）](analysis/2026-11-02-audio-and-volume.md)。

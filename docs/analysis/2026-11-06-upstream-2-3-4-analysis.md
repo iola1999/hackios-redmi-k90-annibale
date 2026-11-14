@@ -90,7 +90,7 @@
 
 - `hackios-xnu-kernel/tools/userland-driver/annibalemetal.m` 通过 `libannibaleair.dylib`（`air_to_nir.c`）在运行时直接将每个 `MTLFunction` 携带的完整 AIR 位码编译为 Adreno Gen8（A830）原生指令，并持久化到 `/var/db/annibale-pipecache-v5.bin`，不存在「只预提取 451 个变体、其余回退到错误变体」的限制。
 - 本仓此前在 iOS 26 上遇到的桌面小组件黑块、壁纸色彩异常与图标模糊，根因分别是 AIR 指针 `phi` 节点未向后追踪空纹理绑定（已在 `hackios-xnu-userland/tools/mesa/air/air_ptr_phi.inc` 修复）以及单采样 `MultisampleResolve` 渲染通道未复制背景纹理（已在 `hackios-xnu-kernel/tools/userland-driver/annibalemetal_blit.inc` 修复）。
-- 因此，上游的 `hm_ca_nearest` 变体近似匹配无需移植到本仓；其排查思路印证了保留完整 `MTLFunction` AIR 实时编译管线在 iOS 26 上的必要性。
+- 上游的 `hm_ca_nearest` 变体近似匹配无需移植到本仓；其排查思路印证了保留完整 `MTLFunction` AIR 实时编译管线在 iOS 26 上的必要性。
 
 ## 6. 多机型兼容性保护与仓库结构（`f8976bc`、`9da1523`、`d18f6bd`、`95c956b`）
 

@@ -6,27 +6,27 @@
 
 本项目的脚本按「Android 在 B 槽、loader 写在 A 槽的 boot 分区」编写。`tools/k90auto/cycle.py`、`tools/k90auto/reboot-lk.py`、`tools/k90auto/recover-loader.py` 固定执行 `set_active a`，`recover-loader.py` 还断言 Android 的 `ro.boot.slot_suffix` 为 `_b`。下文命令按这个布局写；Android 在 A 槽的设备需要对调命令里的 a／b，并修改这些脚本。
 
-各产物的选择与来源：
+各产物按以下方式选择并确定来源。
 
 - loader：以设备实际 `getvar build-id` 和本轮镜像构建记录核对。`cycle.py` 通过 [`recover-loader.py`](../../tools/k90auto/recover-loader.py) 进入已枚举的空闲 loader；显式指定 `LOADER_IMAGE=FILE` 或设置 `CYCLE_CHECKPOINT=1` 时，经 LK 执行检查点，需要 `ANDROID_SERIAL`。`LOADER_IMAGE` 指定完整调试镜像，未指定时从 A 槽启动；具体步骤见 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。Wi-Fi 需要 loader 在 4 GB 以下为 Wi-Fi 卡保留 128 MB 内存，v16 起提供这一内存区域。
 - 内核：构建后用 `register-kernel.py` 登记，再用 `cycle.py --kernel <内核名>` 选择；缺省值由 [`cycle.py`](../../tools/k90auto/cycle.py) 的 `KERNEL` 定义，新环境需先登记本地构建。`make-payload.py` 从 `kernel.json` 取内核并核对哈希，再与辅助盘打包成载荷，构建与登记见 [k90auto 说明 §1](../../tools/k90auto/README.md#1-前提与产物位置)。
-- 系统卷：部署在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。`userland/flashboot.apfs` 是本轮构建为 4 MiB 的启动卷，作为 `md0`；`root.apfs` 是辅助盘 `md1`，挂载到 `/annibale`。部署见[双系统分区与持久化部署手册](dual-boot-setup.md)。
+- 系统卷：部署在 UFS `darwin` 分区，由内核 APFS 驱动按需读取。`userland/flashboot.apfs` 是本轮构建为 4 MiB 的启动卷，用作 `md0`；`root.apfs` 是辅助盘 `md1`，挂载到 `/annibale`。部署见[双系统分区与持久化部署手册](dual-boot-setup.md)。
 - 启动参数：`make-payload.py` 的固定一组加 `cycle.py` 的 `FIXED_ARGS`，见第 8 节与 [k90auto 说明 §8](../../tools/k90auto/README.md#8-渲染问题的无人值守检查)。
 
-每轮收尾的 PSCI 复位会重新启动 `boot_a` 里的镜像，重新枚举后执行 `oem recovery` 进入 Fastboot 空闲态。`cycle.py` 每轮检查 `slot-retry-count:a`，低于 3 时经 LK 重置重试次数。起轮与收尾均需核验 `product=xnuloader`、`result=idle` 和空的启动卷常驻区，恢复要求见第 6 节。
+每轮收尾的 PSCI 复位会重新启动 `boot_a` 里的镜像，重新枚举后执行 `oem recovery` 进入 Fastboot 空闲态。`cycle.py` 每轮检查 `slot-retry-count:a`，低于 3 时经 LK 重置重试次数。启动测试轮与收尾均需核验 `product=xnuloader`、`result=idle` 和空的启动卷常驻区，恢复要求见第 6 节。
 
 ## 2. 操作前检查
 
 1. 确认本轮内核、loader、载荷、辅助盘和启动卷的文件大小与 SHA-256；修改源码后重新构建对应产物。`cycle.py`／`run-auto.py` 按 `manifest.json` 自动核对，手工运行时自己核对。
 2. 先看 `adb devices -l` 和 `fastboot devices`，把目标 Android／LK 序列号设为环境变量 `ANDROID_SERIAL`；驻留 loader 使用 `xnuloader`。每次切换后重新确认身份，判别方法见 [SOP §1](device-boot-target-sop.md#1-先判当前身份)。
-3. 确认当前槽位和 A 槽重试次数。写启动镜像只用 `boot_a`。连续实验会耗尽 A 槽重试次数，LK 随后回退到 B 槽 Android；这时经 ADB 回到 LK 执行 `set_active a` 即可恢复已有 loader，无需重写镜像，见 [SOP §4](device-boot-target-sop.md#4-陷阱均为实测) 第 4 条。
-4. 无人值守跑轮遵守 [AGENTS.md](../../AGENTS.md) 第 5 节。
+3. 确认当前槽位和 A 槽重试次数。写启动镜像只用 `boot_a`。连续实验会耗尽 A 槽重试次数，LK 随后回退到 B 槽 Android；这时经 ADB 回到 LK 执行 `set_active a` 即可恢复已有 loader，无需重写镜像，见 [SOP §4](device-boot-target-sop.md#4-常见问题与注意事项均为实测) 第 4 条。
+4. 无人值守测试轮遵守 [AGENTS.md](../../AGENTS.md) 第 5 节。
 
 ## 3. 安装驻留 loader
 
 loader 镜像是 Git 忽略的本地构建产物，构建步骤见 [annibale UEFI 与 loader 镜像构建](../analysis/annibale-uefi-build.md#3-装配-loader-镜像)。将本轮完整 loader 镜像路径设为 `LOADER_IMAGE`，核对文件大小、SHA-256 与构建记录后再操作。其中的 UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支；历史 v17 镜像沿用 v16 的 loader，替换了 UEFI，标签 `loader-v17` 对应其中的 FD。
 
-镜像可以先不刷写：在 LK 执行 `fastboot -s "${ANDROID_SERIAL}" boot "$LOADER_IMAGE"`，2026-10-31 实测 loader 约 18 秒后枚举，不改 `boot_a`，也不扣 A 槽重试次数（[SOP §4](device-boot-target-sop.md#4-陷阱均为实测) 第 1 条）。`cycle.py` 用环境变量 `LOADER_IMAGE=FILE` 指定检查点要起的镜像。
+镜像可以先不刷写：在 LK 执行 `fastboot -s "${ANDROID_SERIAL}" boot "$LOADER_IMAGE"`，2026-10-31 实测 loader 约 18 秒后枚举，不改 `boot_a`，也不扣 A 槽重试次数（[SOP §4](device-boot-target-sop.md#4-常见问题与注意事项均为实测) 第 1 条）。`cycle.py` 用环境变量 `LOADER_IMAGE=FILE` 指定检查点要启动的镜像。
 
 刷写前先进入 LK：Android 可连接时用 `adb -s "${ANDROID_SERIAL}" reboot bootloader`；loader 驻留时用 `reboot-lk.py`（[SOP §2](device-boot-target-sop.md#2-五条切换路径)）；软件入口都不可用时请用户长按电源键和音量下进入 FASTBOOT（[USB 恢复经验 §4](../analysis/2026-10-25-usb-recovery-lessons.md#4-按当前环境选择恢复方式)）。
 
@@ -60,8 +60,8 @@ fastboot -s xnuloader getvar result
 - 先上传 payload，再执行 `oem ramdisk` 并上传启动卷，使 loader 按本轮 payload 分配内存窗口。运行前核对 `ramdisk-state` 的已接收长度、总长度与启动卷大小一致，窗口与 payload 的 `memsize` 一致；本轮 4 MiB 启动卷和 12 GiB 窗口对应 `ready 400000 400000 300000000`。任一项不符就停止。
 - `bootcpu=7` 让内核从 MPIDR `0x10100` 的核启动，loader 留在当前 CPU 上处理 USB。
 - 结束运行用 `fastboot -s xnuloader oem stop`，或在触摸屏五指同时按住 1.5 秒（`annibale_input.c` 的 `exit_hold_elapsed()`，退回前自动同步 `/private/var` 并停止 Wi-Fi），再查询 `result`。
-- 通过 `fastboot -s xnuloader oem "sh ..."` 执行命令时，命令正文长度必须 `<= 119` 字节（建议统一用 `tools/k90auto/rsh.py`），超长包（`> 511` 字节）会导致 DWC3 `USB_EP_OUT` 返回 `CompleteError` 并在本次启动周期内置 `usb_out_lost = 1` 隔离接收端点，详见 [USB 恢复经验 §6.6](../analysis/2026-10-25-usb-recovery-lessons.md#66-oem-sh-超长命令导致-usb_ep_out-端点永久隔离与五指退回黑盒陷阱)。
-- 带 GPU 的载荷（`make-payload.py` 默认 `adreno8=23 adreno8_keep=1 adreno8_return=0`）停止后不返回 loader，约 50 秒后 loader 报 `hung-held`，按第 5、6 节保存日志后复位，过程见[无人值守收尾](../analysis/2026-10-28-unattended-teardown.md)。`GPU_STAGE=0` 打包的载荷不起 GPU，内核可以返回 loader。
+- 通过 `fastboot -s xnuloader oem "sh ..."` 执行命令时，命令正文长度必须 `<= 119` 字节（建议统一用 `tools/k90auto/rsh.py`），超长包（`> 511` 字节）会导致 DWC3 `USB_EP_OUT` 返回 `CompleteError` 并在本次启动周期内置 `usb_out_lost = 1` 隔离接收端点，详见 [USB 恢复经验 §6.6](../analysis/2026-10-25-usb-recovery-lessons.md#66-oem-sh-超长命令导致-usb_ep_out-端点永久隔离与五指退回问题)。
+- 带 GPU 的载荷（`make-payload.py` 默认 `adreno8=23 adreno8_keep=1 adreno8_return=0`）停止后不返回 loader，约 50 秒后 loader 报 `hung-held`，按第 5、6 节保存日志后复位，过程见[无人值守收尾](../analysis/2026-10-28-unattended-teardown.md)。`GPU_STAGE=0` 打包的载荷不启用 GPU，内核可以返回 loader。
 - `loader_return_after=N` 让内核限时返回，取消不了 GPU 资源保留；`make-payload.py` 生成的载荷禁止带这个参数。
 - 屏幕停在最后一帧时先查询 `result`，避免重复调查已经退出的系统。
 
@@ -87,7 +87,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 
 - `result: running`：内核仍在运行，读取 USB 日志判断进度。
 - `result: returned ...` 或 `checkpoint ...`：先保存终态与日志。下一轮必须重新进入已枚举的 loader，独立核验 `product=xnuloader`、`result=idle` 和空的启动卷常驻区。
-- `result: returned ...`、`oem stop` 成功和 annsh 退出码 0 只说明对应调用结束。one-shot loader 在内核返回后会进入 recovery 界面；起轮前检查 `result`、`ramdisk-state`、UFS 在途请求和 GPU 日志。出现 `retained until cold reset` 时，保留原内核内存与映射，保存返回快照后执行共享恢复入口。终态硬校验失败即停止后续轮次。
+- `result: returned ...`、`oem stop` 成功和 annsh 退出码 0 只说明对应调用结束。one-shot loader 在内核返回后会进入 recovery 界面；启动测试轮前检查 `result`、`ramdisk-state`、UFS 在途请求和 GPU 日志。出现 `retained until cold reset` 时，保留原内核内存与映射，保存返回快照后执行共享恢复入口。终态硬校验失败即停止后续轮次。
 - recovery 界面的 `getvar screen` 可能返回空值。空的可选显示字段不得阻塞已授权的测试；K90 原始帧按已验证的 1156×2510、每行 4624 字节解码，并保留实际字节数校验。
 - standalone 复位后可能直接运行 `boot_a`，读到 `result: running 0 0`。更换候选使用 `tools/k90auto/recover-loader.py <新恢复目录>`，通过 `ANDROID_SERIAL` 和 `LOADER_IMAGE` 选择已识别的设备与完整 loader-only 镜像。工具先停止运行中的内核并保存终态日志，再经 LK 或 B 槽 Android 返回空闲 loader；原停止现场保留常驻 RAM。
 - `result: hung ...`：先保存可读日志，核对资源保留状态，再复位。
@@ -97,7 +97,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - `result: reset-failed`：PSCI 复位调用返回，直接读取日志中的返回值；loader 保留 USB 命令循环。
 - `result: no-such-core ...`：先保存 loader 原始日志，核对目标 MPIDR 和 PSCI 返回值。屏幕上的旧画面不能用来评估本轮。
 - USB 有枚举记录但命令无响应：可能是内核占用 loader 的 CPU、USB 传输等待或固件异常。记录命令、耗时、USB 枚举与画面，按 [USB 恢复经验](../analysis/2026-10-25-usb-recovery-lessons.md)分别排查；设备从 USB 整个消失时的处置也在该文档第 4 节。
-- loader 看门狗：`a1c40aed` 起，显式进入 Fastboot 驻留后，只要内核未运行、资源已释放、无固件故障且 USB 端点可用，loader 持续喂 Haven 虚拟看门狗；200 秒无主机命令已验证。其他非运行状态保留 180 秒主机静默期限（`HOST_SILENCE_SECONDS`，`xnuloader/loader_04_fault_payload_nvram.inc`）；运行中的内核自己喂看门狗。复位目标仍由活动槽位与实际重试预算决定，见[驻留验证](../analysis/2026-11-11-multimedia-validation.md#16-显式-fastboot-驻留)。
+- loader 看门狗：`a1c40aed` 起，显式进入 Fastboot 驻留后，只要内核未运行、资源已释放、无固件故障且 USB 端点可用，loader 持续刷新 Haven 虚拟看门狗；200 秒无主机命令已验证。其他非运行状态保留 180 秒主机静默期限（`HOST_SILENCE_SECONDS`，`xnuloader/loader_04_fault_payload_nvram.inc`）；运行中的内核自行刷新看门狗。复位目标仍由活动槽位与实际重试预算决定，见[驻留验证](../analysis/2026-11-11-multimedia-validation.md#16-显式-fastboot-驻留)。
 - 返回 Android：按 [SOP §2](device-boot-target-sop.md#2-五条切换路径) 先进入 LK，再 `set_active b` 加 `reboot`。loader 的 `reboot` 在 annibale 上只执行 PSCI_SYSTEM_RESET，目标仍由当前槽位决定。
 - `oem logwrite` 会覆盖 `boot_a` 开头，不能用于保存启动后的日志；真机调试使用 USB 日志。
 - 桌面 wch 串口属于其他设备。手机 UART 为 GENI `0xa9c000`、`115200n8`，当前没有连接调试线，默认保持关闭。
@@ -125,7 +125,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - 采集边界：先核对截图来源、尺寸、行距与颜色格式。帧缓冲读取覆盖到的显示阶段需按实现确认；物理面板扫描结果单独验收。出现画面与日志不一致，先确认截图的新旧、动作时序及读取位置。
 - 截图一致性：当前 [`oem screenshot`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 直接指向 `SCREEN.base`，随后分块上传，未创建冻结副本。动态更新期间可能跨帧读取，是否发生需另行核对；记录实际传输耗时，不能从请求频率推定有效帧率。
 - 录屏：短暂异常可由 device 成员使用有界 `rec_secs`／`rec_start`／`rec_mb` 配置采集，并用 [`recording.py --frames`](../../hackios-xnu-kernel/tools/recording.py) 导出原始采样帧。30 fps 转码可能遗漏短帧；当前[录屏实现](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp) 读取提交的 layer 0 surface，按 `rec_step` 降采样，需结合帧缓冲截图审阅，并记录内存占用与复制开销。
-- 性能影响：采图与传输可能改变时序，视觉验证记录采样配置；性能对照保持同样的采样安排，耗时测量窗口中的额外采图单独说明。
+- 性能影响：采集截图与传输可能改变时序，视觉验证记录采样配置；性能对照保持同样的采样安排，耗时测量窗口中的额外采集截图单独说明。
 - 结果：每项记录轮次与产物、实际场景、截图文件及异常区域、发生阶段和下一项定位步骤。无崩溃、探针通过或单张截图正常，只支持各自检查覆盖的范围；已有可见故障继续保留在待办中。
 
 ## 8. 外设开关（修改 kernel payload 的 cmdline）

@@ -17,7 +17,7 @@ iOS 交叉工具链也在镜像里：theos、ld64（x86_64，经 OrbStack 的 Ro
 - Mesa：容器负责下载、解包和应用补丁；arm64e 构建树与主机编译步骤见 [arm64e 用户态构建 §6](../docs/analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)。
 - iOS 26.6.2 系统文件与用户态：在 macOS 上按[开发指南 §3](../docs/development.md#3-下载并解密-ipsw)和[§6](../docs/development.md#6-构建用户态与启动卷)准备。`ios26/fetch.sh` 使用 `hdiutil`，`userland/build.sh` 使用 Apple clang 与 Xcode 工具。
 
-## 2. headless 跑 QEMU
+## 2. 无窗口运行 QEMU
 
 先准备本轮内核、系统盘与辅助盘，路径由 [`qemu/run-ios.sh`](../hackios-xnu-kernel/qemu/run-ios.sh) 的 `KERNEL`、`IMG`、`ROOT` 选择。锁屏截图用于确认 QEMU 中的桌面启动；K90 真机验收见[真机调试手册 §7](../docs/plan/device-test-playbook.md#7-四阶段验收)。
 
@@ -32,4 +32,4 @@ qemu/touch.py drag up                              # 上滑解屏；qemu/stop.sh
 
 ## 3. 性能备注
 
-`/work` 走 VirtioFS，大文件（IPSW 解包、apfs 打包）可能慢；明显变慢时，把树放进容器卷里构建，再把 git 改动写回工作区。
+`/work` 通过 VirtioFS 挂载，大文件（IPSW 解包、apfs 打包）可能慢；明显变慢时，把树放进容器卷里构建，再把 git 改动写回工作区。

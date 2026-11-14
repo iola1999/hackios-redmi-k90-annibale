@@ -94,7 +94,7 @@ TrollStore 默认注册为 System，并已设置 `IsDeletable`。`SBApplicationI
 | 覆盖限制 | 安装服务和容器变化由替身提供，初始化中的 AirDrop、投屏、日历和地址匹配分支未完整执行 |
 | 真机 | 待普通测试应用主屏卸载、Bundle／Data／共享容器处理、失败结果和重启后的注册状态验证 |
 
-静态方法表与反汇编输出保存在本轮 Git 忽略的本地调试目录。TrollStore 自身的 `uninstallApp()` 仍直接删除 Data／Group／Plugin 容器，需作为独立事项检查。
+静态方法表与反汇编输出保存在本轮 Git 忽略的本地调试目录。TrollStore 自身的 `uninstallApp()` 仍直接删除 Data／Group／Plugin 容器，需按独立事项检查。
 
 ## 6. 应用前台切换
 

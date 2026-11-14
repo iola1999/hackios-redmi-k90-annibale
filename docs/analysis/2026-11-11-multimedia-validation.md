@@ -78,7 +78,7 @@ cd4 准备期间，PSCI 复位后首次重新枚举的 A 槽 standalone 已自�
 
 旧 loader 的 `reboot-bootloader`／`oem reboot-lk` 在首个匹配 SPMI 通道不可写时提前结束，实际没有设置 LK 引导目标。修复跳过不可写通道，并检查事务完成、错误位和读回值，失败后不复位。46 个实际 helper／调用分支用例通过，旧基线和 16 个保护变体按预期失败；修复已提交为 `14e015ab`，临时启动与返回 LK 已验证，见第 11 节。
 
-共享恢复入口已经过 cd4 起轮前及 cd4、cd5 收尾的真机检查，完整调用耗时分别为 31.509、30.895 和 30.380 秒。`cycle.py` 已改为调用同一入口，再独立校验终态，删除自身重复的复位与清理逻辑。LK 直接切换为唯一 loader 的枚举序列也可通过；重复或混合身份会停止操作。宿主检查通过：恢复 31 项、LK 切换 32 项、工具 39 项、cycle 状态 12 项；旧恢复入口在三项新增场景失败。保留状态配合 `LOADER_IMAGE` 先保存终态和 loader 日志，再通过 `reboot-bootloader` 进入已识别的 LK；旧分支和删除该选择的消融在新增场景均产生 13 个失败断言。
+共享恢复入口已经过 cd4 启动测试轮前及 cd4、cd5 收尾的真机检查，完整调用耗时分别为 31.509、30.895 和 30.380 秒。`cycle.py` 已改为调用同一入口，再独立校验终态，删除自身重复的复位与清理逻辑。LK 直接切换为唯一 loader 的枚举序列也可通过；重复或混合身份会停止操作。宿主检查通过：恢复 31 项、LK 切换 32 项、工具 39 项、cycle 状态 12 项；旧恢复入口在三项新增场景失败。保留状态配合 `LOADER_IMAGE` 先保存终态和 loader 日志，再通过 `reboot-bootloader` 进入已识别的 LK；旧分支和删除该选择的消融在新增场景均产生 13 个失败断言。
 
 ## 7. 手电筒、亮度与相机的新反馈
 
@@ -198,7 +198,7 @@ SMMU 配置开始前记录 `smmu_owned` 和 CB／SMR 索引，setup 中途返回
 
 原生 `VTDecompressionSessionCreateWithOptions` 在 `0x1903b8b98` 将 context 内部地址传给 `start_session`；`decode_frame` 在 `0x19018eae0` 接收 context 计数器生成的整数帧 token。驱动原有 `CFRetain`／`CFRelease` 要求 CF 对象头，与这两类参数的调用契约冲突。
 
-修复将 session 作为借用的 opaque handle，frame token 按指针宽度原样保存并送回 `VTDecoderSessionEmitDecodedFrame`。CVPixelBuffer 等 CF 对象继续按原路径释放。原生 invalidate 在 `0x19065186c` 执行，context 随后于 `0x190651a4c` 释放；完整队列与清理顺序已核对。创建路径将计数器初始化为 1，decode 先读取旧值再递增，正常首帧 token 为 1。
+修复将 session 按借用的 opaque handle 处理，frame token 按指针宽度原样保存并送回 `VTDecoderSessionEmitDecodedFrame`。CVPixelBuffer 等 CF 对象继续按原路径释放。原生 invalidate 在 `0x19065186c` 执行，context 随后于 `0x190651a4c` 释放；完整队列与清理顺序已核对。创建路径将计数器初始化为 1，decode 先读取旧值再递增，正常首帧 token 为 1。
 
 - 完整 `test-iris-safety.py` 宿主检查通过；旧 VT 源在非 CF session 与整数 token 两类检查触发 SIGABRT，6 个恢复 CF 引用计数的编译变体失败。
 - 使用 `package.py` 相同 SDK 与 VT flags 独立编译、签名 arm64e 库，退出码 0。
@@ -533,7 +533,7 @@ A830 RAM 轮的 22 组读取／采样全部通过，其中 `L00h` 8 组、`1C0h`
 - 原生 GraphSPI 的 opaque constant buffer 反射为 `None`／size 0／alignment 4；12 个 pointer／value 类型用例与原版 CI 图均匹配。驱动只接受该空 constant buffer 形状，访问模式按 SDK 数值保留。
 - 去掉 EarlyReturn、忽略 byteOffset、交换访问模式、恢复旧 opaque 转换及使用错误 alignment 的变体均未通过对应检查。跨节点 API sampler 绑定预留于 constexpr sampler 分配之前，scratch 大小先以 64 位计算再检查边界。
 - 原始基线 AIR 和 heap Metal 两库重建逐字节一致。独立候选没有包含 cospi 或 R16；候选 AIR UUID 为 `28000AF1-1B24-3E65-98EE-B56E75DDF140`，Metal bundle UUID 为 `8B573294-9EDF-3A6D-B359-D96F575AC606`。
-- 隔离 Linux 的 18 阶段 AIR 检查退出码及关键计数与既有基线一致，没有新增失败；完整检查仍返回 1。已有失败包括 reader 的 304 处差异、旧 clang 的 FMA／argbuf 参考解析、部分 min／max／clamp 软件数值、blend 拒绝、lowering、旧 framebuffer fetch 规则及 phi 检查。最终 GraphSPI 反射修正另由宿主重编与原生对照验证，详细范围保存在 `legacy-check-review.json`。
+- 隔离 Linux 的 18 阶段 AIR 检查退出码及关键计数与既有基线一致，没有新增失败；完整检查仍返回 1。已有失败包括 reader 的 304 处差异、旧 clang 的 FMA／argbuf 参考解析、部分 min／max／clamp 软件数值、blend 拒绝、lowering、旧 framebuffer fetch 规则及 phi 检查。最终 GraphSPI 反射修正另由宿主重新编译与原生对照验证，详细范围保存在 `legacy-check-review.json`。
 
 A830 的原版 CI 图探针在 160 ms 后返回 0，命令状态为 4，128 个分量零错误；纹理 1、采样器 5、六节点和五函数均与原生参考一致。实际查看前后完整桌面图与原尺寸组件局部，两张相隔 28.579 秒的图都缺少应用、Dock 图标与组件内容，壁纸、标签、状态栏和时钟指针仍可见，候选未通过视觉验收。
 
@@ -888,7 +888,7 @@ direct 探针去掉第 45 节的锁查询，取得完整 `open-end`。原生打�
 
 最终日志在内核时间 255.703 秒记录 `Lightweight corpse enqueued for MobileSafari`。该行仅记录轻量异常回溯入队，尚无进程退出结论，其与 `oem stop` 的先后关系也未建立。设备探针、内核前缀、日志墙钟和主机单调时间尚未校准，当前仅按各自时间域和快照顺序报告，未计算跨时间域的精确延迟。
 
-完整返回值、阶段计时和最终日志位于本地 `kernel-12377-codex-1112-cd16-safari-open-direct/`，静态分析位于 `codex-1112-safari-open-direct/rootcause/report.json`。下一轮保持单次原生调用与 30 秒进程期限，以已有解锁完成和 Home Screen 日志作为调用前提，继续核对请求、前台与页面事件。
+完整返回值、阶段计时和最终日志位于本地 `kernel-12377-codex-1112-cd16-safari-open-direct/`，静态分析位于 `codex-1112-safari-open-direct/rootcause/report.json`。下一轮保持单次原生调用与 30 秒进程期限，以已有解锁完成和 Home Screen 日志用作调用前提，继续核对请求、前台与页面事件。
 
 ## 49. 相机 CI、MPS 与纹理修正组合验证
 
@@ -1015,7 +1015,7 @@ cd29 保持第 52 节的内核、原生探针、启动参数与常驻启动卷�
 
 ## 57. Safari 页面传输与脚本完成，单帧正文仍空白
 
-本轮沿第 53 节保持内核、辅助盘、原生探针、URL、options 与启动就绪条件。原生打开成功后，以完整页面 GET、page-ready 和 Safari 前台状态作为事件完成条件，最多观察 90 秒；期间增加前后两次只读接口查询，结束保存一张截图。
+本轮沿第 53 节保持内核、辅助盘、原生探针、URL、options 与启动就绪条件。原生打开成功后，将完整页面 GET、page-ready 和 Safari 前台状态设为事件完成条件，最多观察 90 秒；期间增加前后两次只读接口查询，结束保存一张截图。
 
 - 原生只调用一次，返回 true，NSError 为空。方法耗时 8.811783 秒，探针耗时 8,866 ms，原生与 rsh 退出码均为 0。
 - 目标 GET 返回 200，HTML 的 1,900 字节全部写出，内容 SHA-256、响应范围与长度匹配，`write_error=null`。随后收到 page-ready，最新完整 Main Display 记录为 Safari primary。
@@ -1190,7 +1190,7 @@ cd36 沿第 66 节的冻结内核、Metal、AIR、页面和打开探针，仅为
 - 两次接口查询均在 Safari 打开后执行，en0 为 UP／RUNNING，IPv4 地址为空。主机 HTTP 健康请求只覆盖主机，设备路由与设备访问测试服务尚未验证；本轮页面加载、正文与视频验收无效。
 - 13 条采集命令完成，最高 CPU 采样温度为 72.1°C，采样器记录一个覆盖缺口。HTTP 服务和控制器退出，收尾确认 loader 空闲、常驻区为空和真实 LK 重试 7。
 
-静态核对发现，`libsystem_sandbox` 的请求 5 在成功返回后直接使用输出缓冲作为 extension token；MiniSandbox 该分支返回成功却未写入输出。原生库的失败分支释放缓冲并返回 NULL，Foundation 可继续处理这一结果。内核改为返回 `ENOTSUP`，宿主回归和冻结单对象编译通过；后续真机结果及 Safari 的 NULL 消费路径见第 72 节。
+静态核对发现，`libsystem_sandbox` 的请求 5 在成功返回后直接将输出缓冲用作 extension token；MiniSandbox 该分支返回成功却未写入输出。原生库的失败分支释放缓冲并返回 NULL，Foundation 可继续处理这一结果。内核改为返回 `ENOTSUP`，宿主回归和冻结单对象编译通过；后续真机结果及 Safari 的 NULL 消费路径见第 72 节。
 
 后续先观察开机后的 Wi-Fi 自动连接与已保存网络设置，连接可用后再继续页面和视频测试。原始结果位于本地 `kernel-12377-codex-1112-cd36-safari-exception/`，网络与异常范围见其 `run/device-final-network-exception-review.json`；原生分支分析见本地 `safari-exception-1112/native-exception-current-review.json`，修复与构建见 `safari-sandbox-1113/`。
 

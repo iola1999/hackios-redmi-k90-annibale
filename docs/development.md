@@ -2,7 +2,7 @@
 
 构建、测试与发布的未完成事项见[工程待办](backlog/engineering.md)，其他文档见[文档入口](README.md)。
 
-本文说明怎样从源码构建内核、用户态与根盘，组装双系统引导镜像，以及怎样出 Release。只想体验的用户看[体验说明](user-guide.md)即可。接手、排查和真机操作前先读[排查与协作手册](plan/debugging-and-collaboration.md)。
+本文说明怎样从源码构建内核、用户态与根盘，组装双系统引导镜像，以及怎样生成 Release。只想体验的用户看[体验说明](user-guide.md)即可。接手、排查和真机操作前先读[排查与协作手册](plan/debugging-and-collaboration.md)。
 
 ## 1. 环境
 
@@ -82,7 +82,7 @@ FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh   # 只含 stage0 与
 ```
 
 - 第一条生成根盘基线目录 `userland/root/`；不加 `COMPILE_ONLY=1` 时还生成约 5.9 GB 的合成系统盘 `system26.apfs`。双系统部署直接写入原版三个镜像时只需要基线目录。
-- 根盘里会放进本机 `../ssh/authorized_keys` 等 ssh 密钥（存在时）。要分发的构建加 `SHARE=1`，`build-release.py` 发现 ssh 密钥会拒绝出包。
+- 根盘里会放进本机 `../ssh/authorized_keys` 等 ssh 密钥（存在时）。要分发的构建加 `SHARE=1`，`build-release.py` 发现 ssh 密钥会拒绝生成 Release 包。
 - 系统卷部署在 UFS `darwin` 分区，启动过程见[根文件系统说明](analysis/rootfs-strategy.md)。
 
 ## 7. 打包根盘
@@ -122,15 +122,15 @@ python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
 ## 9. 部署与真机调试
 
 - 分区、写系统盘、刷入引导镜像和 Android 更新的影响：[双系统分区与持久化部署手册](plan/dual-boot-setup.md)。
-- 引导目标切换与陷阱：[引导目标切换 SOP](plan/device-boot-target-sop.md)。
+- 引导目标切换与常见问题：[引导目标切换 SOP](plan/device-boot-target-sop.md)。
 - 驻留 loader、手工运行内核、读日志：[真机调试手册](plan/device-test-playbook.md)。
-- 无人值守跑轮与通过 USB 安装 `.ipa`（`install-ipa.py`）：[k90auto 说明](../tools/k90auto/README.md)。
+- 无人值守测试轮与通过 USB 安装 `.ipa`（`install-ipa.py`）：[k90auto 说明](../tools/k90auto/README.md)。
 
-## 10. 出 Release
+## 10. 生成 Release
 
 Release 只放本项目的文件。根盘里来自 IPSW 的文件（launchd 任务与缓存、`/private/var` 模板和少量原样复制的系统文件）和手机厂商固件不进 Release，改为记录生成方法，由用户在本地用 `tools/release/assemble.py` 从自己的 IPSW 和手机重新生成。
 
-1. 三个仓库的改动都已提交并推送，然后在本机重新克隆一份，目录不限。`xnu26/build-macos.sh` 与 `tools/mk-ath12k.sh` 用 `-ffile-prefix-map` 把内核里 `__FILE__` 的路径改成相对源码目录的路径，产物里不再有本机目录；`build-release.py` 仍会检查，发现本机用户目录时拒绝出包。已有构建树里旧的目标文件不会因为参数变化自动重编，所以要用新克隆。
+1. 三个仓库的改动都已提交并推送，然后在本机重新克隆一份，目录不限。`xnu26/build-macos.sh` 与 `tools/mk-ath12k.sh` 用 `-ffile-prefix-map` 把内核里 `__FILE__` 的路径改成相对源码目录的路径，产物里不再有本机目录；`build-release.py` 仍会检查，发现本机用户目录时拒绝生成 Release 包。已有构建树里旧的目标文件不会因为参数变化自动重新编译，所以要用新克隆。
 2. 在这份克隆里按第 2～8 节构建全部产物，再执行 `bash hackios-xnu-kernel/tools/android/build.sh` 编译安卓端分区工具。
 3. 在工作区根目录执行：
 
@@ -146,8 +146,8 @@ python3 tools/release/build-release.py vX.Y.Z \
 - 检查三个仓库没有未提交的改动，记录各自的提交。
 - 把根盘目录拆成本项目文件和生成方法：与 IPSW 文件逐字节相同的文件、由 iOS 原文件加上本项目改动得到的 plist、launchd 缓存、`/private/var` 模板、手机固件。
 - 用本机的 IPSW 提取结果按生成方法重新生成每个文件，重新打包根盘，结果必须与 `package.py` 输出的 `root.apfs` 逐字节相同。
-- 把参考 loader 镜像的载荷换成只含 loader 的最小载荷，作为 Release 里的 loader 外壳；用外壳与参考镜像分别封装，结果必须相同，给了 `--expect-boot` 时还要与它相同。
-- 检查包内没有 ssh 密钥和本机用户目录，输出 `out/release/hackios-k90-vX.Y.Z.tar.gz` 与 `.sha256`。末尾的 review 行列出以 Apple 名称命名、但作为本项目文件放进 Release 的文件，发布前逐个确认来源。
+- 把参考 loader 镜像的载荷换成只含 loader 的最小载荷，用作 Release 里的 loader 外壳；用外壳与参考镜像分别封装，结果必须相同，给了 `--expect-boot` 时还要与它相同。
+- 检查包内没有 ssh 密钥和本机用户目录，输出 `out/release/hackios-k90-vX.Y.Z.tar.gz` 与 `.sha256`。末尾的 review 行列出名称来自 Apple、但按本项目文件放入 Release 的文件，发布前逐个确认来源。
 
 4. 发布前在一台 Linux 机器或容器里解包，按[体验说明](user-guide.md)第 4～6 步合成一次，确认输出「holds exactly the release's files」或「byte for byte」；有条件时按第 7 步在真机临时启动。
 5. 发布：

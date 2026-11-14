@@ -99,7 +99,7 @@ dtc -I dtb -O dts -o annibale-merged.dts hackios-xnu-kernel/Mu-Silicium/Platform
 **GOP framebuffer**：`/reserved-memory/splash_region`（label `splash_memory`，别名 `cont_splash_region`）`reg = <0 0xfc800000 0 0x2b00000>`（43MB，非 reusable），与 Mu-Silicium FD `MemoryMapLib` 的 `Display_Reserved`（0xFC800000+0x2B00000）**同址同大小**，loader 的 `platform_annibale.fb_base` 用这个地址（kernel 仓 872da86）。
 
 - 另一显示区 `non_secure_display_region` 是 `shared-dma-pool`+reusable、size 0xfc00000（252MB）、无固定地址（限 4G 内、对齐 4M），Linux CMA 性质，与 EDK2 carveout 是两回事。
-- 没有 GOP 时，loader 按 P11 模式把这块内存当作 1156×2510、stride 4624 的帧缓冲（`xnuloader/loader_06_usb_entry.inc`）；[真机调试手册](../plan/device-test-playbook.md)里当前屏幕几何也是 `1156 2510 4624`。
+- 没有 GOP 时，loader 按 P11 模式将该内存区域按 1156×2510、stride 4624 的帧缓冲使用（`xnuloader/loader_06_usb_entry.inc`）；[真机调试手册](../plan/device-test-playbook.md)里当前屏幕几何也是 `1156 2510 4624`。
 - 实测交接状态（`kernel-12377-cmd51-bo53`）：显示控制器 CTL0 以命令模式驱动 INTF1（DSI0），每帧自动刷新，面板 120 Hz；VIG0、VIG1 各取 1156×2510 帧缓冲的 578 列，见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md)。命令模式加 1156×2510 对应上表的 P11 配置，与 `qcom,dsi-default-panel` 指向的 1440×3200 视频模式节点不符。
 - 物理面板分辨率是否就是 1156×2510 还没有核实，见[状态栏布局分析](2026-11-02-status-bar-layout.md#62-k90-物理面板分辨率待核实)。
 

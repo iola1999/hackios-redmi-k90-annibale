@@ -25,7 +25,7 @@
 
 ### 3.1 已采用的两处改动
 
-- 单采样 resolve：对方只要 storeAction 是 resolve 且 resolveTexture 不为空，就在 endEncoding 时拷贝，不看采样数（`annibalemetal.m:5384-5394,6706-6736`）。我们在 storeAction 为 `MultisampleResolve`、loadAction 异于 Load、像素格式相同时，把 resolve 目标（按 `resolveLevel`）直接当作颜色附件；`ANNIBALE_RESOLVE_BLIT=1` 恢复旧行为。
+- 单采样 resolve：对方只要 storeAction 是 resolve 且 resolveTexture 不为空，就在 endEncoding 时拷贝，不看采样数（`annibalemetal.m:5384-5394,6706-6736`）。我们在 storeAction 为 `MultisampleResolve`、loadAction 异于 Load、像素格式相同时，将 resolve 目标（按 `resolveLevel`）直接用作颜色附件；`ANNIBALE_RESOLVE_BLIT=1` 恢复旧行为。
 - 导数：对方 `dfdx`、`dfdy`、`fwidth` 一律按 32 位、按像素计算（`air_intrinsics.c:533-549`），注释记录 half 操作数在 A830 上让 `fwidth.f16` 得到 inf 和 NaN。QuartzCore 里导数操作数为 half 的只有 `glass_background_*_lph` 四个函数。`AIR_COARSE_DERIVATIVES=1` 恢复旧行为。
 - `bo45` 同一次开机内逐个关掉这两处，锁屏时间仍显示，时钟由指针槽改动修好（[锁屏壁纸](2026-10-31-mercury-wallpaper.md) §8）。两处保留。
 
@@ -34,7 +34,7 @@
 - 只清屏的通道：对方没有 draw 的通道也执行 load action，每个附件只清自己（`annibalemetal.m:4766-4786`）；我们只读附件 0 的 load action，用 `PIPE_CLEAR_COLOR` 一起清。约 80 行。
 - 单个 draw 失败：对方只跳过这一个（`annibalemetal.m:5129-5142`，注释写旧做法出现过黑块）；我们把整个 command buffer 标为错误。约 10 行。
 - 拷贝：对方不等 fence，不同块大小走 `pipe->blit`（`air_metal.c:4400-4440`）；我们每次等 fence，要求格式相同。
-- function constant：对方把求值为 false 的参数当作不存在，未用到的纹理与采样器补 null 视图（`air_to_nir.c:2492-2510`）。
+- function constant：对方将求值为 false 的参数视为不存在，未用到的纹理与采样器补 null 视图（`air_to_nir.c:2492-2510`）。
 - 编译：CSO 按 `nir_serialize` 加 blake3 共享（`air_metal.c:5951-6012`）；按常量特化后只翻译走到的块，注释记录 `fixed_frag_lph_cph` 从 8907 条指令降到 25 条（`air_to_nir.c:6326-6380`）。
 - 缺 `air.buffer_size` 的 UBO 最多上传 16 KB（我们 64 KB）；A830 停机防护 `widen_scratch` 与 `air_cap_loops`（`air_to_nir.c:5855,5905`）。
 - 编码器级别的 LOD 范围（`annibalemetal.m:3833-3870`），注释写没有它时模糊金字塔采样到正在写的那一级；我们丢掉 `lodMinClamp`、`lodMaxClamp`。约 40 行。
@@ -71,7 +71,7 @@ QuartzCore 的 `default.metallib` 是 fat 文件，抽出 AIR slice 后 189 个�
 
 已采用（顶层 `bc20def`，实测见[开机次序与性能记录](../progress/2026-10-31-boot-order-and-performance.md) §5）：
 
-- loader v11 起在 K90 上武装看门狗，主机 180 秒不发命令就停止喂狗（对方 `loader.c:2826-2898`）。
+- loader v11 起在 K90 上武装看门狗，主机 180 秒不发命令就停止刷新看门狗（对方 `loader.c:2826-2898`）。
 - 系统盘装进 Android DSU，由 loader 读入（`hackios-xnu-kernel/xnuloader/loader_dsu.inc`、`tools/k90auto/dsu.py`）；对方只发差异块的 `dsu patch` 没有移植。
 - 完整 loader 镜像从 LK `fastboot boot` 起，不刷 `boot_a`，不扣 A 槽重试次数。
 

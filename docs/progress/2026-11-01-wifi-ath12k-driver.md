@@ -12,14 +12,14 @@
   - `lx_mac80211.c`：mac80211 的 wiphy work（ath12k 用它发管理帧、清理扫描）和 `ieee80211_queue_stopped`。
   - `lx_ath12k.h`：LinuxKPI 头文件缺的定义，数值取自 IEEE 802.11be 与 radiotap.org。
 - `wifi/lx/include/linux/` 新增 `acpi.h`、`clk.h`、`of_graph.h`、`panic_notifier.h`、`remoteproc/qcom_rproc.h` 的最小实现；`of_reserved_mem.h` 补 `struct reserved_mem`。
-- `wifi/lx/patches/`：LinuxKPI 头文件补 `rate_info.eht_ru_alloc`、`struct link_station_info`、`link_sta_statistics`、`eml_cap`、两个 EHT 的 `bss_conf` 字段、`IEEE80211_HW_MLO_MCAST_MULTI_LINK_TX`、ADDBA Response 帧结构；修正 `kmalloc_objs` 把乘积当成 `size_mul` 单参数的错误。
+- `wifi/lx/patches/`：LinuxKPI 头文件补 `rate_info.eht_ru_alloc`、`struct link_station_info`、`link_sta_statistics`、`eml_cap`、两个 EHT 的 `bss_conf` 字段、`IEEE80211_HW_MLO_MCAST_MULTI_LINK_TX`、ADDBA Response 帧结构；修正 `kmalloc_objs` 将乘积误传为 `size_mul` 单参数的错误。
 - `wifi/lx/src/`：
   - `lx_base.c`：内存池大小可由构建参数指定（ath12k 用 96 MB，其中 64 MB 给环与固件内存）；ath12k 构建里一页及以上的分配按大小向上取 2 的幂次对齐（上限 16 MB，`12377-cmd61` 起，见 3.1）；补 `skb_copy` 与 `sx_sysinit`。
   - `lx_80211.c` 拆成 `lx_80211.c`（radio、信道、扫描、收发帧）与 `lx_join.c`（加入网络、密钥、block ack、内核侧 station），共享声明放进 `lx_80211.h`；BSS 变化对没有 `bss_info_changed` 的驱动改为分别调用 `vif_cfg_changed` 与 `link_info_changed`。
 - 内核 `12377-cmd58`：
   - `pcie=10`：前 6 步照旧，之后不跑第 7～9 步，改为启动驱动（`annibale_lx_start()`）；驱动上电时内核再跑第 7、8 步，随后写 MHI 的 wake 门铃让网卡保持唤醒。
   - `annibale_lx.c` 在 `pcie=10` 时把驱动的内存、寄存器、固件文件、上电请求转给 `mhi_pcie.c`：内存取 loader 留在 4 GB 以下的区域，按页分配；`board.bin`、`regdb.bin`、`m3.bin` 分别对应 RAM 盘 `fw/` 下的 `bdwlan.elf`（`pcie_bdf=` 可改）、`regdb.bin`、`phy_ucode20.elf`。
-  - `annibale_lx.h` 新增 `lx_os_radio_registers()`，告诉驱动 BAR0 的位置与大小。
+  - `annibale_lx.h` 新增 `lx_os_radio_registers()`，向驱动提供 BAR0 的位置与大小。
   - `xnu26/build-macos.sh` 在 `ath12k.o` 存在时把它链进内核。
 - loader v15（`fastboot boot`，build-id `a6262dd`）：低端内存的申请条件改为 `pcie=7`～`pcie=10`。
 - `xnu26/build-macos.sh`：`ath12k.o` 变化时同时删掉 `mach.*.unstripped.noctf`，否则 make 从旧的链接结果复制，内核不会重新链接（`12377-cmd59` 之前一次构建因此得到与 `cmd58` 相同的镜像）。
@@ -38,11 +38,11 @@
   - `pcie_features=N` 替换主机能力的功能列表（`cmd73`）。
   - FW_INIT_DONE（0x38）与 FW_READY 一样视为固件就绪；`pcie_qdss=1` 在 M3 信息之后 3 秒内两者都没到时下发 `fw/qdss_trace_config_v2.cfg`（消息 0x44）（`cmd74`）。
   - `pcie_mlo=1` 按 cnss2 的值在主机能力里发单芯片 MLO 字段：`max_mlo_peer` 32、1 颗芯片、2 条链路（`cmd75`）。
-  - `cmd77` 去掉 FW_INIT_DONE 的处理与 3 秒等待：`wd19` 里固件发的是 FW_READY，且只在收到 QDSS 配置之后发。`pcie_qdss=1` 改为 M3 信息之后直接下发，与 cnss2 相同。这一版还没上机。
+  - `cmd77` 去掉 FW_INIT_DONE 的处理与 3 秒等待：`wd19` 里固件发的是 FW_READY，且只在收到 QDSS 配置之后发。`pcie_qdss=1` 改为 M3 信息之后直接下发，与 cnss2 相同。这一版尚未在真机测试。
 - `wifi/lx/ath12k/lx_pci.c`：`wifi_mlo=1` 把 `ab->single_chip_mlo_support` 置位，ath12k 因此在主机能力里发同样的 MLO 字段（`cmd76`）。
 - `wifi/lx/src/lx_80211.c`：驱动注册射频时地址为 0，就改用内核的 `wifi_mac`（`cmd78`）；接口没开以太网卸载时，`lx_ethernet_send()` 按 mac80211 的做法组 802.11 数据帧（`cmd80`）。
 - `wifi/lx/patches/include-linux-dma-mapping.h.patch` 与 `wifi/lx/src/lx_base.c`：`dma_map_single()` 把指针传下来，不在池里的内存复制进池里的一个槽再交给网卡，解除映射时复制回来（`cmd79`）。
-- loader v16（`fastboot boot`，build-id `a48c7fb`）：低端 DMA 内存先按固定地址 `0xA8000000` 申请 128 MB，落在 cnss2 声明的窗口 `0x98000000`～`0xb0010000` 里，避开 loader 自身（`0xA1000000`）与设备树的两段 `lost_reg_mem`；被占用时退回原来的取法（4 GB 以下最高的空闲块）。
+- loader v16（`fastboot boot`，build-id `a48c7fb`）：低端 DMA 内存先按固定地址 `0xA8000000` 申请 128 MB，落在 cnss2 声明的窗口 `0x98000000`～`0xb0010000` 里，避开 loader 自身（`0xA1000000`）与设备树的两段 `lost_reg_mem`；被占用时退回原有的获取方式（4 GB 以下最高的空闲块）。
 - `wifi/lx/src/lx_base.c` 超过 1200 行，idr 与 rhashtable 拆到新文件 `lx_tables.c`。
 - `tools/k90auto/run-auto.py`：收尾复位之前，按已存日志里的 `fetch: 名字 地址 长度` 行用 `oem stage` 取回这段内存，存成 `名字.bin`；`test-tools.py` 加了对应用例。
 - `xnu/files/bsd/dev/annibale_apple80211.c`：按 iOS 26 的布局读写 SCAN_REQ、SCAN_RESULT、CURRENT_NETWORK 与 ASSOCIATE（`cmd81`，布局见 3.6）。
@@ -60,7 +60,7 @@
 - 固件文件与提取方法见[固件启动记录](2026-10-31-wifi-firmware-boot.md) §2。`package.py` 放固件时一并放 configd 的 `ConfigureNewInterfaces` 偏好（3.6）；系统盘要带 `PingFangUI.ttc`（3.7）。
 - `wifi=1` 不能用：它在 K90 的内核里会同时打开旧芯片的一组选项。
 
-日志里的成功标志：
+各阶段在日志中的成功标志如下。
 
 - probe：硬件版本 `0x40170200`，驱动参数表 `wcn7850 hw2.0`。
 - 注册：`IS UP: the radio is registered`，打印射频地址。
@@ -86,14 +86,14 @@
 - QRTR：网卡只发 HELLO 和 WLFW 服务（69）的通告，没有名字服务查询，`qrtr_answer=1` 用不上。
 - AOP 邮箱开机时我方链路为 up、通道为 down，内核重新握手后打开，21 条 `wlan_pdc` 消息都被收下。
 
-故障点（`wd12`、`wd13`）：
+`wd12`、`wd13` 查明的故障点如下。
 
 - `pcie_rddm=1` 留的接收向量被网卡使用，SYS_ERR 后写入 4,837,542 字节，`run-auto.py` 收尾时取回 `rddm.bin`。
 - 故障原因 `cmnos_thread_patch.c:1270:0x8Asserted in:0x1f26a9c:0x1f269ac, line#386`：定位服务的初始化（`0x189f7d8`）按 min(n, 3) 与 n − 3 建两个池，n 为 0，n − 3 成了 `0xfffffffd`，ROM 的池分配报 fatal 386。
-- `wd13` 用替身单独跑冷启动校准（`pcie=9 pcie_mission=7`），请求 calibration 模式后在同一处崩溃，出错线程的栈从 `0x18b9ad8` 往上与 `wd12` 相同。
+- `wd13` 用替身单独执行冷启动校准（`pcie=9 pcie_mission=7`），请求 calibration 模式后在同一处崩溃，出错线程的栈从 `0x18b9ad8` 往上与 `wd12` 相同。
 - 转储里固件对主机内存的映射：芯片地址 `0x048b0000` 对应主机 `0xca000000`（类型 4 段），`0x04000000` 起对应类型 1 段。
 
-`ddr_range`（`wd14`～`wd17`）：cnss2 在主机能力里发 `ddr_range` = `{0x98000000, 0x18010000}`（SMMU 的 IOVA 窗口），ath12k 不发。这组轮次读到的固件约束：
+`ddr_range`（`wd14`～`wd17`）：cnss2 在主机能力里发 `ddr_range` = `{0x98000000, 0x18010000}`（SMMU 的 IOVA 窗口），ath12k 不发。这组轮次读到以下固件约束。
 
 - ath12k 的 `ddr_range` 描述项缺成员描述，编码器拒绝（-22）；替身改用补全的副本。
 - 发了范围时，各项终点的最大值必须等于 `0xb0010000`，否则 fatal 3268（检查在 `0x185dccc` 之前）。
@@ -119,25 +119,25 @@
 
 - 目标网络在 5 GHz 40 信道，-21 dBm，WPA2-PSK、CCMP；密钥 19 ms 算完，信道 20 MHz 设好。
 - 驱动登记接入点时失败（-12），前一行是 `memory is given to the radio that it cannot reach (1536 bytes)`。ath12k 的 REO 接收队列描述符（每个 traffic class 一份）用 `kzalloc()` 分配后 `dma_map_single()` 交给硬件，这块内存不在网卡能访问的池里。
-- `12377-cmd79` 的改法：LinuxKPI 头文件补丁让 `dma_map_single()` 把指针传下来；不在池里的内存复制进池里的一个 4 KB 槽，网卡拿到槽的地址，解除映射时复制回来并归还槽，最多同时 64 块。ath12k 映射之后到解除映射之间不碰这块描述符。
+- `12377-cmd79` 的修改方案：LinuxKPI 头文件补丁让 `dma_map_single()` 把指针传下来；不在池里的内存复制进池里的一个 4 KB 槽，网卡拿到槽的地址，解除映射时复制回来并归还槽，最多同时 64 块。ath12k 映射之后到解除映射之间不访问这块描述符。
 
 ### 3.5 握手回复的封装（`wd26`、`wd27`）
 
 - `wd26`：接入点登记成功，认证与关联都被接受。四次握手收到第 1 条消息并回了第 2 条，接入点又重发两次第 1 条，3077 ms 后以 reason 15（握手超时）解除认证。
 - 原因：握手回复按以太网帧交给驱动（`IEEE80211_TX_CTL_HW_80211_ENCAP`）。ath12k 的 Wi-Fi 7 发送描述符里没有逐帧的封装类型，封装方式取自接口的 bank 配置；这版固件不支持以太网卸载（没有 `WMI_TLV_SERVICE_ETH_OFFLOAD`），接口是 native wifi，硬件把以太网头按 802.11 头解释后发出。ath11k 的描述符有逐帧的封装字段，原来的写法在那边可用。
-- `12377-cmd80` 的改法：接口没开以太网卸载时，`lx_ethernet_send()` 按 mac80211 的做法组 802.11 数据帧：发往接入点，接入点有 WMM 时用 QoS data（握手 TID 7，其余 TID 0），类型前加 LLC/SNAP，有密钥后标记受保护，由硬件加密。
+- `12377-cmd80` 的修改方案：接口没开以太网卸载时，`lx_ethernet_send()` 按 mac80211 的做法组装 802.11 数据帧：发往接入点，接入点有 WMM 时用 QoS data（握手 TID 7，其余 TID 0），类型前加 LLC/SNAP，有密钥后标记受保护，由硬件加密。
 - `wd27`：四次握手完成，关联后 114 ms 两把密钥交给驱动，日志出现 `THE NETWORK IS JOINED`，en0 链路 up。en0 收到 375 帧（约 180 KB）局域网广播与组播，组播密钥解密正常。
 
 ### 3.6 接入 iOS 26 的网络栈（`wd27`～`wd31`）
 
-内核自己加入网络（`wifi_join=1`）时：
+内核自行加入网络（`wifi_join=1`）时：
 
-- `wd27`：en0 发出 0 帧。wifid 问 apple80211 的 CURRENT_NETWORK 61 次都被拒绝（error 6），它认为没有连上，configd 也不跑 DHCP。
+- `wd27`：en0 发出 0 帧。wifid 查询 apple80211 的 CURRENT_NETWORK 61 次都被拒绝（error 6），它认为没有连上，configd 也不跑 DHCP。
 - `wd28`：经 `rsh.py` 执行 `net_test dhcp en0` 后 0.8 s 拿到 IPv4 地址，路由器的 ARP 已解析，驱动层收发两个方向都通过。域名解析失败，`fetch` 报 `NSURLErrorDomain -1009`：`dhcp en0` 建的服务不在 `Setup:/Network/Service` 里，iOS 26 的 configd 不把它选为主服务，没有 `State:/Network/Global/IPv4`。
 
-改为 `wifi_station=1`：驱动把站点交给内核的 station 接口，wifid 的 apple80211 请求（扫描、信道、当前网络、加入）经它到达驱动，内核不自己加入网络。
+改为 `wifi_station=1`：驱动把站点交给内核的 station 接口，wifid 的 apple80211 请求（扫描、信道、当前网络、加入）经它到达驱动，内核不自行加入网络。
 
-- `wd29`：HW_SUPPORTED_CHANNELS、CHANNELS_INFO 都有回答，设置的 Wi-Fi 开关为开；SCAN_REQ（5528 字节）被内核以 EINVAL 拒绝，网络列表为空。`annibale_apple80211.c` 的结构按 iOS 16.5 逆向，对照两版 `IO80211.framework` 的反汇编，iOS 26 改了三项请求：
+- `wd29`：HW_SUPPORTED_CHANNELS、CHANNELS_INFO 均有返回，设置的 Wi-Fi 开关为开；SCAN_REQ（5528 字节）被内核以 EINVAL 拒绝，网络列表为空。`annibale_apple80211.c` 的结构按 iOS 16.5 逆向，对照两版 `IO80211.framework` 的反汇编，iOS 26 改了三项请求：
   - SCAN_REQ 从 5456 字节变为 5528 字节，前 0x1548 字节的布局不变（scan_type 0x34、信道数 0x44、信道表 0x48、flags 0x1308、名字表 0x1314），0x1310 与 0x154c 之后是新字段。
   - SCAN_RESULT 与 CURRENT_NETWORK 的缓冲区从 1164 字节变为 2272 字节：16.5 的字段偏移不变，信息元素的空间从 1024 字节变为 2048 字节，0x8d0 之后是新字段。
   - ASSOCIATE 从 592 字节变为 908 字节，两个认证字段从 16 位变为 32 位，其后所有字段后移 4 字节（名字长度 0x10、BSSID 0x34、密钥长度与类型 0x40、0x44，密钥 0x4c）。
@@ -145,7 +145,7 @@
 - `wd30`：设置列出附近的网络。ASSOCIATE 为 908 字节，认证 0x1/0x8（WPA2-PSK），密钥是 32 字节、类型 6 的 PMK，位置在 0x4c。加入完成后设置一直转圈：en0 没有 UP、没有地址，configd 的 `Setup:` 下没有任何网络服务，wifid 等不到可路由的接口，又重发加入请求。
 - 原因：configd 的 InterfaceNamer 在 iOS 上只在数据卷首次开机时给接口建网络服务；之后出现的接口，只有控制偏好 `ConfigureNewInterfaces` 为真时才调用 `SCNetworkSetEstablishDefaultInterfaceConfiguration()`（configd 开源代码 `Plugins/InterfaceNamer/ifnamer.c`）。en0 的命名时刻比 `*START*` 晚 29.5 秒，这时首次开机的配置已经建完。`package.py` 因此把这份偏好放进数据卷模板。
 - `wd30` 手动 DHCP 之后不到两分钟内核 panic：trap telemetry 的提交线程（`drain_record_submission_buffer_thread_call`）调用 `OSKext::foreachKextInBacktrace()`，这个内核没有加载过 kext，`gLoadedKextSummaries` 为 NULL，读 `numSummaries` 时 data abort（far 0x8）。`12377-cmd82` 在没有摘要表时直接返回。
-- `wd31`（`cmd82`，镜像带 `ConfigureNewInterfaces`）：en0 出现后 configd 建出 Wi-Fi 服务（`DeviceName` 为 en0，IPv4 为 DHCP），服务顺序里只有它。从设置加入 2.4 GHz 的网络后网络打勾，configd 自己跑完 DHCP：`State:/Network/Global/IPv4` 的主接口为 en0，全局 DNS 有服务器，IPv6 也拿到地址。设备上 `resolve` 0.01 s 返回，`reach` 为可达，`fetch http://captive.apple.com/` 与 `fetch https://www.apple.com/` 都是状态 200（后者 256542 字节，1.20 s），保持 900 秒没有 panic。
+- `wd31`（`cmd82`，镜像带 `ConfigureNewInterfaces`）：en0 出现后 configd 建出 Wi-Fi 服务（`DeviceName` 为 en0，IPv4 为 DHCP），服务顺序里只有它。从设置加入 2.4 GHz 的网络后网络打勾，configd 自行完成 DHCP：`State:/Network/Global/IPv4` 的主接口为 en0，全局 DNS 有服务器，IPv6 也拿到地址。设备上 `resolve` 0.01 s 返回，`reach` 为可达，`fetch http://captive.apple.com/` 与 `fetch https://www.apple.com/` 都是状态 200（后者 256542 字节，1.20 s），保持 900 秒没有 panic。
 
 ### 3.7 中文字体（`wd31`、`wd32`）
 

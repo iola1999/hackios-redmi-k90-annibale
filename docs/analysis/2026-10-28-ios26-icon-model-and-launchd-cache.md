@@ -8,7 +8,7 @@
 
 - 回归来自启动参数：从 `bbmetal17` 那轮起，载荷不再带 `rootdev=md0 launchd_unsecure_cache=1`。iOS 26 的 launchd 因此没有收到任务缓存，缓存里 733 条 `AppExtensions` 一起丢了（§3）。
 - 补回两个参数后（`bbm29`），桌面完整：15 个应用、2 个带名字的小组件、4 个 Dock 图标、2 个页码圆点。
-- 缓存缺失能直接解释扩展相关的现象：没有 `AppExtensions` 就没有 `.appex` 宿主进程，chronod 只能报 `Extension not found`，小组件停在 `Waiting…`，壁纸的 posterkit provider 走同一条路。缓存里没有应用清单，图标数从 15 降到 2 的机制没有单独分析。
+- 缓存缺失能直接解释扩展相关的现象：没有 `AppExtensions` 就没有 `.appex` 宿主进程，chronod 只能报 `Extension not found`，小组件停在 `Waiting…`，壁纸的 posterkit provider 也受同一原因影响。缓存里没有应用清单，图标数从 15 降到 2 的机制没有单独分析。
 - 守护进程数量不决定桌面内容。同一份根盘（`33ed5fc9`）、同一份 `system26.apfs`（`d11083be`）、同样 27 条任务的 2026-10-27 12:40 那轮，桌面是 15 个应用、2 个带名字的小组件、4 个 Dock、Search 胶囊。
 - 防止再丢：`tools/k90auto/make-payload.py` 把这两个参数写在固定 cmdline 里，最终 cmdline 缺任何一个就断言失败，并把 `required_cmdline` 写进 manifest。
 
@@ -19,7 +19,7 @@
 - 默认的 `IOS_JOBS` 是 21 条（`notifyd`、`cfprefsd`×2、`logd`、`syslogd`、`distnoted`、`diagnosticd`、`fseventsd`、`containermanagerd`×2、`runningboardd`、`backboardd`、`mobile.usermanagerd`、`mobilegestalt.xpc`、`lsd`、`powerd`、`analyticsd`、`logd_helper`、`iconservicesagent`、`pluginkit.pkd`、`SpringBoard`），加 `wifid` 是 22 条。
 - `--rest` 把 491 个 LaunchDaemon 与 12 个 LaunchAngel 里剩下的、带 MachServices 且程序在盘的全部加上，产物是 388 条。
 
-出处是 `docs/progress/evidence/2026-10-25-codex-gpu-resume/kernel-queue-wait-s23-auto-default/run/s002.log`：启动时会打印 `/annibale/LaunchDaemons` 的内容，去重后 388 个 `.plist`。同一份日志里 `com.apple.mobile.installd` 是 `launching: ipc (mach)` 拉起在 `user/501` 域，它不在那 21 条显式清单里，是被 `lsd` 或别的进程查找时才启动的。`--rest` 保留 MachServices、删掉 `RunAtLoad`／`KeepAlive`／`StartInterval` 与其余启动触发器，所以「388 条」只说明登记条目数，说明不了同时运行的进程数。
+出处是 `docs/progress/evidence/2026-10-25-codex-gpu-resume/kernel-queue-wait-s23-auto-default/run/s002.log`：启动时会打印 `/annibale/LaunchDaemons` 的内容，去重后 388 个 `.plist`。同一份日志里 `com.apple.mobile.installd` 由 `launching: ipc (mach)` 在 `user/501` 域启动，它不在那 21 条显式清单里，是被 `lsd` 或别的进程查找时才启动的。`--rest` 保留 MachServices、删掉 `RunAtLoad`／`KeepAlive`／`StartInterval` 与其余启动触发器，所以「388 条」只说明登记条目数，说明不了同时运行的进程数。
 
 2026-10-28 时 iOS 26 侧跑 31 条：`build.sh` 的 23 条（21 条加 `systemstatusd`、`wifid`）加 4 条 `com.annibale.*` 加 `package.py` 的 4 条（`chronod`、`PosterBoard`、`replicatord`、`mobile.installd`）。把同一份 `mkjobs.py --rest` 套 iOS 26 的 628 个 LaunchDaemon 与 32 个 LaunchAngel，得到 535 条。
 

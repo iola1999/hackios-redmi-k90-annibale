@@ -34,7 +34,7 @@ NIR 包含 `uses_fbfetch_output: true`，分别读取 coherent `FRAG_RESULT_DATA
 
 保留日志没有 `0x113cd4000` 的实际 draw，也没有符合 `54 vertices / 10 textures / 8 buffers / scissor 632,369 446x446` 的当前启动 draw。相邻 `pipeline seen` 行使用其他 handle，不能用于确认该 pipeline 的附件数。
 
-因此，本轮只建立「pipeline 创建行 → fragment 名 → 完整 AIR」的关联，尚未建立「Calendar 首个黑底 draw → 当前 pipeline」的关联。该模块不能直接认定为历史 `commit 863 / work 70` 的 fragment。
+本轮只建立「pipeline 创建行 → fragment 名 → 完整 AIR」的关联，尚未建立「Calendar 首个黑底 draw → 当前 pipeline」的关联。该模块不能直接认定为历史 `commit 863 / work 70` 的 fragment。
 
 解锁后再次下拉控制中心并返回主屏，`annsh` 退出码为 0，主屏截图仍显示黑底组件，但新日志仍没有 sync draw 文本。
 

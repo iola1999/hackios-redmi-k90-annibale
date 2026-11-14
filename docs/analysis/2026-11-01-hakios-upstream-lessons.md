@@ -10,7 +10,7 @@
 | `oosexgang/hakios-metal` | `main` = `a097abd`（2026-10-31） | C++ 驱动，直接生成 PM4 命令流，Mesa 只用于 NIR→ir3；目标 A6XX（Adreno 7c+ Gen 3），插件面向 iOS 16.5 |
 | `oosexgang/hackios-web` | 浅克隆最近 50 笔 | 新版指南 |
 
-只读副本放在忽略目录 `docs/analysis/local/upstream-2026-11-01/`，没有执行其中的脚本或构建。上游 `hakios-metal` README 提到的 AIR 前端修复（纹理写入按值定类型、null texture 槽位、function constant 的 supplied 标记等）没有公开，只能作为测试用例的线索。
+只读副本放在忽略目录 `docs/analysis/local/upstream-2026-11-01/`，没有执行其中的脚本或构建。上游 `hakios-metal` README 提到的 AIR 前端修复（纹理写入按值定类型、null texture 槽位、function constant 的 supplied 标记等）没有公开，只能用作测试用例的线索。
 
 ## 2. 已采用
 

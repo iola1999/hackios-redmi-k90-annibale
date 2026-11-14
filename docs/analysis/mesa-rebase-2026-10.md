@@ -38,7 +38,7 @@
    - 26.x 的 shared-glapi 静态库只含调度核心，`gl*` 桩在 `libglapi_bridge`。osmesa 目标不链它时 dylib 不导出任何 `gl*`，加进 `link_whole` 后导出 1300 个。
    - `driParseConfigFiles` 改为 3 参的 `driConfigFileParseParams`，`osmesa_target.c` 的调用点重写。
    - 26.x 删除了 postprocess（`postprocess/filters.h`），`pp_*` 全部去掉，`OSMesaPostprocess` 保留为空函数；本端口从未启用 filter。
-   - `src/util/u_sync_provider.c` 在 Darwin 上加 `host_machine.system() != 'darwin'` 门控，因为 annibale-drm 没有 syncobj；Turnip 构建另行编译它（rebase-26 的 0004）。
+   - `src/util/u_sync_provider.c` 在 Darwin 上加 `host_machine.system() != 'darwin'` 条件限制，因为 annibale-drm 没有 syncobj；Turnip 构建另行编译它（rebase-26 的 0004）。
 
 macOS 主机验证：`nm -gU` 见 1300 个 `_gl*` 和 13 个 `_OSMesa*`；`rebase-26/smoke-osmesa.c` 输出 `GL_VERSION: 3.3 (Compatibility Profile) Mesa 26.2.5 / GL_RENDERER: softpipe`，clear(0.25,0.5,0.75) 读回像素 (64,128,191,255)；`smoke-osmesa-es.c` 用 `OSMESA_ES_PROFILE` 创建出 OpenGL ES 3.1 上下文。
 
@@ -53,7 +53,7 @@ macOS 主机验证：`nm -gU` 见 1300 个 `_gl*` 和 13 个 `_OSMesa*`；`rebas
 - `get_compiler_options` 移除，改读 `screen->nir_options[MESA_SHADER_*]`。
 - `create_surface` 移除，`pipe_surface` 成为值结构并内嵌在 `pipe_framebuffer_state` 中。`air_metal.c` 与 `air_run.c` 改用 `pipe_surface_init()` 就地填充，销毁时对 `.texture` 调用 `pipe_resource_reference(&…, NULL)`。
 - glsl_type 查询回调的返回类型从 int 改为 unsigned。
-- `get_compute_param` 移除，改读 `screen->compute_caps`。`subgroup_sizes` 在 26.x 是支持宽度的位掩码（25.0.7 的 freedreno 返回字面 32），取最低位作为执行宽度；softpipe 全零时回退为 1。
+- `get_compute_param` 移除，改读 `screen->compute_caps`。`subgroup_sizes` 在 26.x 是支持宽度的位掩码（25.0.7 的 freedreno 返回字面 32），取最低位用作执行宽度；softpipe 全零时回退为 1。
 
 macOS 主机上用 softpipe（`AIR_RUN_SOFTWARE=1`）验证：`fragpos.ll` 的 4×4 绘制读回像素 (0,0) 为 (0.5, 0.5, 0, 1)；`tools/air/texopcheck.py` 全量 99 次调用中 74 次命中、18 次 WRONG、7 次拒绝，18 次 WRONG 都是 i16/v4i16 取样，softpipe 无法判定窄于 32 位的类型，7 次拒绝与 userland `docs/air.md` 记录的 16 位结果相符；`tools/air/argbufruncheck.sh` 20/20 通过。
 
@@ -115,7 +115,7 @@ Mesa 的二进制不按字节复现（25.0.7 实测两次构建相差 9 132 774 
 ### 9.3 镜像内容（`docker/Dockerfile`）
 
 - apt 增加 `bison flex patch gawk autoconf automake libtool-bin m4 perl libzstd-dev zlib1g-dev python3-venv ninja-build`。meson 由 `mk-mesa.sh` 的 venv 安装并固定为 1.12.1：26.x 的 meson.build 要求 ≥1.4，Ubuntu noble 的 apt 只有 1.3。
-- theos 的 Linux iPhone 工具链是 x86_64 ELF，靠 OrbStack 的 Rosetta 运行，镜像因此 `dpkg --add-architecture amd64` 并安装 `libc6:amd64 libuuid1:amd64 libstdc++6:amd64 libtinfo6:amd64`。两个陷阱：
+- theos 的 Linux iPhone 工具链是 x86_64 ELF，靠 OrbStack 的 Rosetta 运行，镜像因此 `dpkg --add-architecture amd64` 并安装 `libc6:amd64 libuuid1:amd64 libstdc++6:amd64 libtinfo6:amd64`。两个常见问题：
   - ports 源没有 amd64 索引，加 amd64 架构后 apt 全部 404。ubuntu.sources 的 ports stanza 要写 `Architectures: arm64`，另加主档案源 `Architectures: amd64`，Suites 要带 noble-updates，否则 libc6 版本对不上。
   - `zlib1g` 是 Multi-Arch: same，ports 的 arm64 与主档案的 amd64 版本不同，apt 判定 not installable。镜像绕过 dpkg 数据库，直接解包固定 URL 和 SHA-256 的官方 deb。
 - theos 固定在 `304e0799…`，`ENV THEOS=/root/theos`。iOSToolchain 下载 latest，构建时校验 `bin/ld` 与 `install_name_tool` 的 SHA-256；`install-sdk iPhoneOS16.5` 之后校验 `SDKSettings.plist`。上游内容变化会让镜像构建失败。

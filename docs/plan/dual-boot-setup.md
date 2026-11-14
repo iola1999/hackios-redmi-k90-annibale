@@ -6,7 +6,7 @@
 
 UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表末尾的 `userdata`（`/dev/block/sda34`，经 `dm-default-key` 映射为 `/dev/block/dm-55` 挂载到 `/data`）一直延伸到磁盘末尾。双系统部署从 `userdata` 尾部无损缩容出一块空间，新增两个分区（类型 GUID 均为 APFS Container `7C3457EF-0000-11AA-AA11-00306543ECAC`）：
 
-- `darwin`（默认 `16 GiB`，Android 侧 `/dev/block/sda35`，XNU 侧 `/dev/ufs_darwin`）：存放原版未裁剪 iOS 26 系统镜像（`os.dmg` + `systemos.dmg` + `appos.dmg`，共 15.03 GB）或 `system26.apfs`，作为 iOS 26 只读系统盘挂载。
+- `darwin`（默认 `16 GiB`，Android 侧 `/dev/block/sda35`，XNU 侧 `/dev/ufs_darwin`）：存放原版未裁剪 iOS 26 系统镜像（`os.dmg` + `systemos.dmg` + `appos.dmg`，共 15.03 GB）或 `system26.apfs`，挂载为 iOS 26 只读系统盘。
 - `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，由内核直写块持久化层（`ANNFS001`）经 `annibale_ufshc` 原生 `WRITE(10)` 实时落盘。
 
 不同整机存储容量可按需传入 `--var-gib` 调整划分大小；下文以 **256 GB 机型划分 120 GiB（16 GiB `darwin` + 104 GiB `darwin_var`）** 为例，512 GB／1 TB 等机型或不同空间分配需求请按实际情况填写 `--var-gib`，并以 `userdata-dual-carve.py` 根据本机 GPT 计算出的块数与 LBA 为准：
@@ -19,7 +19,7 @@ UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表�
 
 ## 2. 在线缩容与写入 GPT 分区表
 
-Android 每次开机时，`fs_mgr` 会调用 `resize.f2fs` 将 `/data` 文件系统扩回 `userdata` 分区的大小。因此在线缩小 `/data` 与写回新 GPT 分区表必须在同一个 Android root 会话内连续完成，中途不要重启。
+Android 每次开机时，`fs_mgr` 会调用 `resize.f2fs` 将 `/data` 文件系统扩回 `userdata` 分区的大小，在线缩小 `/data` 与写回新 GPT 分区表因此必须在同一个 Android root 会话内连续完成，中途不要重启。
 
 操作前确认 `/data` 剩余可用空间充足（`adb -s "$ANDROID_SERIAL" shell df -h /data`），并已按[分区备份与恢复](../backup/README.md)备份重要分区与个人数据。
 
@@ -52,7 +52,7 @@ adb -s "$ANDROID_SERIAL" shell "dd if=/data/local/tmp/gpt-tail.new of=/dev/block
 
 ## 3. 写入 iOS 系统盘
 
-`darwin` 分区支持直接写入苹果原版未裁剪的 3 个 iOS 26 APFS 容器镜像（`os.dmg` 9.76 GB、`systemos.dmg` 5.26 GB、`appos.dmg` 14.68 MB，按 4096 字节块边界顺序拼接，总计 15.03 GB），也支持写入合成单容器镜像 `system26.apfs`。未重启前用脚本输出的 `darwin` 起始 LBA 作为 `seek`（256 GB 机型示例为 `32584704`），重启后可直接按块偏移写入 `/dev/block/by-name/darwin`（`/dev/block/sda35`）：
+`darwin` 分区支持直接写入苹果原版未裁剪的 3 个 iOS 26 APFS 容器镜像（`os.dmg` 9.76 GB、`systemos.dmg` 5.26 GB、`appos.dmg` 14.68 MB，按 4096 字节块边界顺序拼接，总计 15.03 GB），也支持写入合成单容器镜像 `system26.apfs`。未重启前以脚本输出的 `darwin` 起始 LBA 为 `seek`（256 GB 机型示例为 `32584704`），重启后可直接按块偏移写入 `/dev/block/by-name/darwin`（`/dev/block/sda35`）：
 
 ```sh
 # 写入苹果原版未裁剪三容器镜像（os.dmg @ LBA+0, systemos.dmg @ LBA+2382336, appos.dmg @ LBA+3666944）
@@ -95,7 +95,7 @@ fastboot -s "$ANDROID_SERIAL" reboot
 
 ## 5. Android 系统内更新（OTA）与槽位轮换
 
-Android 的 Virtual A/B 系统更新（`update_engine`）在后台将新版本系统写入当前的**闲置槽位**，并在重启后将活动槽位切换到新槽位。对双系统分区与引导的具体影响如下：
+Android 的 Virtual A/B 系统更新（`update_engine`）在后台将新版本系统写入当前的**闲置槽位**，并在重启后将活动槽位切换到新槽位。对双系统分区与引导的具体影响分以下四类。
 
 - **iOS 分区与用户数据完全保留**：系统内 OTA（`update_engine`）只更新 A/B 槽位固件分区（`boot_a/b`、`init_boot_a/b`、`vendor_boot_a/b`、`dtbo_a/b`、`vbmeta_a/b` 等）与 `super` 动态分区（快照 COW 文件暂存在 `/data/gsi/ota`），不会刷写 `gpt_both0.bin`。重启时 Android `fs_mgr` 的 `resize.f2fs` 仅按当前 GPT 表中 `userdata`（`sda34`）的起止块数对齐文件系统，因此 UFS LUN 0 上的 `darwin`（`sda35`）与 `darwin_var`（`sda36`）分区及 iOS 26 持久化数据不受影响。
 - **增量 OTA 更新**：`update_engine` 会校验源槽位（当前 Android 槽位，若已刷入 Magisk／KernelSU 则 `boot` 或 `init_boot` 哈希已变）及部分目标槽位分区的原厂哈希，校验不通过会拒绝安装。若要安装增量 OTA，需先恢复原厂未修改的 `boot`／`init_boot` 镜像；日常升级建议直接在系统更新中下载并安装**完整包 OTA（Full ROM）**。

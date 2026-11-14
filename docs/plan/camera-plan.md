@@ -1,10 +1,10 @@
-# 相机路线：annibale（REDMI K90 / SM8750 "sun"）
+# 相机路线：annibale（REDMI K90 / SM8750 `sun`）
 
 本文保留早期相机栈设计与设备树资源分析。当前传感器身份、原生会话和真机结果见[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)，未完成事项集中在[多媒体待办](../backlog/multimedia.md)。CAMSS 各块基址与 sensor 连接见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
 
 ## 1. 结论
 
-- 相机栈采用裸寄存器方案：内核 `annibale_camera.c` 出 RAW10 帧，mediaserverd／cameracaptured 里的注入库冒充 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有回归脚本。
+- 相机栈采用裸寄存器方案：内核 `annibale_camera.c` 出 RAW10 帧，mediaserverd／cameracaptured 里的注入库替代 H10ISP 的 FigCaptureDevice，软 ISP 出图；Camera.app 预览、拍照、点按对焦和手电都有回归脚本。
 - 用户态没有裁剪或修改相机框架，K90 上主要适配内核 CAMSS 寄存器与 iOS 26 CMCapture 契约（§4.2）。
 - 早期资料按 OV50E（光影猎人 800，OV 定制）分析主摄，模式表来源为设备的 `/vendor/lib64/camera/com.qti.sensormodule.*.bin`。当前工作以实际读取的传感器 ID 与厂商表匹配结果为准，见[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)。
 

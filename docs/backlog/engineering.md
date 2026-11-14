@@ -6,7 +6,7 @@
 
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
-| ENG-01 | 后续正式 Release 的干净克隆验证 | 待下一次发布执行 | 从已提交的顶层仓库及子模块重新克隆，按开发指南重建内核、用户态、AIR、UEFI、loader 和 Android 分区工具；记录源码与工具链版本。`build-release.py` 的根盘重建、loader 封装、隐私检查通过，再在 Linux 或容器按体验说明完成合成校验。 | [开发指南 §10](../development.md#10-出-release)、[发布脚本](../../tools/release/build-release.py) |
+| ENG-01 | 后续正式 Release 的干净克隆验证 | 待下一次发布执行 | 从已提交的顶层仓库及子模块重新克隆，按开发指南重建内核、用户态、AIR、UEFI、loader 和 Android 分区工具；记录源码与工具链版本。`build-release.py` 的根盘重建、loader 封装、隐私检查通过，再在 Linux 或容器按体验说明完成合成校验。 | [开发指南 §10](../development.md#10-生成-release)、[发布脚本](../../tools/release/build-release.py) |
 | ENG-02 | 旧交接中宿主测试的失败分类 | 待复跑 | 重新运行 mic、payload、mkpayload 与 adreno8 相关测试，逐项记录命令、输入版本、退出码和失败位置；先区分源码断言、外部数据缺失与环境错误，再修改对应代码或测试。当前源码路径已存在，路径检查结果不能代替测试结果。 | [11-09 交接 §4](../progress/2026-11-09-handoff.md#4-遗留问题)、本节测试输入表 |
 | ENG-03 | AIR 参考编译的 LLVM 基线 | 候选验证未完成 | 固定可解析 opaque `ptr` 的参考工具链，重跑 FMA 与 argument-buffer 对照；单独定位仍拒绝的跨成员 phi。验收记录要区分参考编译器错误与 AIR 语义差异，再决定是否更新生产检查规则。 | [多媒体验证 §9](../analysis/2026-11-11-multimedia-validation.md#9-air-常规检查与缓存) |
 | ENG-20 | loader 缺省根设备参数 | 待核查；旧交接记录缺少 rd／rootdev 时追加 rd=md0，现有载荷显式指定 rootdev=md0 | 核对当前默认参数与 launchd 正常启动条件；若仍追加恢复模式参数，修正默认值并验证显式参数、缺省参数及重建 loader | [11-09 交接 §4](../progress/2026-11-09-handoff.md#4-遗留问题)、[根文件系统](../analysis/rootfs-strategy.md) |
@@ -73,4 +73,4 @@ ENG-06 的行数取自 2026-11-12 工作树。AIR 已有 `air_metal_*.inc`、指
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
 | ENG-18 | 顶层仓库许可证 | 待用户选择 | 顶层当前没有 `LICENSE` 或 `COPYING`。先说明可选许可证对本项目脚本与文档的适用范围，由用户选定后添加许可证，并与子模块既有声明保持清楚的归属关系。 | [开源准备记录 §5](../analysis/2026-10-23-open-source-readiness.md#5-检查边界与后续维护) |
-| ENG-19 | 后续 Release 的第三方内容分发核对 | 随发布内容复核 | 逐项核对预构建固件、设备提取资料与其他第三方文件的来源和分发许可；许可或来源未确认的内容使用本地提取流程。验收包含发布清单与 `build-release.py` review 输出中各文件的来源说明。 | [开源准备记录](../analysis/2026-10-23-open-source-readiness.md)、[开发指南 §10](../development.md#10-出-release) |
+| ENG-19 | 后续 Release 的第三方内容分发核对 | 随发布内容复核 | 逐项核对预构建固件、设备提取资料与其他第三方文件的来源和分发许可；许可或来源未确认的内容使用本地提取流程。验收包含发布清单与 `build-release.py` review 输出中各文件的来源说明。 | [开源准备记录](../analysis/2026-10-23-open-source-readiness.md)、[开发指南 §10](../development.md#10-生成-release) |

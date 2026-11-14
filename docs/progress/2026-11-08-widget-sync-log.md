@@ -1,6 +1,6 @@
 # 2026-11-08 组件 sync draw 与首次黑化关联
 
-本轮在 dump-AIR 候选上只增加 `ANNIBALE_SYNC_LOG=1`，保留同步 draw、缩略图和 AIR 设置。boot SHA-256 为 `afe5659307ee6c4a22ed7407a17b250e3756fe4cb9801c4ebf987731b35db0c4`，没有重编内核或修改生产 Metal/AIR 源码。
+本轮在 dump-AIR 候选上只增加 `ANNIBALE_SYNC_LOG=1`，保留同步 draw、缩略图和 AIR 设置。boot SHA-256 为 `afe5659307ee6c4a22ed7407a17b250e3756fe4cb9801c4ebf987731b35db0c4`，没有重新编译内核或修改生产 Metal/AIR 源码。
 
 ## 1. 真机状态
 
@@ -13,7 +13,7 @@
 
 ## 2. 首个保留窗口内的黑化 draw
 
-对 `unlock-retry-home.log` 的缩略图逐像素比较，输入副本与解码结果保存在 `device-run/unlock-thumb-analysis/`。每个附件取得 16×16 采样，以下计数只代表采样像素。
+对 `unlock-retry-home.log` 的缩略图逐像素比较，输入副本与解码结果保存在 `device-run/unlock-thumb-analysis/`。每个附件取得 16×16 采样，以下计数仅针对采样像素。
 
 | commit / work | pre0 → out0 结果 | pipeline | scissor |
 |---|---|---|---|
@@ -29,7 +29,7 @@ work 66 的 draw 使用 6 vertices、10 textures 和 8 buffers，记录于 `unlo
 
 当前 Calendar 区域的 work 73 使用 `TbdsA2Xhfes_Isup_IsrcM1`，完整 AIR 为 9104 字节，SHA-256 为 `307d36082f4ab944125d4faac3ea5d98567d9452d6fc02caf75f2572fa178ae9`。该 pipeline 在解锁前也执行过全屏 draw，见 `unlock-retry-home.log:3924` 的 commit 1326 / work 50。
 
-Weather 区域的 commit 1338 / work 57 使用另一个 Tbds pipeline `0x1126c8e00`，创建行位于 `unlock-retry-home.log:7266`。这些记录建立了当前区域、draw、pipeline 和 AIR 的对应关系，但像素比较已排除把 Tbds 或 work 73 直接当成本窗口黑化起点的做法。
+Weather 区域的 commit 1338 / work 57 使用另一个 Tbds pipeline `0x1126c8e00`，创建行位于 `unlock-retry-home.log:7266`。这些记录建立了当前区域、draw、pipeline 和 AIR 的对应关系，但像素比较已排除将 Tbds 或 work 73 视为本窗口黑化起点的可能。
 
 本轮 AIR 过滤值仍为 `Tbds`，没有取得 work 66 对应的 `TimgBscn…` 模块。历史 `commit 863 / work 70` 的 54-vertex、446×446 签名在本轮没有出现，不能跨启动按 work 序号或 fragment 名称归并。
 

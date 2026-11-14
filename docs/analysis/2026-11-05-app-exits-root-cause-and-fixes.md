@@ -19,7 +19,7 @@
 
 ## 3. 提醒事项（Reminders.app）退出根因与修复
 
-提醒事项应用在启动后因 XPC 连接超时退出。其依赖的后台守护进程为 `/usr/libexec/remindd`。在根文件系统裁剪脚本 `hackios-xnu-userland/ios165/select-system.py` 中，大型程序过滤阈值为 `BIG_PROGRAM = 10 << 20`（10 MB）。`remindd` 二进制体积为 11.4 MB，被过滤逻辑排除在 `rootfs` 镜像之外，导致应用向 `com.apple.remindd` 发起 XPC 请求时无法拉起服务而退出。
+提醒事项应用在启动后因 XPC 连接超时退出。其依赖的后台守护进程为 `/usr/libexec/remindd`。在根文件系统裁剪脚本 `hackios-xnu-userland/ios165/select-system.py` 中，大型程序过滤阈值为 `BIG_PROGRAM = 10 << 20`（10 MB）。`remindd` 二进制体积为 11.4 MB，被过滤逻辑排除在 `rootfs` 镜像之外，导致应用向 `com.apple.remindd` 发起 XPC 请求时无法启动服务而退出。
 
 修复方案：在 `hackios-xnu-userland/ios165/select-system.py` 的 `BIG_PROGRAMS_KEPT` 白名单中新增 `'usr/libexec/remindd'`，与已有的 `'usr/sbin/bluetoothd'`（11.6 MB）一并保留。
 
@@ -30,7 +30,7 @@
 内核在 `kern_minimac.c` 的 `SANDBOX_SYSCALL_CONTAINER_PATH` 拦截中读取进程环境块的 `CFFIXED_USER_HOME` 定向容器路径。环境块未导出 `CFFIXED_USER_HOME` 时，沙盒系统无法推导数据目录。备忘录同时依赖应用组（AppGroup）共享目录 `group.com.apple.notes`，`/private/var/mobile/Containers/Shared/AppGroup` 不存在时 CoreData 存储初始化直接报错。
 
 修复方案包含四处改动：
-1. `tools/k90auto/package.py`：在根文件系统骨架构建逻辑中预先创建应用专有容器目录 `/private/var/mobile/Containers/Data/Application/<UUID>`（计算器、备忘录与提醒事项各自对应固定 UUID）以及备忘录应用组目录 `/private/var/mobile/Containers/Shared/AppGroup/group.com.apple.notes`，设置权限 `0755` 与属主 `mobile:mobile`。
+1. `tools/k90auto/package.py`：在根文件系统目录模板构建逻辑中预先创建应用专有容器目录 `/private/var/mobile/Containers/Data/Application/<UUID>`（计算器、备忘录与提醒事项各自对应固定 UUID）以及备忘录应用组目录 `/private/var/mobile/Containers/Shared/AppGroup/group.com.apple.notes`，设置权限 `0755` 与属主 `mobile:mobile`。
 2. `tools/k90auto/package.py`：在启动环境导出列表 `EXT_ENV` 中，为目标应用写入对应的 `CFFIXED_USER_HOME=/private/var/mobile/Containers/Data/Application/<UUID>`、`HOME` 与 `TMPDIR`。
 3. `hackios-xnu-userland/userland/src/inject_app.c`：在应用启动注入动态库中增加 `setup_app_container_env()`，在构造函数阶段读取 `/annibale/etc/env/<app>` 配置；独立配置文件缺失时按应用标识匹配预设容器路径并设置环境变量，保证 `NSHomeDirectory()` 返回合法本地路径。
 4. `hackios-xnu-userland/userland/var.skel.extra`：加入容器顶层目录结构，与打包脚本保持一致。

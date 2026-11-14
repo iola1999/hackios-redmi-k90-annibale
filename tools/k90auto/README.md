@@ -29,7 +29,7 @@
 - `jobs/` 下其余 `rc.jobs.*` 是诊断轮的操作脚本，用 `JOBS_SOURCE` 选择。
 - `jobs/*.plist`：`package.py` 补进根盘的 launchd 任务（chronod、PosterBoard、replicatord、installd、biomed、ReportCrash、linkd、contextstored、dasd、appprotectiond）。chronod 约 120 s 后启动，installd 以 root 运行，biomed 等保持 Apple 的按需启动；理由写在 `package.py` 的注释里。
 
-## 3. 排队方式跑一轮
+## 3. 排队方式运行测试轮
 
 ```sh
 python3 tools/k90auto/make-payload.py NAME LABEL out/ROOT.apfs "EXTRA BOOT-ARGS"
@@ -75,14 +75,14 @@ K90_FREEZE_OFF=1 python3 tools/k90auto/run-auto.py ROUND_DIR 0 0,0,5
 - `fetch.py ROUND_DIR DEVICE_PATH OUT` 通过 `annsh cat` 分块读回设备文件，检查偏移连续性，任一段缺失就以失败退出。
 - 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志。自动复位仅接受 `returned`、`returned-held`、`hung`、`hung-held` 及其完整零错误状态；未知状态、格式错误或复位命令失败会停止队列。内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，完成条件是 loader 重新应答 idle 且启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。
 
-`round-run.py ROUND_DIR [SECONDS] [TIMING]` 是 `cycle.py` 的起轮入口，在 `run-auto.py` 外面加两项：一轮 5 秒内以 `returned` 结束且日志有 `PANIC caller` 时视为早期启动 panic，最多重试 `K90_PANIC_RETRY`（默认 3）次，全部 panic 时以 3 退出；设备处于 LK 时检查 `slot-retry-count:a`，低于 3 先 `set_active a`。
+`round-run.py ROUND_DIR [SECONDS] [TIMING]` 是 `cycle.py` 的测试轮启动入口，在 `run-auto.py` 外面加两项：一轮 5 秒内以 `returned` 结束且日志有 `PANIC caller` 时视为早期启动 panic，最多重试 `K90_PANIC_RETRY`（默认 3）次，全部 panic 时以 3 退出；设备处于 LK 时检查 `slot-retry-count:a`，低于 3 先 `set_active a`。
 
 ## 4. 判读
 
 - `summary.py` 每轮一行：内核提交、关键启动参数、运行秒数、panic 次数、动画窗口帧率、显示驱动每帧耗时、GL 帧耗时 p50／p90、帧间隔分布（低于 18 ms、18～35 ms、更长）、大核最高温度、最低档时间占比、截图数与异常截图数、崩溃记录数（内核报的进程退出行）。`--verify` 检查合并结果包含每份快照里的帧窗口，缺失时以 1 退出。
-- 帧间隔只统计帧数不少于 20 且帧率不低于 10 帧/秒的窗口。`summary.py` 只把 `s[0-9]*.log` 当日志快照，按重叠部分对接，同一窗口只算一次。loader 的日志区是 263,349 字节的头加 1,048,576 字节的环，环满之后开头的内容被覆盖；容量与快照频率见[运行协议](../../docs/plan/k90auto-run-protocol.md)的日志环一节。
+- 帧间隔只统计帧数不少于 20 且帧率不低于 10 帧/秒的窗口。`summary.py` 只将 `s[0-9]*.log` 视作日志快照，按重叠部分对接，同一窗口只算一次。loader 的日志区是 263,349 字节的头加 1,048,576 字节的环，环满之后开头的内容被覆盖；容量与快照频率见[运行协议](../../docs/plan/k90auto-run-protocol.md)的日志环一节。
 - `gestures.py` 按手势统计主动画的帧间隔（控制中心下拉取首帧起 1.8 s，翻页取 600 ms），输出 p50／p95／最长间隔、超过 18 ms 的比例、帧率和触摸到首帧的时间。需要 `touch_lat=1`，加 `glslow=3000` 时还给出窗口服务器每帧绘制时间。
-- `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，给出长帧归因和每段动画的帧率；需要 `touch_lat=1`。新日志另有 `panel_obs`，表示拷屏完成到观测 `CTL_FLUSH` 清零的上界。带 `tl: l` 时用 `INTF_FRAME_COUNT` 的差值计算显示间隔和长帧分组，`at` 只表示观测时刻；没有 `tl: l` 的旧日志沿用 `shown` 为拷屏开始的 copy 口径，P/G/bw/C 等原有数值不变，不将该口径当作实测面板时刻。
+- `frame-split.py` 把每个动画帧拆成 backboardd 交帧（P）、GPU（G）、等节拍（bw）、拷进面板（C）四段，给出长帧归因和每段动画的帧率；需要 `touch_lat=1`。新日志另有 `panel_obs`，表示拷屏完成到观测 `CTL_FLUSH` 清零的上界。带 `tl: l` 时用 `INTF_FRAME_COUNT` 的差值计算显示间隔和长帧分组，`at` 只表示观测时刻；没有 `tl: l` 的旧日志沿用 `shown` 为拷屏开始的 copy 口径，P/G/bw/C 等原有数值不变，不将该口径视为实测面板时刻。
 - 现有异常截图计数针对 GMEM 分 bin 边界下方的状态栏蓝色块（2026-10-25 的 framebuffer fetch 缓存问题）。每个图形批次还需实际打开截图，检查桌面组件、多任务卡片及转场画面；采样、原图审阅和缺样判定见[真机调试手册 §7.1](../../docs/plan/device-test-playbook.md#71-图像审阅与短暂异常)。
 - 温度和 CPU 档位来自 `cpufreq=1` 或 `2` 时内核每 30 s 写的日志。`N by temperature, M without a reading` 区分限频由读数触发还是没有读数触发；判断限频是否守住看紧跟的 `hot ticks` 一行。
 - backboardd 的 GPU 时间按 pass 拆分：`JOB_ENV` 加 `com.apple.backboardd.plist:ANNIBALE_PASS_TIMES=1` 和 `com.apple.backboardd.plist:FD_GPU_TRACEPOINT=-all,+render_pass,+draw_ib,+compute,+blit,+nondraw,+tile_loads,+tile_stores`，日志每 5 秒打印一组 `pass times`。AIR 库要带 `tools/mesa/rebase-26/0008`，读法见[GPU 提频后的 120 Hz](../../docs/analysis/2026-11-02-120hz-after-gpu-clock.md) §6；带 `0018` 时还会为不低于 2 ms 的 draw 打印 `draw gpu slow`，每个进程每 5 秒最多 4 行。
@@ -142,7 +142,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
 | `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB）；`0` 不放 |
 | `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal Files` | 插入 `libannibale-ax.dylib` 的进程，默认列表见 [`package.py`](package.py) 的 `AX_PROCESSES`；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。整个注入配置写进 `kern.exec_inject`；`package.py` 要求去掉末尾换行和空格后的 UTF-8 长度至多 4094 字节 |
-| `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `AnnibaleAudio.driver` 按 arm64e 重编，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
+| `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `AnnibaleAudio.driver` 按 arm64e 重新编译，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
 | `GPU_SPEED` | `3` | 记进 manifest，与载荷的 `adreno8_speed` 不一致时 `make-payload.py` 拒绝 |
 
@@ -178,13 +178,13 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
-- 默认值：内核记录由 [`cycle.py`](cycle.py) 的 `KERNEL` 定义，可用 `--kernel` 选择；其余为 `--seconds 900`、`jobs/rc.jobs.interactive`、`GPU_SPEED=14`、CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。起轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
+- 默认值：内核记录由 [`cycle.py`](cycle.py) 的 `KERNEL` 定义，可用 `--kernel` 选择；其余为 `--seconds 900`、`jobs/rc.jobs.interactive`、`GPU_SPEED=14`、CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。启动测试轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
 - 固定启动参数 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、`touch_poll_us=4000` 和 Wi-Fi（`pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。之后是 `--boot-args`，最后是 `fbwidth=1206 fbheight=2622 fbpitch=460`（iPhone 17 画布，见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)）。
 - `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 分别替换固定参数、CPU 参数和 GPU 档位。同一个键出现两次时内核取第一个，所以本轮变量是 `FIXED_ARGS` 里的键时要用 `CYCLE_FIXED_ARGS` 整串替换；画布三个键排在最后，可以在 `--boot-args` 里改。`CYCLE_PROGRAMS=路径[:路径]` 往根盘的 `/annibale/bin` 多放程序。
-- 起轮前由 `ensure_loader_idle()` 将运行态（`oem stop` 后 `reboot` 加 `oem recovery`）、收尾态或 B 槽 Android（`recover-loader.py`）收敛到已枚举的 `xnuloader` 且 `result` 为 `idle`、启动卷常驻区为空。显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1`（配合 `ANDROID_SERIAL`）时经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再启动对应镜像。
-- `--hold` 在操作截图后不结束这一轮，跑满 `--seconds` 或收到 `respin.py --stop` 才结束。期间用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传辅助盘；需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 annsh。SpringBoard 被结束后停在 backboardd 的转圈界面，所以改 SpringBoard 的设置仍要重新起一轮。
+- 启动测试轮前由 `ensure_loader_idle()` 将运行态（`oem stop` 后 `reboot` 加 `oem recovery`）、收尾态或 B 槽 Android（`recover-loader.py`）收敛到已枚举的 `xnuloader` 且 `result` 为 `idle`、启动卷常驻区为空。显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1`（配合 `ANDROID_SERIAL`）时经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再启动对应镜像。
+- `--hold` 在操作截图后不结束这一轮，运行满 `--seconds` 或收到 `respin.py --stop` 才结束。期间用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传辅助盘；需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 annsh。SpringBoard 被结束后停在 backboardd 的转圈界面，所以修改 SpringBoard 的设置仍须重新启动测试轮。
   - `--env` 把 `kern.annibale.env` 设为给出的词（`进程名:变量=值` 或 `进程名:-变量`），超过 119 字符时拆成一条 `setenv` 和若干条 `addenv`；不带词时清空。
-  - `--restart` 向同名进程发 SIGKILL，由 launchd 重新拉起；驱动在进程加载时把本进程名下的设置写进环境变量，覆盖 plist 里的同名变量，每条打印 `kern.annibale.env: 词`。
+  - `--restart` 向同名进程发 SIGKILL，由 launchd 重新启动；驱动在进程加载时把本进程名下的设置写进环境变量，覆盖 plist 里的同名变量，每条打印 `kern.annibale.env: 词`。
   - `--wait` 是重启后等待的秒数（默认 30），`--until` 改为等日志出现指定文字，`--tour` 接着执行 `tour.py` 的步骤。
 - `render-health.py` 合并 `s*.log` 后，把驱动、AIR 库、QuartzCore 的 Metal 日志、MiniIOSurface 与 GPU 驱动里的失败行按类别计数，每类写明屏幕上的后果，未归类的列在 unclassified 下；`--baseline` 给出另一轮的计数并标出只在一侧出现的行。驱动的部分拒绝只在首次或 2 的幂次打印，计数 1 或 2 的幂可能代表更多次。
 - `tour.py` 的每一步是 `标签=命令@等待秒数*截图张数`，命令经 `rsh.py` 发给 annsh；同一步拍两张以上时比较前后两张，状态栏以下的变化写进 `run/tour.json`，用于发现闪烁。全部截图缩成 `run/tour-sheet.png`，编号与 `tour.json` 一致。

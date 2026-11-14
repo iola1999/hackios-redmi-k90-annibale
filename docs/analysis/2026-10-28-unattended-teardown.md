@@ -20,7 +20,7 @@
 4. 内核不再自增心跳。心跳由每 10 秒的 `hv_wdt_pet` 加一（`loader_return.c` L556、L613-L632），park 之后不再执行。
 5. loader 的观察循环在 `seconds_since(last_beat_at) >= SILENCE_SECONDS` 时判 `OTHER_CPU_HUNG`（`xnuloader/loader_03_ufs_block_watch.inc` L852-L858；阈值 `SILENCE_SECONDS 50` 在 `loader_02_platform_cpu_ufs_survey.inc` L410）。资源仍被持有时结果记为 `hung-held`（`loader_05_layout_run_kernel.inc` L935-L941）。
 6. held 状态下 `reboot` 仍然放行（`loader_06_usb_entry.inc` L716）：annibale 走 `psci_reset_attempt()`，只有该调用返回才写 `reset-failed`（同处 L719-L727）。held 状态下被拒的是 `oem ramdisk`、`download:`、`oem run` 等写入口（`loader_01_base_log_dt.inc` 的 `lc_blocked_cmd`），查询、日志、截图、`reboot` 不在其中。
-7. 复位后 `run-auto.py` 轮询到 loader 重新应答 `idle` 且 RAM 系统盘为空，记为回到 loader；落到 B 槽 Android 时，`run-queue.sh` 在该轮之后调 `recover-loader.py` 恢复 A 槽，`cycle.py` 在下一次起轮前发现设备在 Android 时调用它。
+7. 复位后 `run-auto.py` 轮询到 loader 重新应答 `idle` 且 RAM 系统盘为空，记为回到 loader；落到 B 槽 Android 时，`run-queue.sh` 在该轮之后调 `recover-loader.py` 恢复 A 槽，`cycle.py` 在下一次启动测试轮前发现设备在 Android 时调用它。
 
 ## 3. 判断依据：实测
 
@@ -33,15 +33,15 @@
 | `reboot` → 读到 `result: idle` | 16.8～17.9 秒 | 12 |
 | `reboot` → 落到 B 槽 Android | 1.1～22.1 秒 | 4 |
 
-落到 Android 的原因是 A 槽重试次数耗尽（`slot-retry-count:a: 0`、`slot-unbootable:a: yes`），见 [SOP §4](../plan/device-boot-target-sop.md#4-陷阱均为实测) 第 4 条。其中 2 轮的恢复在 `adb devices` 还没有设备时断言退出，`recover-loader.py` 加了 `ADB_WAIT` 等待后能自动恢复（第 5 节）。原始记录在 Git 忽略的 `docs/progress/evidence/k90auto/` 下（`kernel-12377-attr-bbmetal8`～`bbmetal25` 与 `kernel-12377-attr-teardown-a`）。
+落到 Android 的原因是 A 槽重试次数耗尽（`slot-retry-count:a: 0`、`slot-unbootable:a: yes`），见 [SOP §4](../plan/device-boot-target-sop.md#4-常见问题与注意事项均为实测) 第 4 条。其中 2 轮的恢复在 `adb devices` 还没有设备时断言退出，`recover-loader.py` 加了 `ADB_WAIT` 等待后能自动恢复（第 5 节）。原始记录在 Git 忽略的 `docs/progress/evidence/k90auto/` 下（`kernel-12377-attr-bbmetal8`～`bbmetal25` 与 `kernel-12377-attr-teardown-a`）。
 
 ## 4. 怎样区分「内核主动 park」与「驱动卡住」
 
-两种情况的观测完全一样：心跳停下、50 秒后落到 `hung-held`。loader 的 `hung` 状态本身只表示判定内核无响应，区分只能靠停止后的打印（取法见[真机手册第 5 节](../plan/device-test-playbook.md#5-读取日志和截图)），分三档：
+两种情况的观测完全一样：心跳停下、50 秒后落到 `hung-held`。loader 的 `hung` 状态本身只表示判定内核无响应，区分只能靠停止后的打印（获取方式见[真机手册第 5 节](../plan/device-test-playbook.md#5-读取日志和截图)），分三档：
 
 - 没有 host-stop banner（`--- the host asked for the end of the run: back to the loader ---`）：抓取不完整与内核未执行停止回调两种情况无法区分。
 - 有 banner、没有冷复位打印：内核主动 park 未确证。
-- 出现 `requires host cold reset` 打印：park 确证。典型样子是 banner 之后紧跟 `adreno8: secure service closed; all pages retained until cold reset` 与 `GPU probe requires host cold reset before reusing kernel memory`，HUNG 快照以 `== END OF LOG ==` 结束。
+- 出现 `requires host cold reset` 打印：park 确证。典型输出是 banner 之后紧跟 `adreno8: secure service closed; all pages retained until cold reset` 与 `GPU probe requires host cold reset before reusing kernel memory`，HUNG 快照以 `== END OF LOG ==` 结束。
 
 分类以实际取回内容为准，截断就记为截断。
 

@@ -1,6 +1,6 @@
 # K90 蓝牙接入调研（2026-11-02）
 
-本文回答蓝牙能不能在 K90 的 iOS 26 上起来，以及按什么顺序做。只读调研：读了本仓库源码、Android 设备树、`bluetooth_a` 分区里的固件清单和参考仓库 dada（小米 15，同为 SM8750 上的 iOS 26）的内核补丁，没有操作设备，也没有构建。
+本文分析蓝牙能否在 K90 的 iOS 26 上启用，以及按什么顺序实现。只读调研：读了本仓库源码、Android 设备树、`bluetooth_a` 分区里的固件清单和参考仓库 dada（小米 15，同为 SM8750 上的 iOS 26）的内核补丁，没有操作设备，也没有构建。
 
 引用写法：`P:行号` 是 dada 的 `kernel/xnu-12377.121.6-dada.patch`；`dada:` 开头是该仓库里的路径；`DTS:行号` 是解压后的 `docs/analysis/data/annibale.dts.gz`。
 
@@ -8,13 +8,13 @@
 
 ## 1. 需要用户决定的事
 
-`bluetoothd` 已加入系统盘，UART、固件下载与 iOS 接入已完成真机扫描验证，见第 8 节；3 Mbaud 提速已落地，见[11-06 至 11-07 推进记录](../plan/2026-11-06-issues-and-followup.md)。后续验收见[平台待办](../backlog/platform.md)。
+`bluetoothd` 已加入系统盘，UART、固件下载与 iOS 接入已完成真机扫描验证，见第 8 节；3 Mbaud 提速已完成，见[11-06 至 11-07 推进记录](../plan/2026-11-06-issues-and-followup.md)。后续验收见[平台待办](../backlog/platform.md)。
 
 蓝牙与 Wi-Fi 共用电源轨和 BT_EN。蓝牙须在 Wi-Fi 上电之后启动，Wi-Fi 在线时不能拉低 BT_EN。
 
 ## 2. 结论
 
-- 能做。iOS 26 一侧的接法 dada 已经走通到「蓝牙已打开、BLE 能扫描」：`dada:base/tools/dada-ios.sh:19` 记的是 `verified w94z3: PoweredOn, LE scan`。仓库里没有配对、经典蓝牙或蓝牙音频的记录。
+- 可行。iOS 26 一侧的接入方法 dada 已验证到「蓝牙已打开、BLE 能扫描」：`dada:base/tools/dada-ios.sh:19` 记的是 `verified w94z3: PoweredOn, LE scan`。仓库里没有配对、经典蓝牙或蓝牙音频的记录。
 - K90 的蓝牙芯片与 Wi-Fi 是同一颗 WCN7850（kiwi），蓝牙走 SE14 的 UART，电源轨大部分由 Wi-Fi 代码投票打开。实现涉及 SE14 UART 驱动与高通固件下载、给 `bluetoothd` 的 Skywalk 通道、BlueTool 替身，以及系统盘与启动任务的改动，后续实测见第 8 节。
 - 12377 内核带 Skywalk：`hackios-xnu-kernel/xnu26/files/config/MASTER.arm64.bcm2837` 的 `DEVELOPMENT` 带 `SKYWALK_DEV`，`out/xnu12377-rate7.bin` 里有 `nx_kpipe_*` 与 `kern_nexus_register_domain_provider`。
 

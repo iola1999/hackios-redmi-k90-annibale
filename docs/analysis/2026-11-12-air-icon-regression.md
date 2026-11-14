@@ -64,7 +64,7 @@ IR3 命中缓存后恢复已编译 variant；未命中则执行 NIR post-finaliz
 
 ## 5. 下一次诊断的范围与缺口
 
-冷、暖启动日志都记录 `plane_image_stretch_vertex / fdea3ea2ca8fmha4` 进入 `trace commit 7`，可以将它作为首个有名称的候选。日志中的 `194×194`、format `90` buffer texture 尚未关联到该 draw，暂不按这组尺寸过滤。
+冷、暖启动日志都记录 `plane_image_stretch_vertex / fdea3ea2ca8fmha4` 进入 `trace commit 7`，可以将它列为首个有名称的候选。日志中的 `194×194`、format `90` buffer texture 尚未关联到该 draw，暂不按这组尺寸过滤。
 
 现有入口的覆盖范围如下：
 

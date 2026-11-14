@@ -44,7 +44,7 @@ PATH="$(brew --prefix llvm)/bin:$PATH" UEFI_TARGET=annibale FD_BASE=0xA7100000 F
 - 第一步生成 `xnuloader/loader-phone.efi`。`BUILD_ID` 的格式要求见 [`xnuloader/build.sh`](../../hackios-xnu-kernel/xnuloader/build.sh)，装好后由 `fastboot getvar build-id` 读出，并与本轮构建记录核对。build-id 只标识 loader，UEFI FD 需另行核对文件摘要。
 - `cycle.py` 通过 `recover-loader.py` 恢复空闲 loader。显式指定 `LOADER_IMAGE=FILE` 或设置 `CYCLE_CHECKPOINT=1` 时执行 LK 检查点；每轮检查 `slot-retry-count:a`，低于 3 时也执行检查点。参数和恢复要求见[真机调试手册 §1](../plan/device-test-playbook.md#1-槽位假设与当前启动方式)。
 - 历史 v16 使用 `a48c7fb` 的 loader 源码，v17 沿用同一个 loader，build-id 无法区分两版 FD。2026-11-05 重建的 `loader.efi` 与 v16 里的那份只差 PE 头里 3 字节的链接时间戳。
-- `mkxnuimg.py` 发现 `Mu-Silicium/BootShim` 时按给定地址重编 BootShim，需要 clang 和 `llvm-objcopy`（macOS 上由 Homebrew 的 llvm 提供）；DTB 取 `Mu-Silicium/Resources/DTBs/annibale.dtb`。
+- `mkxnuimg.py` 发现 `Mu-Silicium/BootShim` 时按给定地址重新编译 BootShim，需要 clang 和 `llvm-objcopy`（macOS 上由 Homebrew 的 llvm 提供）；DTB 取 `Mu-Silicium/Resources/DTBs/annibale.dtb`。
 - 设 `PAYLOAD_CAP=0x03700000` 时编出 368 字节的严格版 shim，v17 起使用；`common/build.sh annibale` 从 `annibale.conf` 带上同一个值。不设时编出 176 字节的 shim，与 v6～v16 相同。
 - 2026-11-05 去掉 `PAYLOAD_CAP`、用 v16 的载荷和本地 `loader-v16` 状态的 FD 重建 v16，kernel 段（BootShim、FD、XNUP 容器）和 DTB 与 v16 逐字节相同，只有 gzip 压缩流和头部 id 不同。
 - 已经有一份 loader 镜像、只换 loader 时，用 `python3 tools/reseal-loader-img.py 参考镜像 新载荷 -o 新镜像`，它原样保留参考镜像的 shim、FD、DTB 和 ramdisk。

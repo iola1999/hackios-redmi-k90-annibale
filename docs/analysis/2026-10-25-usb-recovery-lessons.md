@@ -49,7 +49,7 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 恢复目标要写清楚：回到 loader idle 可以使用已验证的普通 reboot；进入 LK 需要对应的目标切换入口。请求按键前，记录当前状态下的软件恢复尝试及返回。一次调用被中止、空 stdout、真正超时和 USB 断开分别记录。同一故障尚在等待用户操作时，保留一个明确请求即可；收到新的画面或状态反馈，先重新枚举，再决定后续动作。
 
-设备整个从 USB 上消失与「枚举了但不答」的处置不同。2026-10-29 一天内连续起轮十几轮后出现过一次：`adb devices` 曾短暂列出一台但序列号为空，`adb reboot bootloader` 回答 `unknown command`，随后两分钟内 `adb devices` 与 `fastboot devices` 都是空，`ioreg -p IOUSB` 与 `system_profiler SPUSBDataType` 也查不到 `annibale`。这种形态软件侧没有恢复路径，反复发命令只会增加主机残留客户端，唯一做法是请用户长按电源键冷启。由此定下的无人值守约束见 [AGENTS.md](../../AGENTS.md) 第 5 节。
+设备整个从 USB 上消失与「枚举了但不答」的处置不同。2026-10-29 一天内连续启动十余轮测试后出现过一次：`adb devices` 曾短暂列出一台但序列号为空，`adb reboot bootloader` 返回 `unknown command`，随后两分钟内 `adb devices` 与 `fastboot devices` 都是空，`ioreg -p IOUSB` 与 `system_profiler SPUSBDataType` 也查不到 `annibale`。这种形态软件侧没有恢复路径，反复发命令只会增加主机残留客户端，唯一做法是请用户长按电源键冷启。由此定下的无人值守约束见 [AGENTS.md](../../AGENTS.md) 第 5 节。
 
 ## 5. 把恢复纳入每轮验收
 
@@ -88,16 +88,16 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
 
 - 现象一：独立引导进度条走完停在 `SYSTEM READY`，约 3 分钟后手机自动重启。
 - 根因一：通过 `fastboot -s xnuloader oem log` 拉取 3602 行完整日志定位到两处原因：
-  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `userland/root/lib/libannibale*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后拉起无签名二进制触发 `userspace panic: unexpected exec of non-platform binary`，此时 `SpringBoard` 尚未绘制首帧。
+  1. 独立调用 [`tools/k90auto/package.py`](../../tools/k90auto/package.py) 打包根盘时未传 `PAYLOAD_PROGRAMS`，且 `userland/root/lib/libannibale*.dylib` 缺少 ad-hoc 签名；`launchd.ios` 完成早期启动 0.5 秒后启动无签名二进制触发 `userspace panic: unexpected exec of non-platform binary`，此时 `SpringBoard` 尚未绘制首帧。
   2. 内核 panic 经 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 调用 [`adreno8.c`](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8.c) 的 `adreno8_quiesce()`，因 `adreno8_memory_retained()` 为真打印 `adreno8: GPU probe requires host cold reset before reusing kernel memory` 并停在 `wfe`。
 
      - Core 0 在 [`loader_03_ufs_block_watch.inc`](../../hackios-xnu-kernel/xnuloader/loader_03_ufs_block_watch.inc) 等待 `SILENCE_SECONDS`（50 秒）无心跳后判定 `hung-held` 并进入 `usb_command_loop()`。
-     - 随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止喂狗，30 秒咬合超时触发硬件复位。
+     - 随后 [`loader_04_fault_payload_nvram.inc`](../../hackios-xnu-kernel/xnuloader/loader_04_fault_payload_nvram.inc) 的高通 Haven 虚拟看门狗（SMC `0x86000007`）在主机静默满 `HOST_SILENCE_SECONDS`（180 秒）后停止刷新看门狗，30 秒咬合超时触发硬件复位。
 - 现象二：修复签名后，进度条走满 `5643 / 5643 MB` 且顶部白点仍在左右移动，但屏幕长时间停在 `SYSTEM READY`（`MiniIOSurface: 0 surfaces`）。
 - 根因二：
   1. [`userland/build.sh`](../../hackios-xnu-userland/userland/build.sh) 追加 `var.skel.extra` 时包含与基础模板重复的 `/private/var/mobile/Containers`、`/private/var/mobile/Containers/Data`、`/private/var/mobile/Containers/Shared` 目录项；[`init.c`](../../hackios-xnu-userland/userland/src/boot/init.c) 的 `mount_writable()` 遇到已存在目录返回 `EEXIST` 并提前终止，跳过了第 157～158 行 `/private/var/keybags/persona.kb` 的创建，导致 `usermanagerd` 反复崩溃退出、`SpringBoard` 无法完成初始化。
   2. 批量重签 `userland/root/bin/` 时未携带 `.entitlements`，导致 `input26-service` 丢失 `com.apple.private.hid.client.event-dispatch` 权限退出。
-- 修复：`userland/build.sh` 合并 `var.skel.extra` 时过滤已存在的 `d\t` 目录项，确保 `/private/var/keybags/persona.kb` 创建成功；重签时保留 `.entitlements`。
+- 修复：`userland/build.sh` 合并 `var.skel.extra` 时过滤已存在的 `d\t` 目录项，使 `/private/var/keybags/persona.kb` 成功创建；重签时保留 `.entitlements`。
   3. 为 `input26-service`、`store_test`、`battery_test`、`keychain_test`、`wifipw_test` 按各自 `.entitlements` 重签，并在 [`mkstandalone.py`](../../hackios-xnu-kernel/xnuloader/mkstandalone.py) 默认启动参数中加入 `epoch=` 时间戳。
 
 ### 6.4 LUN 4 Vendor GUID 路径识别与槽位属性同步
@@ -120,7 +120,7 @@ GPU 初始化可能已经把内存交给设备或安全固件。日志 `GPU prob
   3. **独立引导异常退回自动解锁与红屏 Panic 横幅（`boot_fallback_enter()`、`ui_draw_fault_banner()`）**：`run_kernel(0, 0)` 因 panic、同步异常、五指长按退回或 50 秒心跳超时返回 `efi_main()` 时，自动调用 `boot_fallback_enter()` 置 `UI.ready = 1` 并由 `ui_draw_fault_banner()` 与 `ui_flush_splash_fb()` 向 `0xfc800000` 及 `0xfd400000` 双显示缓冲绘制红底白字 `KERNEL FAULT / HUNG - FASTBOOT RECOVERY` 横幅、故障状态、最后一条 `panic` 行和末尾 14 行内核日志，并对两个缓冲执行 `clean_dcache()`，直观区分「仍在启动」与「已退回／崩溃」。
   4. **120 秒无主机自动冷复位与 USB 端点隔离自愈（`boot_fallback_check()`）**：进入 `BOOT FALLBACK` 后若发现 `usb_out_lost` 或 `usb_in_lost`（USB 端点因超长包等原因在本次启动周期内被隔离），立即调用 `reboot()` 冷复位恢复 USB 链路；若 120 秒内未收到主机 USB 命令，`boot_fallback_check()` 自动调用 `reboot()` 重启，防止停留在退回画面。
 
-### 6.6 `oem sh` 超长命令导致 `USB_EP_OUT` 端点永久隔离与五指退回黑盒陷阱
+### 6.6 `oem sh` 超长命令导致 `USB_EP_OUT` 端点永久隔离与五指退回问题
 
 - 现象：iOS 26 在 Core 1..7 上交互正常，但主机执行 `fastboot -s xnuloader getvar product` 或 `getvar result` 全部超时无应答；此时在屏幕五指长按 1.5 秒触发 `exit_hold_elapsed()` 退回 `xnuloader`，旧版镜像画面冻结在最后一帧 iOS 桌面且不自动重启。
 - 根因：

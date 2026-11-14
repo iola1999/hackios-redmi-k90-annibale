@@ -60,7 +60,7 @@
 - stub island：这个镜像不经 `__auth_stubs` 调 IOKit，`bl` 的目标是 dyld 的 16 字节 stub island，形式为 `adrp x16,#page; add x16,x16,#off; br x16; brk #1`。解出目标地址再查目标镜像的导出名，三个入口是 `0x22c859ac0` 的 `_IOConnectCallMethod`、`0x22c859ad0` 的 `_IOConnectCallScalarMethod`、`0x22c859ae0` 的 `_IOConnectCallStructMethod`。
 - wrapper 到 selector：wrapper 里 `ldr xN, [x0, #slot]` 加 `braaz xN` 取 slot；slot 的值在 `_IOMobileFramebufferOpen`（`0x2294979e0`）与 `_IOMobileFramebufferOpenByName`（`0x2294bd5a4`）里由 `adrp`／`add`／`paciza`／`str x16,[x0,#slot]` 装入。有一批先写栈数组，再用 `str xN,[x0,xM]` 寄存器偏移批量装入，需要跟着 `mov wN,#0xa00` 这类立即数还原。
 
-两个陷阱：
+两点注意事项：
 
 - `__auth_stubs` 的 GOT 槽是 chained fixup 编码，原始值形如 `0x80140000XXXXXXXX`，目标地址是 `0x180000000 + (raw & 0xFFFFFFFFF)`。
 - 按「stub 调用点附近的小 w1 立即数」筛 selector 会大量误报，memcpy 与 printf 的长度参数也是小立即数；必须先确认调用目标是 `IOConnectCall*`。
@@ -69,7 +69,7 @@
 
 ## 4. iOS 26.6 完整 selector 表
 
-按 selector 排序，名字取本地导出符号，形状取反汇编里的常量。可以直接作为 26.6 的实现基线。
+按 selector 排序，名字取本地导出符号，形状取反汇编里的常量。可以直接用作 26.6 的实现基线。
 
 ```
  3 GetLayerDefaultSurface      4 SwapBegin                5 SwapEnd(struct 0x588)
@@ -115,7 +115,7 @@
 
 - 项目的 `kFBMethodSupportedFrameInfo` 分支现在按调用方容量初始化至多两个零值，并清零 struct。旧版仅写第一个槽位，selected index 会保持调用方初值；11-12 的 40 个宿主场景和目标编译已通过，见[修复与验证](2026-11-12-rendering-runtime.md#3-selector-74-的输出)。
 - count 为 0 时正常路径不使用 selected index。26.6 的实际输出是 2 个 scalar（count 与 selected index）加 64 字节 struct，代码注释已按这两个字段更新。
-- S4 的 iOS 14 表行是 1 scalar in、1 scalar out、`0x40` struct out，18.2 起是 2 scalar out，输出个数不能写死。
+- S4 的 iOS 14 表行是 1 scalar in、1 scalar out、`0x40` struct out，18.2 起是 2 scalar out，输出个数不能固定为常量。
 
 ## 6. 78 的分块协议与实际调用
 
@@ -150,7 +150,7 @@ iOS 26 启动日志中，backboardd 每次 swap 在 SwapBegin(4) 与 SwapEnd(5) 
   - S5 的 row83（`allow-explicit-graphics-priority`，与 83 是 `s_displayed_fb_surface` 吻合）和 row86（`gain-map-access`，与 86 是 GainEncoderFinishEncoding 吻合）都对得上，只有 row23 对不上。S5 这一行可能抄错或串列，没有判定的依据。
 - 表长度。S5 说 iOS 26.5 是「88 rows sel0..0x57」（最大 87），而 S1 的 iOS 18.2 framework 已在用 87～90，本地 26.6 还有 91 与 92，两者不能同时成立，S5 的 26.5 行数偏少。
 - row68 的 struct 大小。S5 说 26.5 上 `checkStructureInputSize` 是 `0x100`（256），27.0 改为 `0xffffffff`；S1 与本地都显示 framework 按 `8 * count` 传，日志里是 8 字节。XNU 的 `checkStructureInputSize` 是精确比较，8 字节过不了 256 的检查，这一条没有解释。
-- 版本相关的大小不能写死：selector 5 的 swap record 依次为 `0x8c`（古早 iOS）、`0x46c`（16.7）、1288（17）、`0x588`（26.5 与 26.6）、`0x6e0`（27.0），本地 26.6 的 `_IOMobileFramebufferOpen` 初始化路径确有 `mov w1, #0x588` 配 `__bzero`；gamma 表在 26.6 上是 `0xC0C`（3084），与 S1 的 18.2 相同，与 S6 古早表的「`0xc00` out」不同。
+- 版本相关的大小不能固定为常量：selector 5 的 swap record 依次为 `0x8c`（古早 iOS）、`0x46c`（16.7）、1288（17）、`0x588`（26.5 与 26.6）、`0x6e0`（27.0），本地 26.6 的 `_IOMobileFramebufferOpen` 初始化路径确有 `mov w1, #0x588` 配 `__bzero`；gamma 表在 26.6 上是 `0xC0C`（3084），与 S1 的 18.2 相同，与 S6 古早表的「`0xc00` out」不同。
 
 ## 9. 未实现的改动
 

@@ -8,16 +8,16 @@
 
 ## 1. 总体判断
 
-主干路线是对的，不建议推翻。iOS 26.6.2 加 `xnu-12377.121.6`、iPhone 17 身份、完整原版三容器系统卷从 UFS 按需读取、`ANNFS001` 内核直写 `darwin_var`、`xnuloader` 双系统，这几项都已在真机跑通，且与上游后来的走向一致（上游 11-03 试过 Turnip 加 metal2vulkan，测得比直连驱动慢一半，仍回到自有驱动）。
+主干路线是对的，不建议推翻。iOS 26.6.2 加 `xnu-12377.121.6`、iPhone 17 身份、完整原版三容器系统卷从 UFS 按需读取、`ANNFS001` 内核直写 `darwin_var`、`xnuloader` 双系统，这几项都已在真机验证通过，且与上游后来的走向一致（上游 11-03 试过 Turnip 加 metal2vulkan，测得比直连驱动慢一半，仍回到自有驱动）。
 
 真正的结构性风险集中在四处：
 
 - 图形管线里有三段「CPU 在环」与一个未查明的正确性缺陷（局部重绘残留），后者迫使整帧重画，占用了约四成 GPU 预算并造成静置发热（§4）。
 - 渲染正确性依赖 AIR→NIR 翻译器与 freedreno 补丁层，但没有按「材质／玻璃」着色器家族组织的回归样本，问题只能逐个真机复现后再修，用户看到的顶栏、搜索栏、状态栏颜色错就是这一类（§8）。
-- R2～R8 几轮「多 Worker 批量集成」一次落地几十处改动，大部分标为「待真机复核」，并已经引发过两次整机级回归（未签名注入库、ADSP DMA 覆盖 Wi-Fi 控制环）。验证债务已经超过验证能力（§16）。
+- R2～R8 几轮「多 Worker 批量集成」一次合入几十处改动，大部分标为「待真机复核」，并已经引发过两次整机级回归（未签名注入库、ADSP DMA 覆盖 Wi-Fi 控制环）。验证债务已经超过验证能力（§16）。
 - 注入库里仍有伪造硬件能力的钩子，最直接的例子是 SpringBoard 里把 `CHHapticEngine` 的 `supportsHaptics` 固定为 NO，这与 [AGENTS.md](../../AGENTS.md) §6 冲突，也让震动在 iOS 26 上无论内核修到什么程度都不可能生效（§10.1）。
 
-一句话的宏观建议：**接下来一到两个月把「正确、流畅、稳定」做扎实，把外设扩张的节奏降下来。** 具体是三件事：查清脏区残留让 CoreAnimation 回到原生脏区绘制、建立材质着色器回归样本集中解决颜色问题、把未验收子系统从默认镜像里关掉。做完这三件，再按 §19 的顺序推进外设。
+一句话的宏观建议：**接下来一到两个月以「正确、流畅、稳定」为主，放缓外设扩张的节奏。** 具体是三件事：查清脏区残留让 CoreAnimation 回到原生脏区绘制、建立材质着色器回归样本集中解决颜色问题、把未验收子系统从默认镜像里关掉。做完这三件，再按 §19 的顺序推进外设。
 
 ## 2. 项目定位与阶段目标
 
@@ -26,7 +26,7 @@
 | 档 | 名称 | 定义 | 当前距离 |
 |---|---|---|---|
 | A | 可信演示 | 桌面与系统应用正确、流畅（120 Hz 手势长帧比例低于 5%）、能跨开机保留数据、能安全切回 Android；无颜色错、无残留、无卡死 | 流畅度接近，正确性与稳定性未达 |
-| B | 日用雏形 | 在 A 之上加声音、震动、相机预览与拍照、蓝牙音频、充电正常、时间准确、第三方应用可装可用 | 大部分未通 |
+| B | 日用雏形 | 在 A 之上加声音、震动、相机预览与拍照、蓝牙音频、充电正常、时间准确、第三方应用可装可用 | 大部分尚未完成 |
 | C | 日用 | 在 B 之上加蜂窝、短信、电话、定位；App Store 不作目标（§12.6） | 未开始 |
 
 每一档的「完成定义」要写成判据表，由无人值守脚本能判的项和必须人在场确认的项分开。路线图 §7 已有一部分，建议扩成按档分列。
@@ -46,18 +46,18 @@
 | HAL 与服务替身 | `userland/src/services/`（音频 HAL 插件、相机 FigCaptureDevice、输入服务） | 为 iOS 守护进程提供硬件供应商侧的实现 |
 | 注入库 | `userland/src/inject/` | 进程内替换：供应商类、诊断、测试辅助 |
 | 构建与打包 | `userland/build.sh`、`tools/k90auto/package.py`、`mkjobs.py` | 系统盘、根盘、任务缓存、启动参数 |
-| 主机自动化 | `tools/k90auto/` | 起轮、截图、统计、复位 |
+| 主机自动化 | `tools/k90auto/` | 启动测试轮、截图、统计、复位 |
 
-### 3.2 建议写死的规则
+### 3.2 建议确立的规则
 
 - **注入库只允许三类用途**：替换 iOS 期望由硬件供应商提供的类（FigCaptureDevice、蓝牙 `bluetool` 替身）；纯诊断（图层导出、速率日志、慢帧栈采样）；测试辅助（自动解锁、合成触摸）。改视图颜色、伪造能力查询、伪造授权结果、改网络可达性都不属于这三类。
-- **诊断与测试类注入默认不进 `boot_a` 镜像**，只随 `cycle.py` 的跑轮载荷打包。现在两者共用 `package.py` 的 `INJECT` 列表，建议拆成 `INJECT_SHIP` 与 `INJECT_TEST`。
+- **诊断与测试类注入默认不进 `boot_a` 镜像**，只随 `cycle.py` 的测试轮载荷打包。现在两者共用 `package.py` 的 `INJECT` 列表，建议拆成 `INJECT_SHIP` 与 `INJECT_TEST`。
 - **每个硬件能力只在一层实现**：震动在内核驱动加 HAL Actuator，不在 SpringBoard 里拦；亮度在 `MiniAppleARMBacklight` 加 DCS，不在设置里改滑块；网络可达性由内核网络栈与 `configd` 决定，不在应用里重绑定。
 - **Mesa 补丁分三类并在文件名里标明**：移植适配（26.x 接口变化、Darwin）、硬件修复（A830 已确认的缺陷）、诊断（计时、探针）。诊断类不进默认构建。
 
 ### 3.3 缺一份架构总览文档
 
-仓库没有一份独立的架构文档，新接手者要从 README、路线图、几十篇 analysis 里拼。建议新增 `docs/plan/architecture.md`，内容就是 §3.1 的分层表加每层的入口文件、对外契约（iOS 框架期望的 selector、属性、设备节点）和「修在哪一层」的规则；各 analysis 文档只保留实测数据，不再各自解释一遍架构。
+仓库没有一份独立的架构文档，新接手者要从 README、路线图、几十篇 analysis 里汇总。建议新增 `docs/plan/architecture.md`，内容就是 §3.1 的分层表加每层的入口文件、对外契约（iOS 框架期望的 selector、属性、设备节点）和「修在哪一层」的规则；各 analysis 文档只保留实测数据，不再各自解释一遍架构。
 
 ## 4. 图形管线：现状与开销归因
 
@@ -72,7 +72,7 @@
 | 内核 GPU 服务 | `xnu/files/iokit/Kernel/AnnibaleGPU.cpp`、`xnu/files/bsd/dev/adreno8/` | 提交经 HFI 交给 GMU |
 | 上屏 | `xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp` 及 `MiniFramebuffer*.inc` | **CPU** 把 1206×2622 缩放拷进 1156×2510 面板内存，再换扫描地址 |
 
-上屏一段决定了几个硬约束。显示控制器只被用来换地址（`fb_flip=2`），缩放、逐行哈希、脏行判定都在 CPU 上由两个内核线程完成；`fb_queue=1` 下 `SwapEnd` 要等上一帧拷完，相邻两帧共用两拍预算。这是 [120 Hz 卡点分析](2026-11-01-120hz-gesture-bottleneck.md) §6 已经量到的链路。
+上屏一段决定了几个硬约束。显示控制器只被用来换地址（`fb_flip=2`），缩放、逐行哈希、脏行判定都在 CPU 上由两个内核线程完成；`fb_queue=1` 下 `SwapEnd` 要等上一帧拷完，相邻两帧共用两拍预算。这是 [120 Hz 耗时瓶颈分析](2026-11-01-120hz-gesture-bottleneck.md) §6 已经量到的链路。
 
 ### 4.2 时间花在哪里
 
@@ -105,7 +105,7 @@
 
 - 导入资源的 shadow 已由补丁 0011 禁止，但 `fd_resource_contents_undefined()`（0009）对 `Load` 附件是否会被误标，尤其是同一 IOSurface 在同一帧被两个 pass 先写后读时。
 - `MiniFramebufferRows.inc` 的逐行哈希与脏行覆盖在 CoreAnimation 只提交脏矩形时是否仍按整帧比较（两个脏矩形之间的行未变，但 CoreAnimation 认为显示内容已经是新帧）。
-- `fb_flip=2` 双缓冲下，脏区只写进了当前缓冲，上一帧的缓冲没有同步该区域，翻转后露出旧内容。这一条与症状「切一次控制中心就好了」最吻合，也最容易验证：`fb_flip=0` 加 `DIRTY_REGIONS=1` 跑一轮看残留是否消失。
+- `fb_flip=2` 双缓冲下，脏区只写进了当前缓冲，上一帧的缓冲没有同步该区域，翻转后露出旧内容。这一条与症状「切一次控制中心就好了」最吻合，也最容易验证：`fb_flip=0` 加 `DIRTY_REGIONS=1` 运行一轮看残留是否消失。
 
 ## 5. 显示与上屏路径
 
@@ -139,21 +139,21 @@
 
 ### 7.1 编译成本
 
-运行时编译链是 AIR→NIR→ir3，每条管线首次出现时在 backboardd 的提交线程上编译（是否在渲染线程上没有核实）。`annibale-pipecache-v5.bin` 与 M1 的 `annibale-aircache` 已落地，但没有「第二次开机后编译次数」的读数。首次进多任务、首次打开控制中心的卡顿很可能就是运行时编译。
+运行时编译链是 AIR→NIR→ir3，每条管线首次出现时在 backboardd 的提交线程上编译（是否在渲染线程上没有核实）。`annibale-pipecache-v5.bin` 与 M1 的 `annibale-aircache` 已实现，但没有「第二次开机后编译次数」的读数。首次进多任务、首次打开控制中心的卡顿很可能就是运行时编译。
 
 建议：
 
 - 先量：开机后 5 分钟内 backboardd 与 SpringBoard 的建管线次数与总耗时，第二次开机再量一次。两次相同就是缓存没生效。
 - 缓存键要包含 AIR 库与 Mesa 的 UUID（补丁 `0015-ir3-disk-cache-darwin-uuid` 已朝这个方向），否则换库后会命中错误的二进制。
-- 构建期预编译：用户 10-28 已允许「把翻译挪到构建期」。可行做法是把真机日志里出现过的全部管线描述收集成清单，在构建根盘时预编译并作为缓存种子放进镜像；上游 11-02 的「compiled stages seeded into the image」就是这条路。
+- 构建期预编译：用户 10-28 已允许「把翻译挪到构建期」。可行做法是把真机日志里出现过的全部管线描述收集成清单，在构建根盘时预编译并用作缓存种子放进镜像；上游 11-02 的「compiled stages seeded into the image」即采用这一方式。
 - 编译线程与渲染线程分离：若核实编译确实在渲染线程上，把编译放到独立线程并在首帧用异步管线创建（Metal 本身支持 `newRenderPipelineStateWithDescriptor:completionHandler:`）。
 
 ### 7.2 AIR 翻译器的完整性
 
 AIR 翻译器是本项目最独特也最脆弱的一层。目前的失败模式是「遇到不认识的 intrinsic 或构造就拒绝整条管线」，CoreAnimation 建不出管线就终止进程（`bo18` 的 `fmax3.f16`）。建议：
 
-- 把 23G90 的 QuartzCore、CoreImage、UIKit 的 metallib 全部离线跑一遍翻译器，列出所有拒绝项，作为一张「覆盖率表」维护；每修一项消一行。这比等真机踩到再修快得多。
-- 给翻译器加 fuzz 级别的回归：同一 metallib 在宿主用 Apple 的编译器与本翻译器各编一遍，比较反汇编的指令数与寄存器数，差异过大的标红。
+- 把 23G90 的 QuartzCore、CoreImage、UIKit 的 metallib 全部离线跑一遍翻译器，列出所有拒绝项，整理为一张「覆盖率表」维护；每修一项消一行。这比等真机遇到后再修快得多。
+- 给翻译器加 fuzz 级别的回归：同一 metallib 在宿主用 Apple 的编译器与本翻译器各编一遍，比较反汇编的指令数与寄存器数，差异过大的单独标出。
 - 当前 `air_metal.c` 6782 行、`air_to_nir.c` 3461 行，按 intrinsic 族、类型系统、接口（render_target、argument buffer）、采样器拆文件，否则多人同时修会持续冲突。
 
 ### 7.3 其他进程的 GPU 占用
@@ -181,7 +181,7 @@ AIR 翻译器是本项目最独特也最脆弱的一层。目前的失败模式�
 - 宿主侧用 Mac 原生 Metal 渲染同一输入得到参考图，设备侧用现有 `userland/src/tests/metal_drv_test.m`（7799 行）跑同一描述，做像素差。
 - 每条 rebase-26 补丁与 `ann_canonical_pixel_format()` 这类替换都要在这套样本上过一遍，再进默认参数。
 
-这套样本一旦建立，§8.1 的四条可疑点会在一个下午内得到证实或排除，之后再改 AIR 或 Mesa 补丁也有护栏。
+这套样本一旦建立，§8.1 的四条可疑点会在一个下午内得到证实或排除，之后修改 AIR 或 Mesa 补丁也有对照校验。
 
 ### 8.3 截图判读的自动化
 
@@ -220,8 +220,8 @@ iOS 26 上读 `0x0018` 报「传输被丢弃」，R2 M3 加了重试容错但未
 [相机路线](../plan/camera-plan.md)的分级与放弃准则仍然成立，建议严格按它执行，停止在 R 轮里批量加代码：
 
 - 第一步不碰 CAMSS：确认签名后的 `libannibale-media.dylib` 在 `cameracaptured`／`mediaserverd` 里加载，用假的 TPG 流让 `FigCaptureDevice` 枚举出一个设备、Camera.app 预览出彩条。这一步只涉及用户态与 iOS 26 的进程归属（16.5 是 mediaserverd，26 要核对 `cameracaptured`）。
-- 第二步才是 L1a 的 CPAS／camcc／csid-lite／ife-lite 通路，每一步读回报错，不靠多模块一次落地。
-- vendor 的 `com.qti.sensormodule.*.bin` 仍是 L1b 的门；手机下次在 Android 时取出，放入忽略目录。
+- 第二步才是 L1a 的 CPAS／camcc／csid-lite／ife-lite 通路，每一步读回报错，不靠多模块一次合入。
+- vendor 的 `com.qti.sensormodule.*.bin` 仍是 L1b 的前置条件；手机下次在 Android 时取出，放入忽略目录。
 - `annibale_camera.c` 与 `annibale_iris.c` 在默认启动参数里保持关闭，直到各自第一项真机读数出现。
 - 软 ISP（`camera_isp.c`）是 CPU 路径，预览分辨率要压低；拍照走全幅单帧可以接受。长期可以把去马赛克与色彩矩阵写成 compute 着色器交给 GPU，但这是 L2 之后的事。
 
@@ -229,29 +229,29 @@ iOS 26 上读 `0x0018` 报「传输被丢弃」，R2 M3 加了重试容错但未
 
 ### 11.1 扬声器与麦克风
 
-DSP 侧 OPEN／PREPARE／START 已成功，卡在 AudioQueue 到 HAL 的启动（`-66681`），HAL 三项接口修复后仍在。这与 §10.1 一样属于 HAL 插件契约，建议合并成一个「HAL 插件对齐」工作项：
+DSP 侧 OPEN／PREPARE／START 已成功，阻塞在 AudioQueue 到 HAL 的启动（`-66681`），HAL 三项接口修复后仍在。这与 §10.1 一样属于 HAL 插件契约，建议合并成一个「HAL 插件对齐」工作项：
 
 - 用 `sound_test` 探针固定复现，逐项对照 iOS 26 的 audiomxd 对 HAL 插件的属性查询序列（反汇编 `audiomxd` 与 `CoreAudio` 的插件加载路径），把插件缺的属性与错误的返回值一次列全。
 - 首次 `GET_SPF_STATE` 偶发 250 ms 无回复已改为 5 秒期限，但要记录真实回复延迟分布，确认是 DSP 冷启动还是 GLINK intent 分配的问题。
-- 麦克风（`annibale_mic.c`）与扬声器共用 AudioReach 图，扬声器通了再做录音路径。
+- 麦克风（`annibale_mic.c`）与扬声器共用 AudioReach 图，扬声器输出正常后再做录音路径。
 
 ### 11.2 蓝牙
 
-HCI、BLE 扫描、配对基础已通；音频路由要 A2DP／HFP 的 SCO 或 LE Audio，走 `bluetoothd` 与 `audiomxd` 的 Skywalk 通道，依赖 §11.1 的 HAL 对齐。建议排在扬声器之后。
+HCI、BLE 扫描、配对基础已可用；音频路由要 A2DP／HFP 的 SCO 或 LE Audio，经由 `bluetoothd` 与 `audiomxd` 的 Skywalk 通道，依赖 §11.1 的 HAL 对齐。建议排在扬声器之后。
 
 ### 11.3 传感器
 
-加速度、陀螺、距离、光线在高通平台上经 ADSP 传感器核心（SSC）用 QMI 协议访问。R6 的 `annibale_sensors.c` 走的是 QUP I2C 直读，并引发过 XPU SError。建议路线改为：ADSP 已经为音频启动，传感器复用同一 GLINK 通道加 QMI 编码，通过内核发布 iOS 期望的 IOHID 传感器服务（`AppleSPU` 风格）。这条路比直读 I2C 长，但与原厂拓扑一致，也不会与 ADSP 争总线。
+加速度、陀螺、距离、光线在高通平台上经 ADSP 传感器核心（SSC）用 QMI 协议访问。R6 的 `annibale_sensors.c` 走的是 QUP I2C 直读，并引发过 XPU SError。建议路线改为：ADSP 已经为音频启动，传感器复用同一 GLINK 通道加 QMI 编码，通过内核发布 iOS 期望的 IOHID 传感器服务（`AppleSPU` 风格）。该方案比直读 I2C 更复杂，但与原厂拓扑一致，也不会与 ADSP 争总线。
 
 ### 11.4 iOS 侧 USB 设备模式
 
-目前 USB 只给 loader 调试用，iOS 运行时没有设备模式。这是一个高杠杆项：有了 `usbmuxd`／lockdown 路径，日志、截图、安装应用、崩溃报告都能走 USB，不再依赖 loader 的日志环与 `oem sh`。同 SoC 的 UniXNU-Pagani 项目 11-07 起在做 DWC3 设备模式，可以对照其寄存器序列。电池驱动对 `DCTL.RUN_STOP` 的误判也会随设备模式驱动一起理顺。
+目前 USB 只给 loader 调试用，iOS 运行时没有设备模式。这一能力影响面广：有了 `usbmuxd`／lockdown 路径，日志、截图、安装应用、崩溃报告都能走 USB，不再依赖 loader 的日志环与 `oem sh`。同 SoC 的 UniXNU-Pagani 项目 11-07 起在做 DWC3 设备模式，可以对照其寄存器序列。电池驱动对 `DCTL.RUN_STOP` 的误判也会随设备模式驱动一起解决。
 
 ## 12. 其他系统能力
 
 ### 12.1 Weather、Maps 与 FairPlay
 
-`fairplayd.H2` 找不到 `com_apple_driver_FairPlayIOKit` 而退出，天气 JWT 签名走 Mescal→FairPlay。这属于要不要在内核里提供 FairPlayIOKit 服务的决策，涉及内容保护实现的边界。建议作为单独议题请用户决定范围，不与网络排查混在一起；在决定之前，Weather／Maps 从待办里摘出，避免反复排查网络。
+`fairplayd.H2` 找不到 `com_apple_driver_FairPlayIOKit` 而退出，天气 JWT 签名走 Mescal→FairPlay。这属于要不要在内核里提供 FairPlayIOKit 服务的决策，涉及内容保护实现的边界。建议单独请用户决定范围，不与网络排查混在一起；在决定之前，Weather／Maps 从待办里摘出，避免反复排查网络。
 
 ### 12.2 视频硬解
 
@@ -277,8 +277,8 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 
 - **开机到可交互的时间。** 用户反馈过图标约一分钟才出现。建议在日志里固定打三个时刻：首帧、图标齐全、首次触摸有响应，并列出这段时间里 CPU 最忙的进程。开机种子（`var.seed`）与跨开机缓存都是为缩短这段时间服务的，要有读数证明。
 - **`ANNFS001` 的健壮性。** 已有双槽轮换、主槽失败回退备槽、容量夹紧。建议再加：开机时对元数据做一次完整校验并记录结果；异常复位（看门狗、panic）后的恢复要有专门的测试轮；写入放大与闪存寿命做一次估算（每 1.5 秒一次元数据同步，几十 MiB 的槽位）。
-- **崩溃现场。** `KLOG` 16 MiB 硬件直写与 panic 红屏横幅已落地，是正确方向。建议把 `ReportCrash` 的输出目录也放进直写范围，让用户态崩溃跨重启可取。
-- **看门狗与关机。** 关机路径已补喂狗与跳回 loader；建议加一个「关机 30 秒内没走完就记录卡在哪一步」的探针，避免再出现 1 分钟黑屏后红屏。
+- **崩溃现场。** `KLOG` 16 MiB 硬件直写与 panic 红屏横幅已实现，是正确方向。建议把 `ReportCrash` 的输出目录也放进直写范围，让用户态崩溃跨重启可取。
+- **看门狗与关机。** 关机路径已补充看门狗保活与跳回 loader；建议加一个「关机 30 秒内没走完就记录卡在哪一步」的探针，避免再出现 1 分钟黑屏后红屏。
 - **内存。** 完整系统卷下空闲约 6.2 GiB，充裕。zone map 16 GB 与压缩池 4 GB 的配置暂不动，但多任务下的压缩与换页行为可以采一次。
 - **页大小。** iOS 用户态按 16 KiB 页假设的代码路径（共享缓存映射、`vm_page_size` 查询）与内核实际页大小是否一致，没有在文档里见到核对记录；若内核是 4 KiB 页，某些 mmap 与 `IOSurface` 对齐问题会间歇出现。标为推断，建议核对一次。
 
@@ -327,7 +327,7 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 
 上游 11-03～11-05 的做法已在 [11-05 对照](2026-11-05-upstream-lessons.md)与 [11-06 对照](2026-11-06-upstream-2-3-4-analysis.md)中逐条登记，本次没有新增可借用项。需要补一条判断：上游把状态栏变白与壁纸发红两个「颜色不对」最终归到着色器变体选择，并撤掉了此前的滤镜绕过与壁纸场景改写；这与本项目 §8 的思路一致，即颜色错误先找驱动契约，不在 SpringBoard 里改图层。
 
-关于 iOS 27：路线图定的是「26 跑通后评估 27」。27 需要 8 个新系统调用、4 个 MIG 编号、超过 6 GiB 的共享缓存与新的 `posix_spawnattr` 布局，且 27 的内核源码未公开。建议在 A 档完成前不启动评估，但 `darwin` 分区扩容的步骤（§15）可以先写进手册。
+关于 iOS 27：路线图定的是「26 运行后再评估 27」。27 需要 8 个新系统调用、4 个 MIG 编号、超过 6 GiB 的共享缓存与新的 `posix_spawnattr` 布局，且 27 的内核源码未公开。建议在 A 档完成前不启动评估，但 `darwin` 分区扩容的步骤（§15）可以先写进手册。
 
 ## 19. 建议的执行顺序与验收判据
 
@@ -340,7 +340,7 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 - §13 页大小：真机 `hw.pagesize` 与 `vm.pagesize` 都是 16384。
 - §16 合入前检查写进[排查与协作手册 §10](../plan/debugging-and-collaboration.md#10-合入前检查)。
 - 删除四个表象绕过钩子（含 `CHHapticEngine` 钩子），见[注入钩子清单 §3](2026-11-09-injection-hooks.md#3-结论)。
-- §16 产物自报 UUID：已修复 `init26.c` 早期 stderr 重定向与 `dladdr` `LC_UUID` 提取，真机 `verify1..4.log` 已输出各守护进程与驱动的 `LC_UUID`，见 [11-10 架构审查跟进 §2](../progress/2026-11-10-arch-review-execution.md#2-开机三里程碑时间戳与注入库-lc_uuid-自报已完成)。
+- §16 产物自报 UUID：已修复 `init26.c` 早期 stderr 重定向与 `dladdr` `LC_UUID` 提取，真机 `verify1..4.log` 已输出各守护进程与驱动的 `LC_UUID`，见 [11-10 架构审查跟进 §2](../progress/2026-11-10-arch-review-execution.md#2-开机三阶段时间戳与注入库-lc_uuid-自报已完成)。
 - 状态栏 Wi-Fi 图标灰显（`SCNetworkReachability` 无默认路由）与控制中心亮度滑块不同步：已完成根因修复与宿主单测，见 [11-10 架构审查跟进 §4、§6](../progress/2026-11-10-arch-review-execution.md)。
 
 ## 20. 风险清单
@@ -364,7 +364,7 @@ App Store 需要 Apple ID 登录、设备激活与 FairPlay 解密，涉及与 A
 3. 画布 1206×2622（§4.2、§18）：先做性能检查，再决定是否调整。
 4. 未验收子系统默认关闭（§16）：不另立规则。用户认为收益不大、会增加复杂度，必要时再做。各子系统已有自己的启动参数，出现回归时把对应参数的默认值关掉即可；批量集成由 [AGENTS.md](../../AGENTS.md) §5「一轮一个变量」约束。
 5. 静态壁纸（§7.3）：暂不更换。
-6. FairPlayIOKit（§12.1）：不以跑通 FairPlay 为目标；Weather 与 Maps 若依赖它就放弃。
+6. FairPlayIOKit（§12.1）：不以完成 FairPlay 为目标；Weather 与 Maps 若依赖它就放弃。
 7. App Store（§12.6）：明确不做。
 8. Mesa 26.3.x 与同 SoC 项目（§18）：评估升级可行性，有提升就升级。允许参考其他项目；许可证不允许直接复用时做净室复刻，只参考架构设计与逻辑。
-9. 架构总览与启动参数目录（§3.3、§17）：已落地，见 §19。
+9. 架构总览与启动参数目录（§3.3、§17）：已完成，见 §19。

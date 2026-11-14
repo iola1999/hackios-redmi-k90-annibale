@@ -4,7 +4,7 @@
 
 ## 1. 已有结果与当前边界
 
-[应用签名记录 §5](2026-11-09-ipa-codesign.md#5-真机结果)确认重新签名安装后应用可从图标启动；后续开机后台拉起的进程复用时未显示界面，结束后再次启动可见。该记录没有给出失败阶段的 PID 状态、RunningBoard assertion 或 FrontBoard scene 回应。
+[应用签名记录 §5](2026-11-09-ipa-codesign.md#5-真机结果)确认重新签名安装后应用可从图标启动；后续开机后台启动的进程复用时未显示界面，结束后再次启动可见。该记录没有给出失败阶段的 PID 状态、RunningBoard assertion 或 FrontBoard scene 回应。
 
 S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标文件编译通过，设备往返待验。具体修改见[渲染核查 §4](2026-11-12-rendering-runtime.md#4-apfs-文件身份)，本批不据此推定 S5 根因。
 
@@ -152,7 +152,7 @@ S10 已使用 `vfs_getnewfsid` 分配 APFS 挂载身份，宿主检查与目标�
 
 `probe-after-processes.txt` 实际采样于 `18:54:37.839–40.635`，线程查询于 `18:54:40.636–42.427`，均早于点击。点击后约 406 ms 的自动线程样本仅覆盖 SpringBoard、backboardd 和 input26-service，早于后续 scene 前台更新；它无法描述第二张截图阶段的 Preferences 线程状态。
 
-下一轮在异常画面窗口采集本批 scene 字段、Preferences 的 `process PID`／`threads PID` 和实际截图，分别判断内容尚未准备与已有内容但合成失败。采集顺序在起轮前固定，基线和点击后的有界采样不再等待聊天回复。
+下一轮在异常画面窗口采集本批 scene 字段、Preferences 的 `process PID`／`threads PID` 和实际截图，分别判断内容尚未准备与已有内容但合成失败。采集顺序在启动测试轮前固定，基线和点击后的有界采样不再等待聊天回复。
 
 ### 7.2 历史后台复用场景的前提
 

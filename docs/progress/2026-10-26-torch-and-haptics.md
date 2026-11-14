@@ -13,7 +13,7 @@
 
 ## 2. SPMI 仲裁器写入
 
-两个驱动经 PMIC 仲裁器 v7（版本 `0x70020000`，896 个通道）访问 PMIC：读走观察窗口 `0xc440000`，写走通道窗口 `0xc500000`，每个通道 `0x1000` 字节，布局按 Linux `drivers/spmi/spmi-pmic-arb.c`。
+两个驱动经 PMIC 仲裁器 v7（版本 `0x70020000`，896 个通道）访问 PMIC：读取使用观察窗口 `0xc440000`，写入使用通道窗口 `0xc500000`，每个通道 `0x1000` 字节，布局按 Linux `drivers/spmi/spmi-pmic-arb.c`。
 
 - 读取用 Extended Register Read（操作码 13），按键驱动和这两个驱动的读数都与原厂设备树和寄存器定义一致。
 - 用操作码 2 时，手电驱动把安全定时器 `0x3e` 从 `0x93` 写为 `0x13`，仲裁器报告传输完成且没有错误位，读回仍为 `0x93`，驱动按规则停止全部写入。
@@ -33,7 +33,7 @@
 内核 `a56627f` 在 `torch=3` 时创建 `/dev/annibale-torch`，接口与 POCO X5 Pro 相同：写入 32 位档位 0～1000（`torch_ma` 的千分之几，0 为关），读出当前点亮的档位。根盘中 `libannibale-media.dylib` 的 FigFlashlight 替换直接使用这个设备。
 
 - 安全限制：点亮期间每 100 ms 检查一次仍处于点亮状态、没有实时故障、电池温度不超过 45 °C；单次点亮最长 `torch_max_s`（默认 30 s，最多 120 s），到时熄灭，直到 iOS 写入 0 后才能再次点亮。点亮状态下改变档位只写 ITARGET。
-- loader 在任何 `torch=N` 时告诉 iOS 相机有闪光灯，控制中心因此显示手电按钮。
+- loader 在任何 `torch=N` 时向 iOS 相机报告存在闪光灯，控制中心因此显示手电按钮。
 - 实测（内核 `00259e5`）：mediaserverd 报告「the kernel has a flashlight (/dev/annibale-torch)」，AVFlashlight 的 `hasFlashlight`、`available` 都为 YES。档位 1.0 时 ITARGET `0x03`，通道 0 以 50 mA 点亮；档位 0.25 时 ITARGET `0x00`（12.5 mA）；档位 850 时 ITARGET `0x02`（37.5 mA）；关闭时通道和模块使能清零。
 - 用 `rwtouch` 点按控制中心的手电按钮，3 轮里 mediaserverd 每轮先收到档位 850、内核点亮，再收到 0、内核熄灭。
 - 时长上限生效过一次：另一个进程新建的 AVFlashlight 读到档位已是 0，没有向 mediaserverd 发出关闭，灯保持点亮，内核在亮满 30 s 时熄灭。

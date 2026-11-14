@@ -46,7 +46,7 @@ SM8750 的 ARM Generic Timer（QTimer）频率为 `19,200,000 Hz`。XNU 原生 `
 
 ### 2.3 AudioReach GPR 异步队列与音量链路收敛
 
-`annibale_audio_reach.c` 现有实现每次只向 ADSP 同步发送 1 个 `DATA_CMD_WR_SHMEM_EP_DATA_BUFFER_V2`（`0x0400100a`）缓冲槽，等 `0x05001004`（`WR_DONE`）返回后再调用 `delay_for_interval` 休眠，叠加 `annibale_adsp.c` 固定 `5 ms`／`20 ms` 的 GLINK RX 轮询周期，实测帧率被压低到 `42,318 Hz`（低于标称 `48,000 Hz` 达 11.8%）。此外，PCM 样本在 `fill_period_slot()` 内先做一次位移衰减，又在功放驱动叠加硬件衰减与固定 `-6 dB` 偏置，造成多重增益损失。
+`annibale_audio_reach.c` 现有实现每次只向 ADSP 同步发送 1 个 `DATA_CMD_WR_SHMEM_EP_DATA_BUFFER_V2`（`0x0400100a`）缓冲槽，等 `0x05001004`（`WR_DONE`）返回后再调用 `delay_for_interval` 休眠，叠加 `annibale_adsp.c` 固定 `5 ms`／`20 ms` 的 GLINK RX 轮询周期，实测帧率被压低到 `42,318 Hz`（低于标称 `48,000 Hz` 达 11.8%）。PCM 样本在 `fill_period_slot()` 内先做一次位移衰减，又在功放驱动叠加硬件衰减与固定 `-6 dB` 偏置，造成多重增益损失。
 
 内核音频传输层按硬件节拍与单点增益原则重构。
 
@@ -76,12 +76,12 @@ SM8750 的 ARM Generic Timer（QTimer）频率为 `19,200,000 Hz`。XNU 原生 `
 
 相机与相册管线中的系统进程均通过 `Metal.framework` 的 `MTLCreateSystemDefaultDevice()` 创建 GPU 设备。此前 `MiniFramebufferUserClient.inc` 仅在 `metal >= 2` 时才在 `IOAcceleratorES` 节点上发布 `MetalPluginName` 与 `MetalPluginClassName`，默认 `metal = 1` 下未注入测试钩子的守护进程拿到 `nil`。
 
-此外，`AnnibaleMetalDevice` 默认 `-featureProfile` 返回 `0`（低档特性集），无法通过 `MetalPerformanceShaders` 中 `MPSDevice::GetMPSDevice`（要求 `>= MTLGPUFamilyApple2`）与 `NeutrinoCore` 中 `NUPlatform_iOS.defaultSupportsLiveVideoRendering`（要求 `>= MTLGPUFamilyApple3`）的硬性门控。内核、用户态驱动与打包脚本因此同步更新。
+`AnnibaleMetalDevice` 默认 `-featureProfile` 返回 `0`（低档特性集），无法通过 `MetalPerformanceShaders` 中 `MPSDevice::GetMPSDevice`（要求 `>= MTLGPUFamilyApple2`）与 `NeutrinoCore` 中 `NUPlatform_iOS.defaultSupportsLiveVideoRendering`（要求 `>= MTLGPUFamilyApple3`）的硬性版本校验门槛。内核、用户态驱动与打包脚本同步更新。
 
 - 在 `MiniFramebufferUserClient.inc` 中只要 `metal >= 1` 即在 `IOAcceleratorES` 上发布 `MetalPluginName = "AnnibaleMetal"` 与 `MetalPluginClassName = "AnnibaleMetalDevice"`。
 - 在 `tools/k90auto/package.py` 构建并签名标准插件包 `/lib/AnnibaleMetal.bundle/{AnnibaleMetal,Info.plist}`，通过 `init.c` 暴露到 `/System/Library/Extensions/AnnibaleMetal.bundle`。
 - 将 `annibalemetal_device.inc` 的默认 `featureProfile` 提升为 `4`（对应 `MTLGPUFamilyApple3` 与 `MTLGPUFamilyCommon2`），并在 `sb_metal_experiment.m` 中兼容已由系统插件加载器注册的 `AnnibaleMetalDevice` 类。
-- 在 `var.skel.extra` 预置全局未压缩 `IOSurface` 分配偏好，确保跨进程相机预览缓冲可直接被 Freedreno 导入。
+- 在 `var.skel.extra` 预置全局未压缩 `IOSurface` 分配偏好，使跨进程相机预览缓冲可直接被 Freedreno 导入。
 
 ### 3.2 `CMCapture` 图提交 `-12780` 的剩余属性契约补齐
 
@@ -111,7 +111,7 @@ iOS 系统播放器（`AVSampleBufferDisplayLayer`／`FigVideoQueue`）向 CoreA
 - 10-bit 双平面格式缺失：`annibaledrawable.m` 未处理 `'x420'` 与 `'xf20'`（10-bit P010），需按平面分别映射为 `MTLPixelFormatR16Unorm`（`20`）与 `MTLPixelFormatRG16Unorm`（`60`）。
 - format `500` 尺寸比较过严：`annibalemetal_yuv.inc` 要求创建的纹理宽高严格等于平面宽高，而解码器输出常带宏块对齐填充（如 `1088` 行承载 `1080` 有效行），需放宽为 `<=` 平面尺寸。
 - 纹理用途位拦截：CoreAnimation 为视频层附加 `MTLTextureUsagePixelFormatView`（`0x10`），需在 `annibalemetal_yuv.inc` 的允许掩码中放行该标志位。
-- BT.2020 色彩矩阵缺失：HDR 与广色域视频携带 `matrix == 9`（`ITU_R_2020`），需在 `annibalemetal_yuv.inc`、`air_metal_yuv.h`、`air_metal_yuv.inc` 与 `air_metal_resource_private.h` 中补齐 BT.2020 窄域与全域 YCbCr→RGB 转换系数并重编 `libannibaleair.dylib`。
+- BT.2020 色彩矩阵缺失：HDR 与广色域视频携带 `matrix == 9`（`ITU_R_2020`），需在 `annibalemetal_yuv.inc`、`air_metal_yuv.h`、`air_metal_yuv.inc` 与 `air_metal_resource_private.h` 中补齐 BT.2020 窄域与全域 YCbCr→RGB 转换系数并重新编译 `libannibaleair.dylib`。
 
 ### 4.2 SM8750 Iris VPU v3.5 硬件架构与固件引导序列
 
@@ -147,4 +147,4 @@ iOS 系统播放器（`AVSampleBufferDisplayLayer`／`FigVideoQueue`）向 CoreA
 - 共享基础设施。相机、音频功放、ADSP 与 Iris VPU 共用互斥序列化的 `annibale_rpmh.c`，消除重复的 CMD_DB 查找与 TCS 轮询实现。
 - 遵守 1200 行文件上限。`annibale_camera.c` 拆出 `annibale_camera_hw.inc`，Iris 驱动按设备入口、硬件上电与 HFI 协议拆为三文件，本次涉及的全部源码文件均在 1200 行以内。
 - 真实能力上报。相机 `CAMIOC_G_INFO` 与 `videotoolbox_iris` 均按真实硬件就绪状态上报，移除无消费者的投机字段，不伪造硬解标志或掩盖硬件错误。
-- 宿主检查与构建。背光、引导安全、任务缓存、音频插件与传输、Metal 与着色器 YUV、相机契约、根盘切换及 Iris／VideoToolbox 的检查结果见[多媒体验证结果](2026-11-11-multimedia-validation.md)。真机起轮与收尾按 [AGENTS.md](../../AGENTS.md) §5 核验；宿主、设备初始化与用户可用行为分别验收。
+- 宿主检查与构建。背光、引导安全、任务缓存、音频插件与传输、Metal 与着色器 YUV、相机契约、根盘切换及 Iris／VideoToolbox 的检查结果见[多媒体验证结果](2026-11-11-multimedia-validation.md)。真机启动测试轮与收尾按 [AGENTS.md](../../AGENTS.md) §5 核验；宿主、设备初始化与用户可用行为分别验收。

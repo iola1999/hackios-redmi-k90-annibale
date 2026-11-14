@@ -1,8 +1,8 @@
 # 音频播放、相机适配与视频硬解进展记录（2026-11-11）
 
-本轮完成音频播放、相机适配、视频硬件解码与 YUV 合成以及背光／时钟收尾项的全链路代码落地、13 组宿主单测验证与内核／用户态产物构建。根因定位、静态反汇编依据与模块设计见[多媒体根因定位及架构设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)，前序事项见[11-10 架构审查跟进记录](2026-11-10-arch-review-execution.md)。
+本轮完成音频播放、相机适配、视频硬件解码与 YUV 合成以及背光／时钟收尾项的代码实现、13 组宿主单测验证与内核／用户态产物构建。根因定位、静态反汇编依据与模块设计见[多媒体根因定位及架构设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)，前序事项见[11-10 架构审查跟进记录](2026-11-10-arch-review-execution.md)。
 
-## 1. 首批落地变更概览
+## 1. 首批代码变更概览
 
 跨 `hackios-xnu-kernel`（提交 `7507f4c9`）、`hackios-xnu-userland`（提交 `023e088`）与顶层打包脚本 `tools/k90auto/package.py` 共完成四部分工作，所有新增与修改源码文件均控制在 1200 行以内。
 
@@ -18,8 +18,8 @@
 | 产物 | 路径 | 字节数 | SHA-256 前 16 位 |
 |---|---|---|---|
 | XNU 12377 内核 | `hackios-xnu-kernel/out/xnu12377-multimedia-1111.bin` | `20,531,784` | `5764624396cd7e3a` |
-| AIR 着色器动态库 | `hackios-xnu-userland/tools/mesa/air/libannibaleair.dylib` | 已重编并签名 | `1d14be1483eecfc5` |
-| Metal 驱动动态库 | `out/ios26-resume/bbmetal-device` 内 `libannibalemetal.dylib` | 已重编并签名 | `45fc92eebd9059a3` |
+| AIR 着色器动态库 | `hackios-xnu-userland/tools/mesa/air/libannibaleair.dylib` | 已重新编译并签名 | `1d14be1483eecfc5` |
+| Metal 驱动动态库 | `out/ios26-resume/bbmetal-device` 内 `libannibalemetal.dylib` | 已重新编译并签名 | `45fc92eebd9059a3` |
 | 辅助根盘镜像 | `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root.apfs` | `21,311,488` | `5787d7e80ea3a17a` |
 | 引导载荷镜像 | `hackios-xnu-kernel/out/handoff-12377-multimedia-1111-preflight.bin` | `41,844,152` | `68367db3be002f80` |
 
@@ -29,7 +29,7 @@
 
 | 测试项 | 覆盖范围 | 结果 |
 |---|---|---|
-| `hackios-xnu-kernel/tools/tests/test-iris-safety.py` | `/dev/annibale-iris` 惰性初始化、4 类编译回归拦截、`videotoolbox_iris.c` 门控、Annex-B 转换与 B 帧排空 | 通过 |
+| `hackios-xnu-kernel/tools/tests/test-iris-safety.py` | `/dev/annibale-iris` 惰性初始化、4 类编译回归拦截、`videotoolbox_iris.c` 条件开关、Annex-B 转换与 B 帧排空 | 通过 |
 | `hackios-xnu-kernel/tools/tests/test_challenger_m6_backlight.py` | 背光滑块 `1:1` 同步、熄屏亮度记忆与 5,000 次随机事件 | 通过 |
 | `hackios-xnu-kernel/tools/tests/test-hw-drivers.py` | 背光映射与电池回差控制 | 通过 |
 | `hackios-xnu-kernel/tools/tests/test-annibale-audio-transport.py` | GPR 响应校验、GLINK 锁与 PCM V2 完成计数、8 类回归拦截 | 通过 |
@@ -40,7 +40,7 @@
 | `hackios-xnu-userland/tools/tests/test-audio-plugin.py` | `AnnibaleAudio.driver` CoreAudio HAL 接口契约 | 通过 |
 | `hackios-xnu-userland/tools/tests/test-camera-device-ios26.py` | iOS 26 `CMCapture` 四阶段缓冲池、`ModuleInfo`、`TuningParameters` 与 `SoftISP` 属性契约 | 通过 |
 | `hackios-xnu-userland/tools/tests/test-flash-root.py` | UFS 系统卷挂载、`AnnibaleAudio.driver` 单插件合成挂载与 7 种故障场景 | 通过 |
-| `hackios-xnu-userland/tools/tests/test-video-decode-test.py` | `video_decode_test` 硬解要求门控、损坏样本与超时保护（10 项） | 通过 |
+| `hackios-xnu-userland/tools/tests/test-video-decode-test.py` | `video_decode_test` 硬解要求校验、损坏样本与超时保护（10 项） | 通过 |
 | `hackios-xnu-userland/tools/tests/test-video-player-test.py` | `video_player_test` 像素采样、播放结束判据与异常流处理（10 项） | 通过 |
 
 ## 4. 真机验证与剩余问题

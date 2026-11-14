@@ -6,7 +6,7 @@
 
 全仓除计划下线的 `darwin_var` 内存落盘层（[ramfs_disk.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) `ANNFS001`）外，共查明 **6 项 P0 核心热路径瓶颈**、**8 项 P1 轮询与串行瓶颈** 及 **4 项 P2 启动期或遗留路径开销**。各项问题的架构改造方案与寄存器设计，连同文件拆分边界和分批实施计划，统一见 [性能与原生硬件对齐改造方案](../plan/2026-11-14-performance-and-native-alignment-plan.md)。
 
-## 1. 已接入原生硬件能力的基线与第 0 批已落地减负项
+## 1. 已接入原生硬件能力的基线与第 0 批已完成减负项
 
 ### 1.1 原生硬件基线边界
 
@@ -20,11 +20,11 @@
 - **蓝牙 RX 中断、CPUFreq 调频与 RPMh 投票**：[annibale_bt_ios.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_bt_ios.c) 注册 Skywalk 通道并挂载 GICv3 SPI `INTID 493`（`32 + 0x1cd`）接收中断；[annibale_cpufreq.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_cpufreq.c) 通过 SCMI `0x13` 协议驱动双丛集调频；[annibale_rpmh.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_rpmh.c) 通过 Apps RSC DRV2 Active TCS 寄存器直接发起电源轨硬件投票。
 - **USB 控制器运行边界**：DWC3 设备控制器仅在引导阶段 [loader_06_usb_entry.inc](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 工作并在进入 XNU 前停机；XNU 内核态尚未合入 DWC3 驱动（见 [platform.md](../backlog/platform.md)）。
 
-### 1.2 第 0 批已落地的直接减负项（2026-11-14）
+### 1.2 第 0 批已完成的直接减负项（2026-11-14）
 
 第 0 批已针对启动期 I/O 放大、固件逐字节搬运及空闲轮询在代码树完成直接减负改动。
 
-- **开机自检套件门控**：[init.c](../../hackios-xnu-userland/userland/src/boot/init.c) 将 `test_files`、300 文件 `test_writable`、`64 MiB` `test_memory`、`test_processes`、`test_devices` 与 `200 ms` `test_time` 收入诊断参数 `init_selftest=1`（默认关闭），仅保留单次非 PID 1 子进程 `test_dynamic()` 为 iOS 26 `launchd` 预热全局 `vm_shared_region`。
+- **开机自检套件开关控制**：[init.c](../../hackios-xnu-userland/userland/src/boot/init.c) 将 `test_files`、300 文件 `test_writable`、`64 MiB` `test_memory`、`test_processes`、`test_devices` 与 `200 ms` `test_time` 收入诊断参数 `init_selftest=1`（默认关闭），仅保留单次非 PID 1 子进程 `test_dynamic()` 为 iOS 26 `launchd` 预热全局 `vm_shared_region`。
 - **固件 FAT16 读取合并与 64 位对齐搬运**：[annibale_ufs_rw.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 增加 `4 KiB` FAT16 扇区缓存并将连续簇合并为最高 `256 KiB` UFS 读取；[annibale_adsp_fw.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_adsp_fw.inc) 与 [annibale_iris_hw.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_iris_hw.c) 改为 64 位对齐 `volatile uint64_t` 块写入与清零。
 - **空闲轮询去超时与录音限流修复**：[annibale_haptic.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_haptic.c)（原 `250 Hz`）与 [annibale_torch.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_torch.c)（原 `10 Hz`）在空闲态改为无超时 `assert_wait` 事件唤醒；[annibale_mic.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_mic.c) 移除录音采集中每帧末尾冗余的 `20 ms` 固定睡眠，空闲轮询降频并在 `open` 时立即唤醒。
 - **APFS 可写基础修正**：[apfs_vnops.c](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c) 对可写挂载放行 `FWRITE | O_TRUNC | O_CREAT`，[apfs_vnops_write.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops_write.inc) 在释放 `am_lock` 后执行 `ubc_setsize` 与 `ubc_msync(..., UBC_INVALIDATE)`，[init_mount.inc](../../hackios-xnu-userland/userland/src/boot/init_mount.inc) 用独立 `var_apfs=1` 保护现网 `darwin_var`。
@@ -61,7 +61,7 @@
 ### 2.5 P0-5 相机采集与 ISP：逐帧启停传感器、软件 I2C 与 8 核全软件 Bayer ISP
 
 - **源码定位**：[annibale_camera_native.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera_native.inc)、[annibale_camera_hw.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera_hw.inc)、[camera_isp.c](../../hackios-xnu-userland/userland/src/services/camera_isp.c)、[camera_device_stream.inc](../../hackios-xnu-userland/userland/src/services/camera_device_stream.inc) 及 [inject_media.c](../../hackios-xnu-userland/userland/src/inject/inject_media.c)。
-- **当前过渡方案**：内核仅启用 `csid-lite0`（`0x0ad6d000`）与 `ife-lite0` 原始 RDI 通道，未驱动 Titan 主 IFE/IPE 硬件 ISP。每采一帧执行同步 `ioctl(CAMIOC_CAPTURE)`：复位配置 CSID/VFE、整帧 `bzero` 加双次 `FlushPoC_DcacheRegion`，前摄 `OV20B` 在 `GPIO 4/5`（物理归属 `QUP_2 SE9 I2C` `0x00884000`）上用 `delay(3~4 us)` 软件模拟 I2C 发送 `stream_on`/`stream_off`，按 `1000 us` 轮询 `CAM980_BUF_STATUS` 后经 `uiomove` 拷出 RAW10。用户态 `camera_isp.c` 以 `QOS_CLASS_USER_INTERACTIVE` 跑满 8 核软件执行解包、LSC、CCM、Gamma、去马赛克与 NV12 转换；拍照 HEIC 走纯软件 `VCPHEVC.videocodec`。
+- **当前过渡方案**：内核仅启用 `csid-lite0`（`0x0ad6d000`）与 `ife-lite0` 原始 RDI 通道，未驱动 Titan 主 IFE/IPE 硬件 ISP。每采一帧执行同步 `ioctl(CAMIOC_CAPTURE)`：复位配置 CSID/VFE、整帧 `bzero` 加双次 `FlushPoC_DcacheRegion`，前摄 `OV20B` 在 `GPIO 4/5`（物理归属 `QUP_2 SE9 I2C` `0x00884000`）上用 `delay(3~4 us)` 软件模拟 I2C 发送 `stream_on`/`stream_off`，按 `1000 us` 轮询 `CAM980_BUF_STATUS` 后经 `uiomove` 拷出 RAW10。用户态 `camera_isp.c` 在 8 核满载下以 `QOS_CLASS_USER_INTERACTIVE` 软件执行解包、LSC、CCM、Gamma、去马赛克与 NV12 转换；拍照 HEIC 走纯软件 `VCPHEVC.videocodec`。
 - **量化资源代价**：前摄 `OV20B` 单帧 RAW10 `4.52 MiB`，`30 fps` 下产生 `142.07 MB/s` `bzero`、`284.14 MB/s` `dc civac` 与 `142.07 MB/s` `uiomove`；后摄 `OVX8000` 单帧 `5.86 MiB`，`30 fps` 下产生 `184.32 MB/s` `bzero`、`368.64 MB/s` `dc civac` 与 `184.32 MB/s` `uiomove`。逐帧启停传感器把曝光稳定延迟串入每帧周期，8 核软件 ISP 持续占满大核算力。
 
 ### 2.6 P0-6 Iris VPU 视频解码桥接：全局单锁、`250 us` 轮询与逐行 `copyout`
@@ -75,7 +75,7 @@
 ### 3.1 P1-1 Wi-Fi 与 PCIe/MHI 网络栈：空载 `1,800+ Hz` 轮询、双次拷贝与 `20 MHz` 限速
 
 - **源码定位**：[lx_pci.c](../../hackios-xnu-kernel/wifi/lx/ath12k/lx_pci.c)、[lx_base.c](../../hackios-xnu-kernel/wifi/lx/src/lx_base.c)、[lx_80211.c](../../hackios-xnu-kernel/wifi/lx/src/lx_80211.c)、[mhi_pcie.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/mhi/mhi_pcie.c)、[mhi_pcie_fw.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/mhi/mhi_pcie_fw.c) 及 [annibale_net.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_net.c)。
-- **当前过渡方案**：PCIe RC0（`0x01c00000`）MSI 指向空页未绑中断（GIC ITS `0x16040000` `SID 0x1400` 或边缘 SPI `INTID 181..184` 未使用），依赖 5 组常驻轮询线程推进（`wifi-rings` `1,000 Hz`、`wifi-ticks` `500 Hz`、`ipcr_thread` `200 Hz`、`net_thread` `100～500 Hz`、LinuxKPI 等待队列 `200 Hz`），共同争用全局锁 `lx_lock`。网卡注册为 `IFNET_INIT_LEGACY`，收发各经 `mbuf <-> lx_queue <-> Write-Combining lowdma sk_buff` 两次整包拷贝，`dma_free_coherent` 为空实现；`lx_80211.c` 锁死 `20 MHz` 频宽并关闭省电，`mhi_pcie.c` 含 `30 s` 固定睡眠分支。
+- **当前过渡方案**：PCIe RC0（`0x01c00000`）MSI 指向空页未绑中断（GIC ITS `0x16040000` `SID 0x1400` 或边缘 SPI `INTID 181..184` 未使用），依赖 5 组常驻轮询线程推进（`wifi-rings` `1,000 Hz`、`wifi-ticks` `500 Hz`、`ipcr_thread` `200 Hz`、`net_thread` `100～500 Hz`、LinuxKPI 等待队列 `200 Hz`），共同争用全局锁 `lx_lock`。网卡注册为 `IFNET_INIT_LEGACY`，收发各经 `mbuf <-> lx_queue <-> Write-Combining lowdma sk_buff` 两次整包拷贝，`dma_free_coherent` 为空实现；`lx_80211.c` 将频宽固定为 `20 MHz` 并关闭省电，`mhi_pcie.c` 含 `30 s` 固定睡眠分支。
 - **量化资源代价**：纯待机无流量时每秒仍触发 `1,800+ 次` 线程唤醒与数千次 PCIe BAR0 MMIO 读取，阻止 CPU 与 WCN7850 进入低功耗态；`20 MHz` 频宽加双次非缓存拷贝将 Wi-Fi 7 吞吐限制在百兆级。
 
 ### 3.2 P1-2 UFS 控制面：`hc_poller` 零睡眠忙等、单门铃队列与缓存刷盘拦截
@@ -127,7 +127,7 @@
 
 ## 4. P2 启动期开销与遗留路径（4 项）
 
-### 4.1 P2-1 PID 1 开机自检门控与 XNU `xsmall` 内核容量档位
+### 4.1 P2-1 PID 1 开机自检开关与 XNU `xsmall` 内核容量档位
 
 - **源码定位**：[init.c](../../hackios-xnu-userland/userland/src/boot/init.c) 与内核 `scale` 配置。
 - **当前状态**：`init.c` 的 300 文件读写与 `64 MiB` 内存扫描已在第 0 批默认关闭；但内核仍沿用早期移植自 `bcm2837` 的 `xsmall` 容量档位，vnode 表、名称缓存及内核区配额偏小，与 K90 的 `16 GiB` LPDDR5X 物理内存不匹配。
@@ -140,7 +140,7 @@
 ### 4.3 P2-3 `/private/var/jb` 内存盘全量拷贝、本地化扫描与扩展挂起睡眠
 
 - **源码定位**：[init_mount.inc](../../hackios-xnu-userland/userland/src/boot/init_mount.inc)、[inject_sb26.c](../../hackios-xnu-userland/userland/src/inject/inject_sb26.c)、[inject_posterboard.c](../../hackios-xnu-userland/userland/src/inject/inject_posterboard.c) 及 [inject_sb26_layers.c](../../hackios-xnu-userland/userland/src/inject/inject_sb26_layers.c)。
-- **当前状态**：第 0 批已完成 `inject_sb26.c` 本地化探测缓存与 `inject_sb26_layers.c` 自动转储门控；剩余 `/private/var/jb` 每次开机递归拷入 `ramfs`，以及 `inject_posterboard.c` 对挂起态 `MercuryPosterExtension` 在 `-commit` 内调用 `usleep(200000)` 阻塞渲染提交线程。
+- **当前状态**：第 0 批已完成 `inject_sb26.c` 本地化探测缓存与 `inject_sb26_layers.c` 自动转储开关；剩余 `/private/var/jb` 每次开机递归拷入 `ramfs`，以及 `inject_posterboard.c` 对挂起态 `MercuryPosterExtension` 在 `-commit` 内调用 `usleep(200000)` 阻塞渲染提交线程。
 
 ### 4.4 P2-4 遗留 OpenGL ES 桥接层（`eagl.c`）冗余整帧 FBO Blit
 
@@ -153,19 +153,19 @@
 | :--- | :--- | :--- | :--- | :--- |
 | P0-1 | P0 | `IOMobileFramebuffer` CPU 哈希与双线性缩放拷贝 | `120 Hz` 下 `2.91～4.43 GB/s` CPU 访存 | [方案 §3.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#3-第-2-批显示-dpu-直扫ubwc-表面与-iris-零拷贝p0-1--p0-2--p0-6--p1-4)（第 2 批） |
 | P0-2 | P0 | `MiniIOSurface` 全链路未压缩线性布局 | 多消耗 `35%～50%` LPDDR5X 显存带宽 | [方案 §3.2](../plan/2026-11-14-performance-and-native-alignment-plan.md#3-第-2-批显示-dpu-直扫ubwc-表面与-iris-零拷贝p0-1--p0-2--p0-6--p1-4)（第 2 批） |
-| P0-3 | P0 | UFS `256 KiB` 中转 `memcpy` 与同步 `ufs_strategy` | `500 MB/s` 读下 `1.0 GB/s` 刷缓存 + `500 MB/s` 拷贝 | [方案 §2.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储底座与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
-| P0-4 | P0 | 可写 APFS 缺目录/xattr/pageout 且每 `4 KiB` 提交检查点 | 写放大约 `12×`，`1 MB` 追加写分配 `295 MB` 堆内存 | [方案 §2.2](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储底座与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
+| P0-3 | P0 | UFS `256 KiB` 中转 `memcpy` 与同步 `ufs_strategy` | `500 MB/s` 读下 `1.0 GB/s` 刷缓存 + `500 MB/s` 拷贝 | [方案 §2.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储驱动与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
+| P0-4 | P0 | 可写 APFS 缺目录/xattr/pageout 且每 `4 KiB` 提交检查点 | 写放大约 `12×`，`1 MB` 追加写分配 `295 MB` 堆内存 | [方案 §2.2](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储驱动与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
 | P0-5 | P0 | 相机逐帧启停、软件 I2C 与 8 核软件 Bayer ISP | `30 fps` 下 `142～184 MB/s` 拷贝 + 8 核满载 | [方案 §4.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#4-第-3-批相机流式管线与整机中断化去轮询p0-5--p1-1--p1-7--p1-8)（第 3 批） |
 | P0-6 | P0 | Iris VPU 全局锁、`250 us` 轮询与逐行 `copyout` | `4K60` 下 `752 MB/s` 刷缓存 + `19.4 万次/秒` `copyout` | [方案 §3.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#3-第-2-批显示-dpu-直扫ubwc-表面与-iris-零拷贝p0-1--p0-2--p0-6--p1-4)（第 2 批） |
 | P1-1 | P1 | Wi-Fi `1,800+ Hz` 轮询、双次拷贝与 `20 MHz` 限速 | 待机 `1,800+ 次/秒` 唤醒，吞吐受限于百兆级 | [方案 §4.2](../plan/2026-11-14-performance-and-native-alignment-plan.md#4-第-3-批相机流式管线与整机中断化去轮询p0-5--p1-1--p1-7--p1-8)（第 3 批） |
-| P1-2 | P1 | UFS `hc_poller` 零睡眠忙等与拦截刷盘/`UNMAP` | 超 `100 us` I/O 占满 1 核，无持久刷盘屏障 | [方案 §2.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储底座与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
-| P1-3 | P1 | APFS 全卷单锁 `am_lock`、无预读与 $O(N^2)$ `readdir` | 多进程缺页串行排队，大目录遍历呈平方级退化 | [方案 §2.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储底座与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
+| P1-2 | P1 | UFS `hc_poller` 零睡眠忙等与拦截刷盘/`UNMAP` | 超 `100 us` I/O 占满 1 核，无持久刷盘屏障 | [方案 §2.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储驱动与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
+| P1-3 | P1 | APFS 全卷单锁 `am_lock`、无预读与 $O(N^2)$ `readdir` | 多进程缺页串行排队，大目录遍历呈平方级退化 | [方案 §2.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#2-第-1-批存储驱动与可写-apfs-完整切换p0-3--p0-4--p1-2--p1-3)（第 1 批） |
 | P1-4 | P1 | 软件定时模拟 VSync、`SwapWait` 空实现与单槽覆盖 | 扫描相位错开微卡顿，`flipSplashPipe` 忙等 | [方案 §3.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#3-第-2-批显示-dpu-直扫ubwc-表面与-iris-零拷贝p0-1--p0-2--p0-6--p1-4)（第 2 批） |
 | P1-5 | P1 | GPU 共享 32 位 CB0、无抢占、串行 `-commit` 与同步 Blit | 贴图上传同步卡顿，冷启动重复编译着色器，残留 `redwoodmetal` | [方案 §5.1](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |
 | P1-6 | P1 | `minicrypto` 软件查表 AES、标量 SHA 与单锁 PRNG | 签名哈希与内核加密比硬件指令慢 `10～30 倍` | [方案 §5.2](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |
 | P1-7 | P1 | ADSP GLINK 轮询、功放软件 I2C 与单槽麦克风 | 常驻 `50～1,000 Hz` 唤醒（麦克风冗余睡眠已修） | [方案 §4.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#4-第-3-批相机流式管线与整机中断化去轮询p0-5--p1-1--p1-7--p1-8)（第 3 批） |
 | P1-8 | P1 | 触控/按键/蓝牙 TX/电量计等常驻轮询群 | 待机数百 Hz 唤醒与空载 SPI 读取（马达/手电筒已修） | [方案 §4.4](../plan/2026-11-14-performance-and-native-alignment-plan.md#4-第-3-批相机流式管线与整机中断化去轮询p0-5--p1-1--p1-7--p1-8)（第 3 批） |
-| P2-1 | P2 | `init.c` 自检门控（已修）与内核 `xsmall` 容量档位 | `16 GiB` 内存机型沿用 `xsmall` vnode/ncache 配额 | [方案 §5.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |
+| P2-1 | P2 | `init.c` 自检开关（已修）与内核 `xsmall` 容量档位 | `16 GiB` 内存机型沿用 `xsmall` vnode/ncache 配额 | [方案 §5.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |
 | P2-2 | P2 | 协处理器固件 64 位装载（已修）与后台异步预热 | 开机前台串行等待固件认证 | [方案 §5.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |
 | P2-3 | P2 | `/private/var/jb` 内存拷贝与 Poster 挂起 `usleep` | 开机拷贝开销；挂起扩展阻塞 `-commit`（缓存/转储已修） | [方案 §5.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |
 | P2-4 | P2 | `eagl.c` 默认 `blit_targets=1` 整帧冗余 FBO Blit | OpenGL ES 每帧多读写约 `50.6 MB` 显存 | [方案 §5.3](../plan/2026-11-14-performance-and-native-alignment-plan.md#5-第-4-批gpu-与密码学加速及遗留项收敛p1-5--p1-6--p2-1p2-4)（第 4 批） |

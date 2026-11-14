@@ -1,6 +1,6 @@
 # 蓝牙、跨开机保留数据与面板调光（2026-11-05）
 
-本文记录 2026-11-05 完成的蓝牙接入、跨开机保留 `/private/var`、DSI 面板背光调节、GPU 温度传感器地址修正、韩文字体与 `bluetoothd` 入盘、Mesa `fd_bo_heap_alloc` 空指针检查及内核增量编译加固的改动与实测轮次。各项的原理与取证细节分别见[蓝牙接入调研](../analysis/2026-11-02-bluetooth-bringup.md) §8、[跨开机保留数据的可行性与实测](../analysis/2026-11-05-persistence-feasibility.md) §7、[屏幕亮度调节调研](../analysis/2026-11-02-brightness-control.md) §9 与[项目排查与协作手册](../plan/debugging-and-collaboration.md) §3。
+本文记录 2026-11-05 的改动与实测轮次，涵盖蓝牙接入、跨开机保留 `/private/var`、DSI 面板背光调节、GPU 温度传感器地址修正、韩文字体与 `bluetoothd` 加入系统盘、Mesa `fd_bo_heap_alloc` 空指针检查，以及内核增量编译加固。各项的原理与取证细节分别见[蓝牙接入调研](../analysis/2026-11-02-bluetooth-bringup.md) §8、[跨开机保留数据的可行性与实测](../analysis/2026-11-05-persistence-feasibility.md) §7、[屏幕亮度调节调研](../analysis/2026-11-02-brightness-control.md) §9 与[项目排查与协作手册](../plan/debugging-and-collaboration.md) §3。
 
 ## 1. 改动
 
@@ -15,8 +15,8 @@
   - `hackios-xnu-userland/userland/src/bluetool.c`、`ios165/select-system.py`、`tools/k90auto/package.py`：新增 `bluetool` XPC 替身；系统盘选入 `usr/sbin/bluetoothd`（12.15 MB）与韩文字体 `AppleSDGothicNeo.ttc`（32.23 MB）并更新手机 DSU；`package.py` 默认开启 `BLUETOOTH=1`。
 - 其他修复与构建加固：
   - `hackios-xnu-kernel/xnu/files/bsd/dev/annibale_adreno.c`：K90 GPU 温度传感器地址改为 `0x0c22a000`（tsens2），并在 `adreno8_gpu8_keep` 路径每秒调用 `annibale_adreno_minute()`。
-  - `hackios-xnu-userland/tools/mesa/rebase-26/0015-fd-bo-heap-null-check.patch`：`fd_bo_heap_alloc` 检查 `util_vma_heap_alloc` 返回 0 与 `bo_new` 返回 `NULL`，重编并签名 `libannibaleair.dylib`（`5a6a3cbabf49f6ff`）。
-  - `hackios-xnu-kernel/xnu26/xcrun`、`xnu26/build-macos.sh`：过滤 `-Werror` 下宿主 Clang 21 触发的 `-Wreserved-identifier`；剥离外层 GNU Make 传入的 `-j`；在运行 `config` 后夹紧 `DOCONFDEPS` 与生成 `Makefile`／`assym.s` 的时间戳，避免修改 `conf/files` 触发 2 小时全量重编。
+  - `hackios-xnu-userland/tools/mesa/rebase-26/0015-fd-bo-heap-null-check.patch`：`fd_bo_heap_alloc` 检查 `util_vma_heap_alloc` 返回 0 与 `bo_new` 返回 `NULL`，重新编译并签名 `libannibaleair.dylib`（`5a6a3cbabf49f6ff`）。
+  - `hackios-xnu-kernel/xnu26/xcrun`、`xnu26/build-macos.sh`：过滤 `-Werror` 下宿主 Clang 21 触发的 `-Wreserved-identifier`；剥离外层 GNU Make 传入的 `-j`；在运行 `config` 后夹紧 `DOCONFDEPS` 与生成 `Makefile`／`assym.s` 的时间戳，避免修改 `conf/files` 触发 2 小时全量重新编译。
   - `tools/k90auto/cycle.py`：默认内核更新为 `12377-st4`，`FIXED_ARGS` 默认包含 `ufs=2 ufs_write=1 var_store=1 var_save_ms=60000 bt=4`。
 
 ## 2. 轮次
@@ -25,10 +25,10 @@
 |---|---|---|---|
 | `kernel-12377-st2-r1` | `12377-st2` | `ufs=2 bt=3 fb_dcs=2` + `VARSTORE_SHOW=1` | `dsu_store` 识别 4,096 MB（双槽均为空）；DCS 写 `0x0200` 回读 512；蓝牙下发 `hmtbtfw20.tlv`／`hmtnv20.bin`，5 秒 LE 扫描发现 43 台设备；GPU 温度读出 50.8～52.3 °C |
 | `kernel-12377-st2-r2` | `12377-st2` | `ufs=2 ufs_write=1 var_save_ms=30000 fb_dcs=3` | DCS 写 512 与 2,788 回读一致；软件逐位 `ufs_crc32` 耗时过长，30 秒只写完 28,672 块 |
-| `kernel-12377-st2-r3` | `12377-st2` + loader v19 | `ufs=2 ufs_write=1 var_save_ms=60000 fb_dcs=4` | 硬件 CRC-32 下 `var_store` 5,300 毫秒将 `/private/var`（28,724 条目，410.7 MB，CRC `0x2c8947ea`）写入 `slot 0`（generation 1）；DCS 随滑块走通 `2788 -> 22 -> 4726`；切回 Android 运行 2 小时并更新含 `bluetoothd` 的 DSU 系统盘 |
-| `kernel-12377-st3-r1` | `12377-st3` | `--seed ""` + `ufs=2 ufs_write=1 var_store=1 var_save_ms=60000 bt=4` | 从闪存 `slot 0` 展开 `/private/var`（11,580 目录、5,260 文件、61 符号链接），主屏 15 图标齐全、Wi-Fi 自动连上；停轮 5,000 毫秒写入 `slot 1`（generation 2，CRC `0xfa947c2e`）；默认 `DCS_DEFAULT=4` 回读 2,788；`bluetoothd` 因 `0x204a` 触发芯片扩展广播锁定而在 `0x2007`／`0x200b` 收到 `0x0c` |
+| `kernel-12377-st2-r3` | `12377-st2` + loader v19 | `ufs=2 ufs_write=1 var_save_ms=60000 fb_dcs=4` | 硬件 CRC-32 下 `var_store` 5,300 毫秒将 `/private/var`（28,724 条目，410.7 MB，CRC `0x2c8947ea`）写入 `slot 0`（generation 1）；DCS 随滑块完成 `2788 -> 22 -> 4726` 切换；切回 Android 运行 2 小时并更新含 `bluetoothd` 的 DSU 系统盘 |
+| `kernel-12377-st3-r1` | `12377-st3` | `--seed ""` + `ufs=2 ufs_write=1 var_store=1 var_save_ms=60000 bt=4` | 从闪存 `slot 0` 展开 `/private/var`（11,580 目录、5,260 文件、61 符号链接），主屏 15 图标齐全、Wi-Fi 自动连上；测试轮停止时 5,000 毫秒写入 `slot 1`（generation 2，CRC `0xfa947c2e`）；默认 `DCS_DEFAULT=4` 回读 2,788；`bluetoothd` 因 `0x204a` 触发芯片扩展广播锁定而在 `0x2007`／`0x200b` 收到 `0x0c` |
 | `kernel-12377-st4-r1` | `12377-st4` | `--seed ""` + `bt=4 var_store=1`（代答 `0x204a`） | `bluetoothd[47]` 全程无重启，LE 扫描进入 `Scanning(3)` 并发现 9 台 BLE 设备；控制中心与 `Settings -> Bluetooth` 开关均为开启；手势 `cc-pull` 94.4、`swipe-left` 98.1 帧／秒 |
-| `kernel-12377-st4-r2` | `12377-st4` | `cycle.py` 新默认参数 + `--seed ""` + Mesa 补丁 `0015` | 从闪存 `slot 1`（generation 2）展开，开机后 `bluetoothd[46]` 直接从磁盘恢复上一次缓存的 `'other devices'` 并继续扫描发现 11 台设备；停轮时 4,620 毫秒将 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`，写入 100,250 块、跳过 1,024 块）写入 `slot 0` |
+| `kernel-12377-st4-r2` | `12377-st4` | `cycle.py` 新默认参数 + `--seed ""` + Mesa 补丁 `0015` | 从闪存 `slot 1`（generation 2）展开，开机后 `bluetoothd[46]` 直接从磁盘恢复上一次缓存的 `'other devices'` 并继续扫描发现 11 台设备；测试轮停止时 4,620 毫秒将 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`，写入 100,250 块、跳过 1,024 块）写入 `slot 0` |
 
 ## 3. 读数与结论
 

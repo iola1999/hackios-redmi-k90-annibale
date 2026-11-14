@@ -73,12 +73,12 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
   - `_experimentalFeatures` 只含 developer／testable／preview／stable 状态的特性（WebKit 主线 `Source/WebKit/UIProcess/WebPreferences.cpp` 第 109～121 行），internal 特性在 `_internalDebugFeatures` 里。
   - IPSW 里没有 `WebKitInternalSettings.bundle`（`rootfs.slt` 无此路径），这个开关也不在 `defaultsOverridable` 之列，写 defaults 无效。
 - 可行的做法（推断，未试）：
-  - 在 MobileSafari 里注入一个库，创建网页视图前对 `SWVPDecodersAlwaysEnabled` 调用 `-[WKPreferences _setEnabled:YES forInternalDebugFeature:]`。WebKit 会把它带进 GPU 进程偏好，GPU 进程随后注册 libwebrtc VP9 解码器，网页进程那边 `isVP9DecoderAvailable()` 也成立。
-  - 退而求其次：在 com.apple.WebKit.GPU 里直接调用 `webrtc::registerWebKitVP9Decoder()`。网页进程对 VP9 的判断仍为假，这条路不完整。
+  - 在 MobileSafari 里注入一个库，创建网页视图前对 `SWVPDecodersAlwaysEnabled` 调用 `-[WKPreferences _setEnabled:YES forInternalDebugFeature:]`。WebKit 会把它带进 GPU 进程偏好，GPU 进程随后注册 libwebrtc VP9 解码器，网页进程侧的 `isVP9DecoderAvailable()` 也成立。
+  - 退而求其次：在 com.apple.WebKit.GPU 里直接调用 `webrtc::registerWebKitVP9Decoder()`。网页进程对 VP9 的判断仍为假，该路径不完整。
   - init 已有按进程名插入库的机制（`s001.log`：`init: library insertion: ... SpringBoard backboardd ...`），对 MobileSafari、com.apple.WebKit.GPU、videocodecd 是否按同样的进程名匹配，未核对。
 - 软件解码线程数：
   - H.264：`ThreadCountH264SWDecoder`，与 CFString `com.apple.coremedia` 相邻（H264SW 的 `__cfstring` 0x2b28e4bc0、0x2b28e4be0），偏好域为 `com.apple.coremedia`（推断）。
-  - HEVC：dada 仓库的 `userland/userland/var/mobile/Library/Preferences/com.apple.VideoProcessing.plist` 注释写明 VCPHEVC 把该域的每个键当作选项，默认只用一个线程，他们设了 `threading=auto`、`max-threads=7`。
+  - HEVC：dada 仓库的 `userland/userland/var/mobile/Library/Preferences/com.apple.VideoProcessing.plist` 注释写明 VCPHEVC 按选项读取该域的每个键，默认只用一个线程，他们设了 `threading=auto`、`max-threads=7`。
 - 环境变量：没有找到能让 Safari 改用软件解码的环境变量。H.264 本来就走软件，不需要开关。
 
 ### 3.3 1080p 软件解码的 CPU 估算（推断）
@@ -86,7 +86,7 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
 - 依据一：树莓派 5（4 个 Cortex-A76，2.4 GHz）上 Android 的 `c2.ffmpeg.h264.decoder` 播 1920×1080、10.4 Mbps、30 帧时，编解码服务占 40.1% CPU，0 丢帧（emteria，来源见 §7）；文中没说百分比按单核还是全部核计。
 - 依据二：dav1d 0.5 在骁龙 835 上用 4 个大核解 1080p AV1 能超过 60 帧（Ewout ter Hoeven 的 dav1d 测评）。
 - 换算到 SM8750 的高性能核（Oryon），1080p30 大约是：H.264 一个核的 15%～60%，HEVC 与 VP9 约为 H.264 的 1.5～2 倍，AV1 约 2～3 倍。Apple 自家 JVTlib、VCPHEVC、AV1SW 的效率没有数据，估算只按 ffmpeg／dav1d 的量级。
-- 默认 `cpus=4`（loader 依次取 0x10100、0x10000、0x500、0x400），1080p30 的 H.264／VP9 软件解码放得下；4K60 不现实。
+- 默认 `cpus=4`（loader 依次取 0x10100、0x10000、0x500、0x400），1080p30 的 H.264／VP9 软件解码足以支持；4K60 不现实。
 - 准确数字要靠 §6 第 0 步的 `vt_test` 在本机测。
 
 ## 4. SM8750 硬件解码
@@ -120,7 +120,7 @@ WebCore 里还静态链接了 dav1d（字符串 `dav1d_open` 等，0x1a366eaaa �
 
 可复用的现有代码：
 
-- `adreno8_zap.c` 已经走通 PAS（`0x42000201` init_image、`0x42000202` mem_setup、`0x42000205` auth_and_reset，PAS ID 13）；视频改用 PAS ID 9，再加一个 `MP_VIDEO_VAR` 调用（服务 0x0c、命令 0x08，按 Linux `qcom_scm` 的编号推得 `0x42000c08`，未核对）。
+- `adreno8_zap.c` 已完成 PAS 流程（`0x42000201` init_image、`0x42000202` mem_setup、`0x42000205` auth_and_reset，PAS ID 13）；视频改用 PAS ID 9，再加一个 `MP_VIDEO_VAR` 调用（服务 0x0c、命令 0x08，按 Linux `qcom_scm` 的编号推得 `0x42000c08`，未核对）。
 - `adreno8_clock.c` 已有 GPUCC 的 Taycan ELU 锁相环与 RCG2 序列，`adreno8_cx.c` 有 GDSC 操作，`adreno8_rpmh.c` 有 apps RSC DRV2 的 ARC 投票。videocc 用同一类锁相环。
 - `mhi_pcie.c` 已能只读访问 apps SMMU（`0x15000000`）。
 

@@ -10,7 +10,7 @@
 
 容器 clang 18 编不出可用的 26 线产物，原因有两条，都在容器里实测过：
 
-1. 容器 clang 18 的 `__has_feature(ptrauth)` 为 0。这比缺头文件更危险：`ptrauth_strip()` 在没有 ptrauth 支持时原样返回，`src/inject_sb26.c` 会把带 PAC 签名的指针当地址用。产物是有效的 Mach-O，装上设备后才在运行时出错。
+1. 容器 clang 18 的 `__has_feature(ptrauth)` 为 0。这比缺头文件更危险：`ptrauth_strip()` 在没有 ptrauth 支持时原样返回，`src/inject_sb26.c` 会直接将带 PAC 签名的指针用作地址。产物是有效的 Mach-O，装上设备后才在运行时出错。
 2. `<ptrauth.h>` 是 clang 资源目录里的头文件，不在 SDK 里。容器 clang 18.1.3 的资源目录 `/usr/lib/llvm-18/lib/clang/18` 有 204 个头文件，没有 `ptrauth.h`，iPhoneOS SDK 的 `usr/include` 里也没有。补一个头文件进去，`__has_feature(ptrauth)` 仍是 0（按上面两条推断，没有实际补了再编）。
 
 ## 2. 架构闸门

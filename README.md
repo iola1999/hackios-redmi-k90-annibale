@@ -26,7 +26,7 @@
 
 最新状态和实测数据以[进度表](docs/plan/2026-10-23-tracking.md)为准，未完成事项与候选方向见[待办目录](docs/backlog/README.md)，架构分层见[架构总览](docs/plan/architecture.md)，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
 
-FairPlay 与 App Store 不作为项目目标。
+FairPlay 与 App Store 不列入项目目标。
 
 ## 2. 体验
 
@@ -40,10 +40,10 @@ FairPlay 与 App Store 不作为项目目标。
 
 ## 3. 开发
 
-从源码构建内核、用户态和引导镜像需要 Mac（Xcode）和 Docker，步骤见[开发指南](docs/development.md)，出 Release 的流程也在其中。排查前先读[排查与协作手册](docs/plan/debugging-and-collaboration.md)和[真机调试手册](docs/plan/device-test-playbook.md)。
+从源码构建内核、用户态和引导镜像需要 Mac（Xcode）和 Docker，步骤见[开发指南](docs/development.md)，生成 Release 的流程也在其中。排查前先读[排查与协作手册](docs/plan/debugging-and-collaboration.md)和[真机调试手册](docs/plan/device-test-playbook.md)。
 
 - [文档入口](docs/README.md)：[待办与候选](docs/backlog/README.md)、操作手册与执行计划（`docs/plan/`）、调研与实测（`docs/analysis/`）、运行记录（`docs/progress/`）。
-- `tools/`：主机脚本，无人值守测试见 [k90auto 说明](tools/k90auto/README.md)，出 Release 与本地合成见 `tools/release/`。
+- `tools/`：主机脚本，无人值守测试见 [k90auto 说明](tools/k90auto/README.md)，生成 Release 与本地合成见 `tools/release/`。
 
 ## 4. 仓库
 

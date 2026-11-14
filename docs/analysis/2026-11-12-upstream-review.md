@@ -156,7 +156,7 @@ IssacL04 的 SM8750 移植在 11-07 至 11-08 更新了原生 USB、SMMU 与虚�
 - [Pagani Wi-Fi 后续](https://github.com/IssacL04/UniXNU-Pagani_SM8750/commit/a84204eccb9b183945072e1b9b63de36c8495097)保留首次失败，阻止重复 `FW_READY` 和迟到 `CAL_DONE` 清除失败状态，并区分校准分配容量和已下载长度。新候选仍待真机，尚未联网；可为本仓 Wi-Fi／Iris／ADSP 提供异步失败测试场景。
 - [Pagani A830 调频](https://github.com/IssacL04/UniXNU-Pagani_SM8750/commit/58cddb1b785b7215ab7b8b37a8f72b98695165bd)加入逐档温控、触摸与唤醒提升，最高 734 MHz，持续负载未量化。本仓已有最高 1100 MHz、触摸提升与温控，板型阈值需要独立来源。
 
-### 4.3 无新增与承接项目
+### 4.3 无新增或暂不采用项目
 
 | 项目 | 核对结果 |
 |---|---|

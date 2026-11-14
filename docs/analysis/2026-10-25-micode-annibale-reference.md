@@ -27,7 +27,7 @@
 - `qcom/annibale-sm8750.dtsi`：mitee OEM VM（`oem_vm_mem@f8800000` 0x3800000、`oem_vm_shm@fc000000` 0x400000、gunyah-label=3、binding-core=<4 5 6>）与 gh-secure-vm-loader 的 memory-region 引用。运行时是否实际使用没有查证。
 - `qcom/annibale-sm8750-overlay.dts`：`qcom,msm-id` 四组（618／639／0x100026a／0x100027f）与 `xiaomi,miboard-id = <0xB 0>`。
 - `reserved_memory_control/sun_standard_node_info.txt`：sun 保留区的名称与大小清单（hwfence-shmem 0x2dd000、gpu_microcode_region 0x2000、tz_merged_region 0x600000、trust_ui_vm_region 0x5000000 等）。
-- 保留区 `qcom/sun.dtsi` L3895 的 `gpu_microcode_region@9b09a000`（no-map，0x2000）与 L3981 `hwfence-shmem`（no-map，0xd4e23000、0x2dd000）：两个 label 在 sun.dtsi 与 annibale dtsi 里没有引用节点，主仓 drivers/ 里也没有使用方。用途要从 graphics 侧的源码确认；保留区清单不能作为 XNU 使用这些区域的依据。
+- 保留区 `qcom/sun.dtsi` L3895 的 `gpu_microcode_region@9b09a000`（no-map，0x2000）与 L3981 `hwfence-shmem`（no-map，0xd4e23000、0x2dd000）：两个 label 在 sun.dtsi 与 annibale dtsi 里没有引用节点，主仓 drivers/ 里也没有使用方。用途要从 graphics 侧的源码确认；保留区清单不能用作 XNU 使用这些区域的依据。
 - 没有读的 dtsi：`qcom/sm8750-xiaomi-common.dtsi`、`qcom/sm8750-ir-sensor-common.dtsi`、`qcom/annibale-charger-common.dtsi`、`qcom/annibale-nfc-pinctrl.dtsi`。查充电状态时可以先读 `annibale-charger-common.dtsi`。
 
 ## 4. 与固定厂商源码的文件对应

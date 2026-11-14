@@ -1,6 +1,6 @@
 # K90 音量与声音输出调研（2026-11-02）
 
-本文回答两件事：音量键、音量提示框和音量值在 iOS 26 上怎样工作起来，以及真正的扬声器出声要做什么。只读调研：读了本仓库源码、Android 设备树、iOS 26 共享缓存和参考仓库 dada（小米 15，同为 SM8750 上的 iOS 26）的内核补丁，没有操作设备，也没有构建。
+本文回答两件事：音量键、音量提示框和音量值在 iOS 26 上如何正常工作，以及真正的扬声器出声要做什么。只读调研：读了本仓库源码、Android 设备树、iOS 26 共享缓存和参考仓库 dada（小米 15，同为 SM8750 上的 iOS 26）的内核补丁，没有操作设备，也没有构建。
 
 引用写法：`P:行号` 是 dada 的 `kernel/xnu-12377.121.6-dada.patch`；`dada:` 开头是该仓库里的路径；`DTS:行号` 是解压后的 `docs/analysis/data/annibale.dts.gz`。
 
@@ -8,21 +8,21 @@
 
 ## 1. 需要用户决定的事
 
-音频服务、ADSP 与功放实现已落地，相关代码与产物见[多媒体进展](../progress/2026-11-11-multimedia-bringup.md)。扬声器实际出声、保护与麦克风验收见[多媒体待办](../backlog/multimedia.md)。
+音频服务、ADSP 与功放实现已完成，相关代码与产物见[多媒体进展](../progress/2026-11-11-multimedia-bringup.md)。扬声器实际出声、保护与麦克风验收见[多媒体待办](../backlog/multimedia.md)。
 
 ## 2. 结论
 
-- 音量键、音量提示框和音量值可以先在 iOS 一侧做通，不需要声音硬件。HakiOS 在 iOS 16.5 上就是这样做的：用户态 HAL 插件 `AnnibaleAudio.driver` 提供一个可以路由到的音频设备，iOS 用软件调音量。
-- 在我们的 iOS 26 系统盘上，挡住这一步的是两件具体的事：audiomxd 从来没有启动；`AnnibaleAudio.driver` 按 arm64 编译，arm64e 的 audiomxd 加载不了它（推断）。
+- 音量键、音量提示框和音量值可以先在 iOS 一侧实现，不需要声音硬件。HakiOS 在 iOS 16.5 上就是这样做的：用户态 HAL 插件 `AnnibaleAudio.driver` 提供一个可以路由到的音频设备，iOS 用软件调音量。
+- 在我们的 iOS 26 系统盘上，阻碍这一步的是两项具体问题：audiomxd 从来没有启动；`AnnibaleAudio.driver` 按 arm64 编译，arm64e 的 audiomxd 加载不了它（推断）。
 - 真正出声要 ADSP、AudioReach 图和功放驱动。dada 的通路在 K90 上引脚一一对应，只有功放芯片不同。
 
 ## 3. 现在的状态
 
 - 按键：`input26_service.c:363-376,423` 发 HID consumer 页 0x0C 的 0xE9／0xEA。iOS 26 的 SpringBoard（`SBVolumeControl`、`SBAVSystemControllerCache`）从 AVSystemController 读音量，服务端在 audiomxd 里（`SpringBoard.framework` 里的格式串 `Caching newEffectiveVolume: %f from AVSystemController`）。只有 HID 事件时，音量值改不了，提示框不出现或显示旧值（推断，真机没有验证过：唯一一次 iOS 26 的音量键探针落在画面冻结期间）。
-- audiomxd：23G90 没有 `mediaserverd`；`usr/libexec/audiomxd` 在系统盘上，但 `hackios-xnu-userland/userland/mkjobs.py:221` 的 DENY 词 `audio` 挡住了 `com.apple.audiomxd`，`tools/k90auto/package.py:276-289` 沿用这张表。audiomxd 承载 `coremedia.systemcontroller.xpc`、`volumecontroller.xpc`、`SystemSoundServer-iOS`、`audio.hapticd` 和 `AudioSession`。它没有卡住或崩溃，只是没有启动。
+- audiomxd：23G90 没有 `mediaserverd`；`usr/libexec/audiomxd` 在系统盘上，但 `hackios-xnu-userland/userland/mkjobs.py:221` 的 DENY 词 `audio` 阻止了 `com.apple.audiomxd`，`tools/k90auto/package.py:276-289` 沿用这张表。audiomxd 承载 `coremedia.systemcontroller.xpc`、`volumecontroller.xpc`、`SystemSoundServer-iOS`、`audio.hapticd` 和 `AudioSession`。它没有卡住或崩溃，只是没有启动。
 - 插件：系统盘上有 `AnnibaleAudio.driver`，但 11-01 的产物 `hackios-xnu-kernel/userland/root/lib/AnnibaleAudio.driver/AnnibaleAudio` 是 arm64 的 Mach-O bundle（`build.sh:426`）。
 - 系统盘：`VirtualAudio.plugin` 和 115 个 UISounds 都在（`ios165/select-system.py:155-156,201`），`System/Library/Audio/` 下只去掉了 usbaudio 一类插件（[启动程序审计](2026-10-28-launchd-programs-audit.md)）。
-- 内核：只有继承自 POCO X5 Pro 的一套：`annibale_audio.c`（`/dev/annibale-audio`、音量 ioctl、`rec_sound` 录音）、`annibale_adsp.c`（旧的 APR 协议、annibale 的地址 0x86700000、没有平台判断）、`annibale_sound.c`、`annibale_speaker.c`（AW88261）、`annibale_guard.c`（软件扬声器保护）、`annibale_mic.c`。没有 SM8750 的音频代码。K90 上不能传 `adsp=1`、`sound=N`、`speaker_probe=N`，它们会去碰 annibale 的地址。
+- 内核：只有继承自 POCO X5 Pro 的一套：`annibale_audio.c`（`/dev/annibale-audio`、音量 ioctl、`rec_sound` 录音）、`annibale_adsp.c`（旧的 APR 协议、annibale 的地址 0x86700000、没有平台判断）、`annibale_sound.c`、`annibale_speaker.c`（AW88261）、`annibale_guard.c`（软件扬声器保护）、`annibale_mic.c`。没有 SM8750 的音频代码。K90 上不能传 `adsp=1`、`sound=N`、`speaker_probe=N`，它们会访问 annibale 的地址。
 
 ## 4. dada 的做法
 

@@ -42,5 +42,5 @@
 
 ## 6. 未解决
 
-- ScreenContinuity 从 `bo18` 起每轮退出 12～16 次（SIGTRAP，`usertrap` 的 pc 在 ScreenSharingKit `+0x1ef54`，Swift 运行时的陷阱），第一次退出在键盘进程启动之后。它是 REST 登记的按需任务 `com.apple.ScreenContinuityShell`，谁在查找它的服务还没有读数。
+- ScreenContinuity 从 `bo18` 起每轮退出 12～16 次（SIGTRAP，`usertrap` 的 pc 在 ScreenSharingKit `+0x1ef54`，Swift 运行时触发的 trap），第一次退出在键盘进程启动之后。它是 REST 登记的按需任务 `com.apple.ScreenContinuityShell`，谁在查找它的服务还没有读数。
 - 其余 52 个包的模型仍不在镜像里。哪些进程会在这台设备上加载它们，目前只能等进程退出或报错时逐个发现。已见过一次的是「MCCKitCategorization/TrialLoader.swift:574: Fatal error: model compile error」，`BlackPearl.mlpackage` 读不到，只出现一次，没有形成循环（`bo20`）。

@@ -7,7 +7,7 @@
 ## 1. 结论
 
 - 现有代码已经能把 `/private/var` 打包成一份带校验的归档（`var_store save`），也能在开机时把归档展开回去（`var_store load`，开机种子走的就是这条路）。缺的是归档存放的位置。
-- 不写闪存的做法只有「停轮时交给电脑、下次开机带回来」，现在只在不带 GPU 的轮次可用，日常使用用不上。
+- 不写闪存的做法只有「停止测试轮时交给电脑、下次开机带回来」，现在只在不带 GPU 的轮次可用，日常使用用不上。
 - 可行的位置是 DSU 系统盘槽位的尾部：`dsu.py install` 把 5.3 GB 的系统盘补零到 16 GiB 的槽位，后面 10 GiB 多是这个项目自己的空间，loader 每次开机已经在读这个槽位。写这里要由 loader 往 userdata 分区里 DSU 文件所在的扇区写数据。对 Android 的影响见 §6，真机实测结果见 §7。
 
 ## 2. 已有的部件
@@ -15,7 +15,7 @@
 | 部件 | 现状 | 出处 |
 |---|---|---|
 | 归档格式 | 两个槽位轮流写，先清零槽头，再写归档，最后写槽头；`load` 先校验 CRC-32 再展开，归档损坏时保持空白的 `/private/var` | `hackios-xnu-kernel/userland/src/var_store.c` 文件头 |
-| 停轮时保存 | `var_store watch` 向内核登记，回到 loader 前内核等它保存，有超时 | `var_store.c`、内核 `annibale_ufs.c` 的 `annibale_var_save_on_return` |
+| 停止测试轮时保存 | `var_store watch` 向内核登记，回到 loader 前内核等它保存，有超时 | `var_store.c`、内核 `annibale_ufs.c` 的 `annibale_var_save_on_return` |
 | 开机展开 | `var_store=1` 时 init 用根镜像里的 `etc/var.seed` | `tools/k90auto/package.py` 的 `SEED` |
 | loader 写闪存 | 只在命令行有 `ufs_write=1` 时服务写请求，范围限定在 POCO X5 Pro 的 `darwin` 分区，写后回读比较 | `xnuloader/loader_03_ufs_block_watch.inc` |
 | DSU 读取 | 从 `/metadata` 里 `lp_metadata` 的 `system_gsi` 表项取扩展区（userdata 的扇区号），整份读进常驻内存 | `xnuloader/loader_dsu.inc` |
@@ -26,7 +26,7 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 
 | 位置 | 写闪存 | 容量 | 问题 |
 |---|---|---|---|
-| 电脑（停轮时经 `outbox` 取回，下次作为种子带入） | 不写 | 受根镜像余量约 40 MB 限制，超出要改走 USB 收件区 | `outbox` 只在不带 GPU 的轮次可用；手机要连着电脑结束这一轮 |
+| 电脑（停止测试轮时经 `outbox` 取回，下次用作种子带入） | 不写 | 受根镜像余量约 40 MB 限制，超出要改走 USB 收件区 | `outbox` 只在不带 GPU 的轮次可用；手机要连着电脑结束这一轮 |
 | DSU 系统盘槽位尾部 | 写 userdata 分区里 DSU 文件的扇区 | 槽位 16 GiB，系统盘 5.3 GB，尾部可留几 GB | 需要 loader 的写路径；DSU 重装时数据随之清空 |
 | DSU 的 userdata 镜像（安装时建的 2 GiB） | 同上 | 2 GiB | `lp_metadata` 里这个分区的名字与扩展区没有核对过 |
 
@@ -62,7 +62,7 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 | 丢弃 DSU | 开发者选项、DSU 通知或 `dsu.py install --replace` 会删掉文件，存档随之消失；扇区还给文件系统，loader 之后不得再写 | 每次开机重新解析 `lp_metadata`，找不到就不写 |
 | 写错位置 | 写坏 userdata 上 Android 的加密数据或文件系统元数据，无法撤销，可能要清除数据才能恢复 | 由 §4 的三项核对和回读防止 |
 | Android 系统更新 | 已装 DSU 时 Android OTA 的行为没有核对 | 未知 |
-| 闪存寿命 | 每次停轮写一份 `/private/var` 归档（几十 MB 量级），影响可以忽略 | 推断 |
+| 闪存寿命 | 每次停止测试轮写一份 `/private/var` 归档（几十 MB 量级），影响可以忽略 | 推断 |
 
 ### 6.3 扩展用途
 
@@ -74,13 +74,13 @@ K90 上没有 `darwin` 分区，`var_store` 的闪存路径用不上，开机种
 
 - 布局与范围检查：`loader_dsu.inc` 在 `system_gsi` 达到 16 GiB 时把最后 4 GiB（偏移 12 GiB 起，共 1,048,576 个 4096 字节块）登记为合成块区 `dsu_store`，内核露出 `/dev/rufs_dsu_store`。`dsu_store_write()` 逐段将逻辑偏移换算为 `system_gsi` 扩展区内的 userdata 扇区，越界或 `dsu_store` 未就绪时拒绝写入，写前先读原块，内容相同则跳过，不同则写入后回读校验。
 - 只读核对（`kernel-12377-st2-r1`）：loader 报 `dsu: dsu_store: 4096 MB from 12288 MB of the DSU slot (1048576 blocks of 4096)`，`var_store show` 读出 `slot 0: empty`、`slot 1: empty`。
-- 硬件 CRC-32 加速（loader v19）：`loader_02_platform_cpu_ufs_survey.inc` 的 `ufs_crc32()` 原为软件逐位循环，在停轮 30 秒时限内只写完 28,672 块（`st2-r2`）。改为 ARMv8 `crc32x`／`crc32b` 指令后（`handoff-loader-v19.img`），`kernel-12377-st2-r3` 在 5,300 毫秒内把 `/private/var`（28,724 条目、410,694,656 字节、CRC `0x2c8947ea`）写进 `slot 0`（写入 99,244 块，跳过相同的 1,024 块）。
+- 硬件 CRC-32 加速（loader v19）：`loader_02_platform_cpu_ufs_survey.inc` 的 `ufs_crc32()` 原为软件逐位循环，在停止测试轮的 30 秒时限内只写完 28,672 块（`st2-r2`）。改为 ARMv8 `crc32x`／`crc32b` 指令后（`handoff-loader-v19.img`），`kernel-12377-st2-r3` 在 5,300 毫秒内把 `/private/var`（28,724 条目、410,694,656 字节、CRC `0x2c8947ea`）写进 `slot 0`（写入 99,244 块，跳过相同的 1,024 块）。
 - Android 侧验证：`st2-r3` 写入后切回 Android（B 槽）运行 2 小时，`gsi_tool status` 仍为 `installed`／`disabled`，系统界面与用户数据正常，重装含 `bluetoothd` 的新系统盘后 `system_gsi` 扩展区增至 166 段（loader v19 将 `LP_EXTENTS_MAX` 扩到 1024）。
 - 跨开机从闪存展开与双槽轮换（`kernel-12377-st3-r1`、`kernel-12377-st4-r2`）：
 
   - 不带 `etc/var.seed`（`--seed ""`）启动，`st3-r1` 的 `init` 直接从 `/dev/rufs_dsu_store` 的 `slot 0`（generation 1）展开 11,580 个目录、5,260 个文件（405,602,769 字节）和 61 个符号链接，首个 SpringBoard 显示全部 15 个主屏图标，Wi-Fi 自动连上已保存网络。
-  - `st3-r1` 停轮时在 5,000 毫秒内把 `generation 2`（27,695 条目，408,117,728 字节，CRC `0xfa947c2e`）写入 `slot 1`（写入 97,591 块，跳过 2,048 块）。
+  - `st3-r1` 测试轮停止时在 5,000 毫秒内把 `generation 2`（27,695 条目，408,117,728 字节，CRC `0xfa947c2e`）写入 `slot 1`（写入 97,591 块，跳过 2,048 块）。
   - 随后的 `st4-r2` 从 `slot 1`（generation 2）展开 11,216 个目录、4,935 个文件与 85 个符号链接，`bluetoothd` 直接从磁盘恢复上一次缓存的 `'other devices'` 表。
-  - `st4-r2` 停轮时在 4,620 毫秒内把 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`）轮换写回 `slot 0`（写入 100,250 块，跳过 1,024 块）。
+  - `st4-r2` 测试轮停止时在 4,620 毫秒内把 `generation 3`（27,967 条目，414,817,560 字节，CRC `0xbf8430a9`）轮换写回 `slot 0`（写入 100,250 块，跳过 1,024 块）。
 
 

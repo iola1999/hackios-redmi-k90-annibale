@@ -22,7 +22,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 ## 2. 代码行数约定（必须遵守）
 
-代码类文件（C/Python/Shell 等）单文件控制在 **1200 行以内**，做好合理拆分（按层/按职责拆文件，私有声明走 `*_private.h` 之类的内部头）。确实无法拆分的（如生成表、结构上不可分的单入口状态机），要在文件头写明理由，禁止为了控制行数强行将代码写在一行。存量超标文件不强制回溯，新文件与大改文件必须遵守；判定基准 = 新落地的文件和本次改动后净增长的越线文件。
+代码类文件（C/Python/Shell 等）单文件控制在 **1200 行以内**，做好合理拆分（按层/按职责拆文件，私有声明走 `*_private.h` 之类的内部头）。确实无法拆分的（如生成表、结构上不可分的单入口状态机），要在文件头写明理由，禁止为了控制行数强行将代码写在一行。存量超标文件不强制回溯，新文件与大改文件必须遵守；判定基准 = 新增的文件和本次改动后净增长的越线文件。
 
 ## 3. 隐私信息提交约束（必须遵守）
 
@@ -40,24 +40,23 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 本节约束顶层仓库和两个代码子模块，适用于实现、排查、验收和文档整理。提交必须对应有实质进展、可复核的阶段成果；同一阶段的代码、验证结果、文档和子模块指针一起提交。
 
 - 阶段成果必须能说明完成了什么，以及验证结论或适用边界。例如完成一项功能或根因修复并通过对应检查、完成一批验收并形成明确结论、定稿一项架构决策或可执行的操作规范。独立的文档工作也必须达到这一标准。
-- 禁止仅因补充几条进展、一次跑轮读数、状态摘要或待办更新就单独提交，禁止连续提交只有少量工作记录变更的文档。相关记录随对应实现或阶段结论合并提交。
+- 禁止仅因补充几条进展、一次测试轮读数、状态摘要或待办更新就单独提交，禁止连续提交只有少量工作记录变更的文档。相关记录随对应实现或阶段结论合并提交。
 - 同一问题的连续排查、实现和复测归为一个阶段。工作中可以持续更新工作树，原始日志和过渡记录保存在 Git 忽略的本地目录，阶段结束后整理必要结论入库。
 - 文件数、记录条数、经过时间、一次会话或一轮测试结束，都不能单独作为提交理由。短时间内连续产生的同类小提交必须在推送前合并。
-- 验证耗时较长（真机跑轮、容器构建）也必须遵守上述标准。已完成的实现若已形成可独立审阅和回退的阶段成果，可以先提交，并写清未验证范围；后续零散读数继续累积，形成验收结论后再提交。
+- 验证耗时较长（真机测试轮、容器构建）也必须遵守上述标准。已完成的实现若已形成可独立审阅和回退的阶段成果，可以先提交，并写清未验证范围；后续零散读数继续累积，形成验收结论后再提交。
 - 两项成果各自完整、能独立审阅和回退，才分开提交。达到阶段完成条件后及时提交；提交说明写清实际改动、验证范围、阶段结论和剩余事项。
 
 ## 5. 真机无人值守约束（必须遵守）
 
-无人值守指的是机器自己跑完整轮，不含设备进入需要人按键才能离开的状态。2026-10-29 出现过一次整天连续起轮、loader 从 USB 消失几小时、只能靠长按电源键恢复的事故，以下约束据此写死。
+无人值守指的是机器自己跑完整轮，不含设备进入需要人按键才能离开的状态。2026-10-29 出现过一次整天连续启动测试轮、loader 从 USB 消失几小时、只能靠长按电源键恢复的事故，以下约束据此确立。
 
-- **起轮前自动收敛至驻留 loader。** 起轮前由工具链将设备收敛到已枚举的 `xnuloader` 且 `getvar result` 为 `idle`、启动卷常驻区为空：运行态先发 `oem stop` 等内核静默后执行 `reboot` 并发 `oem recovery` 锁定独立双启动 loader 的 Fastboot 模式，B 槽 Android 经 `recover-loader.py` 切回 A 槽 loader。软件恢复失败时记录现场并报告用户。
+- **启动测试轮前自动从当前状态收敛至驻留 loader。** 下一轮真机测试或更换启动载荷时直接由工具链从当前状态自动收敛到已枚举的 `xnuloader` 并刷入启动：设备处于运行中的 iOS 时先发 `oem stop` 等内核静默后执行 `reboot` 并发 `oem recovery` 锁定 Fastboot 空闲态（硬校验 `getvar result` 为 `idle`、`getvar product` 为 `xnuloader` 且常驻区为空），处于 B 槽 Android 时经 `recover-loader.py` 切回 A 槽 loader。软件恢复失败时记录现场并报告用户。
 - **序列号为空视同未枚举。** `adb devices` 列出设备但序列号为空时，除轮询外不发任何命令。序列号必须能原样读出。
-- **持续功能测试复用同一次开机。** 相机、Safari、播放等测试依次执行，单项完成后清理对应测试进程，设备保持 iOS 运行。结束运行、更换启动载荷或处理需要重启的故障时执行收尾；内核的 DMA 停止、同步和资源保留要求继续生效。
-- **结束运行后硬校验。** `getvar result` 必须是 `idle`、`getvar product` 必须是 `xnuloader` 且常驻区为空；复位重枚举后立即发 `oem recovery` 锁定 Fastboot 空闲态。任一项不满足，队列停下报用户。
-- **A 槽重试预算与 GPT GUID 相位。** `xnuloader` 启动时会自动维护自身槽位的重试计数与 `_a`／`_b` 分区 `PartitionTypeGUID` 相位；主机侧起轮前仍需检查 `slot-retry-count:a`（低于 3 先 `set_active a`），切槽时确保 LUN 4 与 LUN 0 的活动槽位持有各自的 `PartitionTypeGUID`（非活动槽位为 `77036cd4-...`），防止触发高通 LK `ValidateSlotGuids` 校验失败。
-- **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再起下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
+- **单轮测试完成后默认留在 iOS 运行态。** 相机、Safari、播放等测试复用同一次开机依次执行，单项完成后清理对应测试进程，整轮验收结束后设备默认保持在 iOS 桌面供观察与交互；更换启动载荷、开启下一轮测试或恢复需要重启的故障时再执行退出收尾（内核 DMA 停止、同步和资源保留要求继续生效，退回 loader 后须满足 `result: idle`、`product: xnuloader` 与常驻区为空三项硬校验）。
+- **A 槽重试预算与 GPT GUID 相位。** `xnuloader` 启动时会自动维护自身槽位的重试计数与 `_a`／`_b` 分区 `PartitionTypeGUID` 相位；主机侧启动测试轮前仍需检查 `slot-retry-count:a`（低于 3 先 `set_active a`），切槽时确保 LUN 4 与 LUN 0 的活动槽位持有各自的 `PartitionTypeGUID`（非活动槽位为 `77036cd4-...`），防止触发高通 LK `ValidateSlotGuids` 校验失败。
+- **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再启动下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。
-- **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。执行 `fastboot -s xnuloader oem "sh ..."` 时单条命令正文不得超过 119 字节（优先使用 `tools/k90auto/rsh.py`），严禁发送超过 511 字节的 Fastboot 命令以免触发 DWC3 `CompleteError` 导致 `usb_out_lost = 1` 端点隔离（见[USB 恢复与减少人工按键的调试经验 §6.6](docs/analysis/2026-10-25-usb-recovery-lessons.md#66-oem-sh-超长命令导致-usb_ep_out-端点永久隔离与五指退回黑盒陷阱)）。
+- **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。执行 `fastboot -s xnuloader oem "sh ..."` 时单条命令正文不得超过 119 字节（优先使用 `tools/k90auto/rsh.py`），严禁发送超过 511 字节的 Fastboot 命令以免触发 DWC3 `CompleteError` 导致 `usb_out_lost = 1` 端点隔离（见[USB 恢复与减少人工按键的调试经验 §6.6](docs/analysis/2026-10-25-usb-recovery-lessons.md#66-oem-sh-超长命令导致-usb_ep_out-端点永久隔离与五指退回问题)）。
 - **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需使用 `idalib-mcp` 的 `idb_open`／`decompile`／`analyze_function`）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
 
 ## 6. 根因定位与原生对齐约定（必须遵守）
@@ -70,13 +69,14 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
   - 内核 `IOKit` 拓扑为 `disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`；`devfs` 的 `/dev/disk*` 节点与 iPhone 真机保持一致。
   - `statfs` 的 `/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`；总容量按 128 GB 容器十进制口径计算，扣除系统卷、Cryptex 与 `/private/var` 实际已用空间。
 - **子 Agent 与团队成员模型选择。** 派发复杂排查、反汇编分析、内核／驱动编码或 Teamwork 成员任务时，指定使用高能力模型（`inherit`／Gemini 4 Argon 或 `pro`）。
+- **主 Agent 过程与产物审查。** 派发子 Agent 或团队成员执行分析、实现、构建与真机测试后，主 Agent 必须在提交或采信结论前亲自审阅实际 `git diff`、构建树同步状态、编译日志与真机原始日志／截图，核查空壳伪实现、底层契约遗漏、锁与中断上下文错误、未提交改动混入打包，以及测试程序返回码为 0 但内核日志已报错等偏差，发现问题立即打回修正。
 
 ## 7. 其他
 
 - 未完成事项集中写[待办目录](docs/backlog/README.md)，已选批次的安排与常设手册写 `docs/plan/`，调研／实测数据写 `docs/analysis/`，过程记录写 `docs/progress/`（按日期命名）。原分析与实测保留，来源文档链接到对应待办主题。
 - `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
-- 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 的陷阱。
-- 从源码构建与出 Release 见[开发指南](docs/development.md)；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
+- 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 中的常见问题与注意事项。
+- 从源码构建与生成 Release 见[开发指南](docs/development.md)；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
 - 双系统分区规划、在线缩容、写入系统盘、刷入双启动 `xnuloader`、Android／iOS 切换及 Android 系统内 OTA 影响见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。引导目标切换细节见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。
   - `xnuloader` 启动时按 `boot_a`／`boot_b` 镜像识别自身槽位（`loader_slot`）和另一侧 Android 槽位（`android_slot`），判据见 `hackios-xnu-kernel/xnuloader/slot_choice.h`。
   - 只有一侧是 loader 镜像时才维护或切换槽位；切槽同步交换 LUN 4 与 LUN 0 上 `_a`／`_b` 分区的 `PartitionTypeGUID`。
@@ -97,4 +97,4 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
   - `/tmp` 下挂载的镜像用完即用 `diskutil eject` 卸载；镜像文件删除后，挂载期间仍占用磁盘空间。
   - 每次清理的删除、压缩和克隆清单记录在 `out/cleanup-<日期>/`。
 - 内核构建与日志重定向约束：XNU 26 内核构建（`hackios-xnu-kernel/xnu26/build-macos.sh`）默认在 `gmake` 参数中固化 `CWARNFLAGS_ADD="-Wno-reserved-identifier -Wno-reserved-macro-identifier" CXXWARNFLAGS_ADD="-Wno-reserved-identifier -Wno-reserved-macro-identifier"` 屏蔽保留标识符告警；执行构建时必须将标准输出与标准错误全量重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止未重定向输出倾入终端或工具管道造成缓冲区反压阻塞编译进程。
-- 项目状态与已完成里程碑集中在[进度表](docs/plan/2026-10-23-tracking.md)，选任务与未完成事项集中在[待办目录](docs/backlog/README.md)。进度表保持简练，待办按主题记录下一步与验收，技术分析和实测只在专题文档展开。上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)。
+- 项目状态与已完成阶段集中在[进度表](docs/plan/2026-10-23-tracking.md)，选任务与未完成事项集中在[待办目录](docs/backlog/README.md)。进度表保持简练，待办按主题记录下一步与验收，技术分析和实测只在专题文档展开。上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)。

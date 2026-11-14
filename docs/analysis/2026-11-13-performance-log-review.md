@@ -202,7 +202,7 @@ ANNFS001 version 3 的记录由 [`ramfs_disk_pack_locked()`](../../hackios-xnu-k
 
 内核 `2b3863b5` 已修改 [`annibalemetal_stitch.inc`](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal_stitch.inc)，相同 AIR 内容保留现有文件；宿主与 arm64e 验证已完成，真机收益待测。当前入口仍先调用原生 `_MTLLibrary` 函数专化，再检查缓存文件内容，原生专化与其他编译等待继续存在。
 
-缓存键依次按 `respondsToSelector` 选择 `installName`、`filePath` 或 `label`。已选属性值为空后，代码以 library 对象地址 `%p` 作为标识；`constantValues` 通过 `NSKeyedArchiver` 或 `description` 加入哈希。不同对象地址会生成不同文件键，实际检查点中的文件是否由这条路径重复生成仍需核对。
+缓存键依次按 `respondsToSelector` 选择 `installName`、`filePath` 或 `label`。已选属性值为空后，代码以 library 对象地址 `%p` 用作标识；`constantValues` 通过 `NSKeyedArchiver` 或 `description` 加入哈希。不同对象地址会生成不同文件键，实际检查点中的文件是否由这条路径重复生成仍需核对。
 
 iOS 26 的公开 `MTLFunctionConstantValues` 分配入口创建 `MTLFunctionConstantValuesInternal`。内部类的 `description` 合并 `NSObject` 的 `<%s: %p>` 格式与常量字典，实例地址由 `self` 直接提供。归档失败分支据此加入实例地址。
 

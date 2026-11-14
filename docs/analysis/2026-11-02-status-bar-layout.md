@@ -70,7 +70,7 @@ SpringBoard 的状态栏是 SystemStatusUI.framework 的 `STUIStatusBar`，库�
 3. 切口形状：替换 `_exclusionArea` 或 `sb_displayShapeForScreenType:` 的返回值。同一个矩形还决定灵动岛（SystemAperture）的位置和尺寸，影响面最大，没有采用。
 4. 区域与岛的间距：`-setupInContainerView:` 返回后，把两条以 `cutoutLayoutGuide` 为第二项、常量为 ∓8 的约束改为 ∓32。外缘不变，每加 1 点间距，中心向外移 0.5 点。用户反馈 1125×2436 画布太贴边、iPhone 17 画布太靠内，2026-11-05 起在第 1 项之上加这一项，代码是 `hackios-xnu-kernel/userland/src/statusbar26.m`，随 `libannibale-ax.dylib` 插入 `package.py` 的 `AX` 列出的进程。UIKitCore 的 `-cutoutEdgeInset` 保持 8，原因见该文件头。
 
-屏幕圆角只以 0.15 的权重进入刘海布局，不作为调整手段。
+屏幕圆角只以 0.15 的权重进入刘海布局，不用作调整手段。
 
 `tools/k90auto/cycle.py` 从 2026-11-02 起采用第 1 项，在固定参数和 `--boot-args` 之后追加 `fbwidth=1206 fbheight=2622 fbpitch=460`。同一个键出现两次时内核取第一个，所以某一轮仍可用 `--boot-args` 给出自己的画布参数。内核默认值（`MiniIOMobileFramebuffer.cpp` 的 `kFBDefaultWidth`／`kFBDefaultHeight`）保持 1125×2436，iOS 16.5 链路不受影响。
 

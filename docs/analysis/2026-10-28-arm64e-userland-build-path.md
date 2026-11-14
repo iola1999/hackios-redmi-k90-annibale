@@ -27,7 +27,7 @@ cd hackios-xnu-kernel
 codesign --force --sign - <目录>/libannibalemetal.dylib
 ```
 
-**输出文件名必须是 `libannibalemetal.dylib`。** adhoc 签名把标识符写成 `<文件名>-<UUID>`，输出叫别的名字时签名 blob 随之改写，整份 sha256 完全不同，而 `__TEXT,__text` 与 `LC_UUID` 都一样。同一台机器、同一套 clang（21.0.0、SDK 27.1）重编，结果逐字节相同。
+**输出文件名必须是 `libannibalemetal.dylib`。** adhoc 签名把标识符写成 `<文件名>-<UUID>`，输出叫别的名字时签名 blob 随之改写，整份 sha256 完全不同，而 `__TEXT,__text` 与 `LC_UUID` 都一样。同一台机器、同一套 clang（21.0.0、SDK 27.1）重新编译，结果逐字节相同。
 
 2026-10-29 那份源码的核对值：241,488 字节、sha256 `9d66dd367d09af4d9b526c73c8407627357d1e32d0cd392639bd5e2b35600f26`。源文件路径不写进产物，所以从 `userland/src/` 或 `tools/userland-driver/` 编出的结果相同；能改哈希的只有输出文件名。
 
@@ -36,7 +36,7 @@ codesign --force --sign - <目录>/libannibalemetal.dylib
 - AIR 库只由这个脚本编，`package.py` 不编。arm64e 构建只读自己那份源（`out/ios26-resume/mesa-arm64e/mesa-26.2.5/src/compiler/air/`），`tools/mesa/air/` 的改动不复制过去就不会进库，构建照样成功、库照样有效。
 - 流程：把 `FILES` 列出的文件复制进 arm64e 树并断言复制生效；`tools/mesa/air/` 里有与构建树不一致、又不在 `FILES` 里的文件时报错，新文件要同时加进 `FILES`。然后 `ninja -C BUILD -j8 TARGET`，把 ninja 的输出 `LIB` 拷成 `OUT`（`out/ios26-resume/bbmetal-device/libannibaleair.dylib`）并 adhoc 签名，最后写 `air-build-record.json`：两侧源摘要、库的字节数与 sha256、`holds` 里各个格式串是否在库里。
 - `--check` 只读：只算摘要并打印，不复制、不构建、不写文件。
-- 工具链：venv 里的 meson 1.12.1 加 homebrew 的 ninja，bison 排在系统那个前面（前端的 parser 要它），可用 `AIR_VENV`／`AIR_BISON`／`AIR_NINJA` 覆盖。默认 venv 在 `/tmp/mesa-rebase/venv/bin`，重启或清理 `/tmp` 后就没有了，建法见第 6 节。
+- 工具链：venv 里的 meson 1.12.1 加 homebrew 的 ninja，bison 排在系统那个前面（前端的 parser 要它），可用 `AIR_VENV`／`AIR_BISON`／`AIR_NINJA` 覆盖。默认 venv 在 `/tmp/mesa-rebase/venv/bin`，重启或清理 `/tmp` 后就没有了，重建方法见第 6 节。
 - 交叉构建配置 `out/ios26-resume/mesa-arm64e/cross.ini`：c／cpp／objc 都是 Xcode toolchain 的 clang 加 `-arch arm64e -isysroot <Xcode>/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.1.sdk -miphoneos-version-min=26.0`；ar／ranlib／strip 取自同一个 toolchain，`pkg-config = /usr/bin/false`；`[host_machine]` 是 `system = darwin`、`subsystem = ios`、`cpu_family = aarch64`、`cpu = arm64e`，`needs_exe_wrapper = true`。
 - 构建选项在同目录 `cmd_line.txt`：`buildtype = release`、`prefix = /annibale`、`gallium-drivers = softpipe,freedreno`、`freedreno-kmds = msm`、`osmesa = true`、`llvm = disabled`、`gles2 = enabled`、`shader-cache = disabled`、`build-tests = false`。
 
@@ -56,17 +56,17 @@ codesign --force --sign - <目录>/libannibalemetal.dylib
 26 线的进程都是 arm64e。arm64 分片的库在 arm64e 进程里不会被装载，dyld 也不留一行说明：库的构造器从不执行，日志里既没有它的横幅也没有架构报错，读起来与「库没被注入」一样。判据用头部，不用文件名：
 
 - `otool -hv <库>` 的 `cpusubtype` 必须是 `0x80000002`（ARM64E 加 LIB64 位），与镜像里其它 arm64e 库一致。
-- `userland/build.sh` 在 V=26 的 staging 之后、第一个 `mkapfs` 之前拒绝非 arm64e 加 LIB64 位的 Mach-O；`package.py` 对 `libannibale.dylib` 做同样的检查，因为那条路径不经 `build.sh` 的闸。
+- `userland/build.sh` 在 V=26 的 staging 之后、第一个 `mkapfs` 之前拒绝非 arm64e 加 LIB64 位的 Mach-O；`package.py` 对 `libannibale.dylib` 做同样的检查，因为那条路径不经过 `build.sh` 的架构检查。
 - 签名同样在判据之内。签名会改变文件字节与哈希，所以比哈希要在签名之后做。
-- `build.sh` 里 `libannibale.dylib` 的编译行用的是 `$DYN`（`-arch arm64`、iOS 16.5 SDK），编出的是 arm64；`package.py` 的检查会拒绝这份，打包要用 arm64e、iOS 26 SDK 重编并签名的那份。
+- `build.sh` 里 `libannibale.dylib` 的编译行用的是 `$DYN`（`-arch arm64`、iOS 16.5 SDK），编出的是 arm64；`package.py` 的检查会拒绝这份，打包要用 arm64e、iOS 26 SDK 重新编译并签名的那份。
 
 ## 5. 可复现性与新鲜度
 
 - 容器内的 Mesa 构建无法逐字节复现，`tools/mk-mesa.sh` 的注释记了实测：同一份源树两次构建，`libOSMesa.8.dylib` 与 `air_run` 字节数相同、内容有大段不同。宿主这条 arm64e meson 构建在固定 `PYTHONHASHSEED=0` 时逐字节可复现，见第 6 节。
-- 所以产物哈希相同可以推出源相同，产物哈希不同推不出源不同。重编 AIR 后哈希与记录值不同时，先核 `air-build-record.json` 的 `source_sha256` 与 `tree_sha256`：两侧一致就说明库是按当前源编的。
+- 所以产物哈希相同可以推出源相同，产物哈希不同推不出源不同。重新编译 AIR 后哈希与记录值不同时，先核 `air-build-record.json` 的 `source_sha256` 与 `tree_sha256`：两侧一致就说明库是按当前源编的。
 - 判断产物是否按当前源码编出，用内容哈希，不用 mtime。`package.py` 的 manifest 与 `build-air.py` 的 record 都记了源摘要和产物哈希。
 - `build-air.py` 不带 `--check` 时就地覆盖 `OUT`，路径是硬编码的，没有环境变量能改。需要保留上一份库作对照时，先把 `out/ios26-resume/bbmetal-device/` 备份到 Git 忽略的目录。
-- 打包或跑轮期间不要运行会写 `out/ios26-resume/` 或 `userland/obj/` 的命令，`build.sh` 也在其中（它写 `userland/obj/`，并 `rm -rf root`）。只读复核不受此限：`build-air.py --check`、`ninja -n` 干跑、`shasum`、`codesign -dv`、`otool`。
+- 打包或运行测试轮期间不要运行会写 `out/ios26-resume/` 或 `userland/obj/` 的命令，`build.sh` 也在其中（它写 `userland/obj/`，并 `rm -rf root`）。只读复核不受此限：`build-air.py --check`、`ninja -n` 干跑、`shasum`、`codesign -dv`、`otool`。
 
 ## 6. 构建树从仓库重建
 

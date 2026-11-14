@@ -10,7 +10,7 @@
   - 驻留的 loader 非 v16（build-id 不含 `a48c7fb`）时，先经 LK 用 `fastboot boot` 启动 `out/handoff-loader-v16.img`，不需要再给 `LOADER_IMAGE`。
   - 巡检里设置图标的点按位置由 0.616 改为 0.385。
   - `trollstorehelper`、`wifijoin` 已构建时自动打包，`jobs/rc.jobs.interactive` 开机运行 `wifijoin` 与 `trollstorehelper watch`。
-- `tools/k90auto/package.py`：本地固件目录有 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 时默认只放这四个文件，约 6.9 MB，有 `network` 文件时一起放入；`WIFI_FW=1` 仍放入全部文件，`WIFI_FW=0` 不放。`AX` 控制插入 `libannibale-ax.dylib` 的进程；`AUDIO=1` 放行音频任务并按 arm64e 重编 `AnnibaleAudio.driver`，还没有上机。
+- `tools/k90auto/package.py`：本地固件目录有 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 时默认只放这四个文件，约 6.9 MB，有 `network` 文件时一起放入；`WIFI_FW=1` 仍放入全部文件，`WIFI_FW=0` 不放。`AX` 控制插入 `libannibale-ax.dylib` 的进程；`AUDIO=1` 放行音频任务并按 arm64e 重新编译 `AnnibaleAudio.driver`，还没有上机。
 - `tools/k90auto/run-auto.py`：处理 `push-request-*.txt`，用 `oem push` 加 `stage` 把文件放进内核的 16 MB 收件区。
 - 新工具：`install-ipa.py`（经 USB 分块推送并安装 IPA）、`ui.py`（读界面元素、按文字点按、截图）。
 - 用户态（`.userland.git` `1c51c1d21`，移植为 userland `36136c4`）：IPA 安装工具、`wifijoin`、`libannibale-ax`、rwsh 的 `pull 路径 偏移`、Mesa 补丁 0010。
@@ -47,9 +47,9 @@
 ### 3.1 默认参数与性能
 
 - 根盘大小：基础根盘约 6 MB，开机种子约 23 MB，Wi-Fi 固件目录全部约 27 MB。`wd` 系列轮次不带种子，所以没有遇到上限。
-- Wi-Fi 的低端 DMA 内存：`wd` 系列轮次用 `LOADER_IMAGE` 启动 loader v16，命令行带 `lowdma=`；手机 A 槽里刷的 loader 较旧，不给这段内存。use1 经 LK 启动 v16 后命令行有 `lowdma=0x00000000c77c0000`，驱动正常起来。
+- Wi-Fi 的低端 DMA 内存：`wd` 系列轮次用 `LOADER_IMAGE` 启动 loader v16，命令行带 `lowdma=`；手机 A 槽里刷的 loader 较旧，不给这段内存。use1 经 LK 启动 v16 后命令行有 `lowdma=0x00000000c77c0000`，驱动正常启动。
 - def1 的手电：`reading 0x0018 gave: the transfer was dropped`，随后 `the light for iOS stops after 0 times lit: the module said something surprising`；振动：故障寄存器 0x10 清不掉。原因未查，两项不进默认参数。
-- def1 的设置里 Wi-Fi 开关显示关闭，那一轮驱动没有起来。use1 中开关状态由用户确认。
+- def1 的设置里 Wi-Fi 开关显示关闭，那一轮驱动未启动。use1 中开关状态由用户确认。
 - r8a 与 dc2 之间同时换了内核（rate8）和默认参数（Wi-Fi），帧率不作单变量对比。r8a：控制中心下拉 91.2、左滑 99.9、右滑 91.3 帧／秒，整屏 pass 每次 808 µs，tile store 合计 3.33 s。用户在 use1（rate7、默认参数）手持体验时的读数是 88.9、92.8、86.0。
 - fp16 轮的 `ANNIBALE_PASS_LOG` 显示颜色 1 的 `writeMask` 为 0，补丁 0010 由此而来。
 - ns1 对 r8a：整屏 pass 每次 808 → 787 µs，tile store 合计 3.33 → 2.76 s（次数 112122 → 116029），控制中心下拉 91.2 → 89.2、左滑 99.9 → 101.3、右滑 91.3 → 95.2 帧／秒。tile store 按 bin 计次，次数不随附件数变化；每个整屏 pass 是否都跳过了颜色 1 没有单独核对。
@@ -62,7 +62,7 @@
 
 ### 3.3 安装应用
 
-- 登记方式：`registerApplicationDictionary:`，`ApplicationType` 为 System，数据容器由 MobileContainerManager 建。app1 用 rwsh 装上 HelloK90 并启动，界面正常。
+- 登记方式：`registerApplicationDictionary:`，`ApplicationType` 为 System，数据容器由 MobileContainerManager 创建。app1 用 rwsh 装上 HelloK90 并启动，界面正常。
 - USB（app3）：`install-ipa.py` 装 9 KB 的 HelloK90 用时 9 秒；41 MB 的测试 IPA 分 3 块，17 秒装好并启动。
 - Safari（app3）：点「下载」后文件出现在 Safari 数据容器的 `Library/Safari/Downloads/<UUID>/`，后台监听约 10 秒内装好，图标出现在主屏。Safari 自己的下载随后停在下载中（app1 里显示 Task failed）。
 - 文件 App（w2 之前）：「浏览」的位置只有「最近删除」，所有 App Group 下都没有 `File Provider Storage`，LocalStorageFileProvider 从未启动；打开照片时 fileproviderd 报 `FPDDomain must have a volume attached` 后退出。
@@ -72,9 +72,9 @@
 
 ### 3.4 Wi-Fi
 
-- app1：`wifijoin` 手动运行，第一次关联就完成四次握手。wifid 的关联回调报 −3902，但链路已经起来，所以 `wifijoin` 改为以 wifid 的当前网络判断成功。
-- app1 的目标记录取自扫描里一次 −94 dBm 的读数，其余扫描里同一接入点在 −17～−25 dBm；加入后内核报给 iOS 的信号一直是 −94 dBm，状态栏只有一个点。app3 的目标在 −20 dBm，状态栏满格。
-- app2：开机时 `wifijoin` 建的客户端一直列不出设备（en0 约在内核时间 200 秒出现），改为每 5 秒重建客户端后 app3 开机即加入。
+- app1：`wifijoin` 手动运行，第一次关联就完成四次握手。wifid 的关联回调报 −3902，但链路已经建立，所以 `wifijoin` 改为以 wifid 的当前网络判断成功。
+- app1 的目标记录取自扫描里一次 −94 dBm 的读数，其余扫描里同一接入点在 −17～−25 dBm；加入后内核上报给 iOS 的信号一直是 −94 dBm，状态栏只有一个点。app3 的目标在 −20 dBm，状态栏满格。
+- app2：开机时 `wifijoin` 创建的客户端一直列不出设备（en0 约在内核时间 200 秒出现），改为每 5 秒重建客户端后 app3 开机即加入。
 - app2：手动加入连续 4 次失败，每次接入点发 3 次第 1 条消息，我们回的第 2 条都没有发出去，解除认证时才报 `WAS DROPPED by the driver`，随后 reason 15。目标信号 −20 dBm，与 app1 成功那次的 −94 dBm 不同，信号读数不能解释发送失败。
 - w1：`wifijoin` 选中 −22 dBm 的记录，第一次关联完成握手；JOINED 一行报信道上 −23 dBm，wifid 读到的信号随之更新，状态栏满格。第 2、4 条握手消息的完成记录都是固件交回、原因 0、发送 1 次，这一轮没有复现发送失败，发送读数留到复现时对照。
 
@@ -82,7 +82,7 @@
 
 - Safari 打开主机上的测试页：H.264 视频报 `err=3:Media failed to decode`；VP9 只到 `loadedmetadata`，`readyState` 停在 1。原因见[视频解码调研](../analysis/2026-11-05-video-decode.md) §2：H.264 已由系统的软件解码器解出画面，我们的 Metal 驱动合成不了这种两平面 YCbCr（`'420v'`）画面，推断这是直接原因；VP9 没有可用的解码器。
 - 天气：「我的位置」页显示「— —」，`locationd` 在 `mkjobs.py` 的 DENY 表里没有启动；列表里的城市也是「— —」，联网正常。
-- fp1 打开天气时 weatherd 带调试日志运行：连不上 `com.apple.kvsd`（syncdefaultsd 在 DENY 表里）、`com.apple.locationd.synchronous`，与 apsd 的连接无效；取天气数据的请求没有出现在 weatherd 的日志里，原因未查。
+- fp1 打开天气时 weatherd 带调试日志运行：连不上 `com.apple.kvsd`（syncdefaultsd 在 DENY 表里）、`com.apple.locationd.synchronous`，与 apsd 的连接无效；获取天气数据的请求没有出现在 weatherd 的日志里，原因未查。
 - fp1 的 H.264：页面打开时报 `readyState` 4、没有错误，画面黑屏、时间停在 0，随后报 `err=3:Media failed to decode`。
 
 ### 3.6 状态栏位置

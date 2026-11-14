@@ -26,5 +26,7 @@ S3 温度上报列在[外设与电源](platform.md)，S6／S7 列在[图形与�
 | S15 | 偏好与跨开机数据覆盖 | 待验证；正常重启检查点与测试文件已有读回结果 | 逐项验证系统设置、Wi-Fi、桌面布局、应用数据及更新后的偏好；异常复位属于 S2 | [根文件系统 §5、§6](../analysis/rootfs-strategy.md) |
 | S16 | 中文、字体与通知权限复测 | 已有资源与实现，用户可见结果待当前镜像复核 | 检查中文应用名、目标网页字体、通知授权及重启后状态 | [问题复核 §2](../analysis/2026-11-08-issue-reassessment.md)、[架构审查 §12.4](../analysis/2026-11-08-architecture-review.md) |
 | S17 | LiveContainer／SideStore 兼容性 | 后续候选；原生安装与前台切换由 S4／S5 跟进 | 按选定应用检查安装、签名、JIT、启动和数据持久化，记录各阶段实际限制 | [问题复核 §2](../analysis/2026-11-08-issue-reassessment.md)、[架构审查 §12.5](../analysis/2026-11-08-architecture-review.md) |
+| S18 | 可写 APFS 接管 `/private/var` 前置契约 | 进行中；跨块下溢、16 KiB 栈分配、文件类型位与检查点假刷盘正在返工，`var_apfs=1` 默认关闭 | 完成多 chunk 位图分配、多层 B-tree／OMAP 分裂、`vnop_blockmap` 与真实检查点环推进并通过断电恢复验证前，保持 `ANNFS001` 为默认持久化层 | [多轮代码审查 §2](../analysis/2026-11-15-code-and-commit-review.md#2-存储可写-apfs-与-ufs-驱动缺陷)、[性能改造方案 §2.2](../plan/2026-11-14-performance-and-native-alignment-plan.md) |
+| S19 | `24 MHz` Mach 时钟用户态快路径评估 | 待研究；提交 `20550698` 关闭 `CNTKCTL_EL1` 用户态计数权限并返回 `USER_TIMEBASE_NONE`，每次 `mach_absolute_time()` 均通过 `SVC` 陷入内核 | 反汇编核对 23G90 `libsystem_kernel.dylib` 对 `commpage` 时间基准参数的读取方式，评估不破坏 `AudioSession` `24 MHz` 滴答的用户态无陷入换算方案并对比调用开销 | [多轮代码审查 §3](../analysis/2026-11-15-code-and-commit-review.md#3-adsp共享内存电源与时钟基础模块缺陷更早提交回溯) |
 
 Weather 的 Mescal 依赖继续按原调研记录；FairPlay 与 App Store 不在本轮范围内。

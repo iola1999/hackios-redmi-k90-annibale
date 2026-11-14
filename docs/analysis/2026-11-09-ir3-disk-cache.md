@@ -32,9 +32,9 @@
 
 ## 4. 修复措施
 
-1. **跨 UID 共享缓存目录与文件权限（`0015-ir3-disk-cache-darwin-uuid.patch`）**：在 `src/util/disk_cache_os.c` 与 `src/freedreno/ir3/ir3_disk_cache.c` 的 `#ifdef __APPLE__` 分支中，缓存目录创建使用 `0777` 并显式 `chmod(path, 0777)`，缓存文件（`index`、`marker`、`<key>.tmp`）使用 `0666` 并显式 `fchmod(fd, 0666)`，使 `root`（`uid 0`）、`mobile`（`uid 501`）与 `_iconservices`（`uid 254`）共享同一缓存目录。同时在 `ir3_disk_cache.c` 增加 `ir3_cache_note()` 里程碑计数日志（`ir3 cache[<proc> <pid>]: <hits> hits, <stores> stores`）。
-2. **`mmap(MAP_SHARED)` 脏页关机落盘（`ramfs_disk.inc`）**：Mesa 的 `index` 文件通过 `mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)` 更新。在 `ramfs_disk_flush_all()` 中遍历所有 `rn_mapped_write` 节点并调用 `ubc_msync(vp, 0, ubc_getsize(vp), NULL, UBC_PUSHDIRTY | UBC_SYNC)`，确保软重启或退回 loader 前 `index` 脏页写回 `ANNFS001`。
-3. **解锁前唤醒屏幕（`inject_sb26.c`）**：`unlock_once()` 调用 `-[SBLockScreenManager unlockUIFromSource:withOptions:]` 前先调用 `-[SBBacklightController turnOnScreenFullyWithBacklightSource:1]`，并在 `com.annibale.unlock` 通知回调中若首次仍处于锁定状态则 300 ms 后重试一次，避免恰好撞上 30 秒锁屏熄屏窗口时解锁失败。
+1. **跨 UID 共享缓存目录与文件权限（`0015-ir3-disk-cache-darwin-uuid.patch`）**：在 `src/util/disk_cache_os.c` 与 `src/freedreno/ir3/ir3_disk_cache.c` 的 `#ifdef __APPLE__` 分支中，缓存目录创建使用 `0777` 并显式 `chmod(path, 0777)`，缓存文件（`index`、`marker`、`<key>.tmp`）使用 `0666` 并显式 `fchmod(fd, 0666)`，使 `root`（`uid 0`）、`mobile`（`uid 501`）与 `_iconservices`（`uid 254`）共享同一缓存目录。同时在 `ir3_disk_cache.c` 增加 `ir3_cache_note()` 阶段计数日志（`ir3 cache[<proc> <pid>]: <hits> hits, <stores> stores`）。
+2. **`mmap(MAP_SHARED)` 脏页关机落盘（`ramfs_disk.inc`）**：Mesa 的 `index` 文件通过 `mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)` 更新。在 `ramfs_disk_flush_all()` 中遍历所有 `rn_mapped_write` 节点并调用 `ubc_msync(vp, 0, ubc_getsize(vp), NULL, UBC_PUSHDIRTY | UBC_SYNC)`，使软重启或退回 loader 前将 `index` 脏页写回 `ANNFS001`。
+3. **解锁前唤醒屏幕（`inject_sb26.c`）**：`unlock_once()` 调用 `-[SBLockScreenManager unlockUIFromSource:withOptions:]` 前先调用 `-[SBBacklightController turnOnScreenFullyWithBacklightSource:1]`，并在 `com.annibale.unlock` 通知回调中若首次仍处于锁定状态则 300 ms 后重试一次，避免恰好在 30 秒锁屏熄屏窗口内解锁失败。
 
 ## 5. 真机连续开机验证
 

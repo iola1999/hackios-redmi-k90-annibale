@@ -46,10 +46,10 @@ bash xnu-build.sh -j8 BUILD_DSYM=0 KEXT_CREATE_SYMBOL_SET=/bin/true
 | `uuid/uuid.h` 找不到 | 缺 uuid-dev | apt 装上 |
 | tcsh 配置失败 | 缺 libncurses-dev | apt 装上 |
 | `--minimize: command not found`（DSYMUTIL） | Linux 无 dsymutil | `BUILD_DSYM=0`（dSYM 我们不用） |
-| `check_all_exports`: exported name not in import list | 新 clang 生成的 C++ 符号与 Apple 参考清单不一致（Apple 用 LTO 收敛） | `KEXT_CREATE_SYMBOL_SET=/bin/true` 旁路；注意值必须是存在的文件（make 会把它当依赖），不能用裸 `true` |
+| `check_all_exports`: exported name not in import list | 新 clang 生成的 C++ 符号与 Apple 参考清单不一致（Apple 用 LTO 收敛） | `KEXT_CREATE_SYMBOL_SET=/bin/true` 旁路；注意值必须是存在的文件（make 会将其设为依赖），不能用裸 `true` |
 | lldbmacros `env: python` | ubuntu 无 `python` 别名 | `python-is-python3` |
 
-改了 `hostcompat.h` 后旧 `.o` 不会自动重编（没有头文件依赖），要 `rm -rf BUILD/obj/SETUP`。
+改了 `hostcompat.h` 后旧 `.o` 不会自动重新编译（没有头文件依赖），要 `rm -rf BUILD/obj/SETUP`。
 
 ## 5. 换入 payload 的流程
 
