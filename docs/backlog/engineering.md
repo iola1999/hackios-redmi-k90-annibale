@@ -12,6 +12,7 @@
 | ENG-20 | loader 缺省根设备参数 | 待核查；旧交接记录缺少 rd／rootdev 时追加 rd=md0，现有载荷显式指定 rootdev=md0 | 核对当前默认参数与 launchd 正常启动条件；若仍追加恢复模式参数，修正默认值并验证显式参数、缺省参数及重建 loader | [11-09 交接 §4](../progress/2026-11-09-handoff.md#4-遗留问题)、[根文件系统](../analysis/rootfs-strategy.md) |
 | ENG-21 | Wi-Fi 下的 SSH 调试 | 已有 OpenSSH 构建与密钥认证启动入口；当前检查的本地产物没有 sshd，设备未验证 | 先确认产物、私有认证配置与退出清理，再验证网络连通及交互；恢复仍依赖现有 loader 通道 | [USB 与调试方式核查 §4](../analysis/2026-11-12-usb-debugging.md#4-现有调试方式的可用范围) |
 | ENG-22 | 用户态等价检查覆盖根盘中的签名副本 | `verify-userland-equiv.py` 只比对 `obj/` 目标的 Mach-O 属性、摘要与权限；`build.sh` 曾在复制后把 `root/bin/input26-service` 重签成不带权限的 ad-hoc 签名，57/57 等价检查仍然通过，问题到真机触控失效才发现 | 把 `root/` 中由 `obj/` 复制的程序纳入权限摘要比对；验收时人为去掉一个副本的权限，检查应失败 | [多轮代码审查 §1](../analysis/2026-11-15-code-and-commit-review.md#1-真机回归与系统应用闪退根因) R2-06 |
+| ENG-23 | 运行态收敛时 `oem recovery` 赶不上启动菜单窗口 | 2026-11-16 两次复位后主机约 24 s 才看到 loader 枚举，`oem recovery` 返回 `kernel resources are unavailable for recovery`，loader 自动启动 `boot_a` 默认镜像；第三次由用户按音量键停住倒计时。loader 在 USB 配置完成后倒计时 5 s，再保留 0.5 s 启动画面 | 记录主机看到枚举与 loader 开始倒计时的时间差，确定延迟在设备还是主机 USB 栈；再在 loader 端延长有主机连接时的窗口，或改用不依赖窗口的进入方式；验收为连续多次运行态收敛无需按键 | [多专题研究 §11](../analysis/2026-11-16-multi-topic-research.md#11-真机运行异常)、[11-15 交接 §3](../progress/2026-11-15-handoff.md#3-本批轮次与新查出的根因) |
 
 ENG-02 的路径和外部输入按当前脚本核对。下表中的脚本均位于 `hackios-xnu-kernel/tools/tests/`，源码位置以脚本所在仓库为起点。
 

@@ -16,6 +16,7 @@
 | 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 待跑一轮纯观测探针 | [M2](../backlog/multimedia.md) |
 | 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；Iris 裁剪与拒绝后关闭 `iris-r1` 真机通过：1080p 本地播放 300 帧，被拒会话释放槽位；首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
 | 真机性能 | 首次使用路径（专化等待、AIR 翻译与进程级锁）最重，其次是调频与 4 核、CPU 面板拷贝 | 待 3 轮基线采集 | [G9、G15](../backlog/graphics.md)、[S9](../backlog/system.md)、[P11](../backlog/platform.md) |
+| TrollStore 安装大 IPA 报 181 | ramfs 克隆目录时跳过已换出到磁盘的页，复制进容器的文件读回全 0，`Info.plist` 读不出，LaunchServices 登记失败 | 克隆读盘修复 `clone-r1` 真机通过：微博安装成功，容器内没有被破坏的文件；微博启动后被内核结束，原因待查 | 见 §12 |
 
 ## 2. IPA 在「文件」、分享菜单与 TrollStore 选择器中无反应
 
@@ -335,3 +336,35 @@ Iris 修复（`annibale_iris_hfi.c`，内核提交 `c9b9828a`）：
 | 时间 | 轮次与内核 | 现象 | 处理 |
 |---|---|---|---|
 | 2026-11-16 00:20 | `share-r1` 首次，`12377-media1` | `oem run` 后约 1 s 设备从 USB 消失，重新枚举后 loader 自动启动 `boot_a` 常驻镜像（日志头 `== XNULOADER v3 ==`，内核 `0x1398ce0`）；`run-auto.py` 判为 `RESET_FALLBACK_DETECTED`。同一内核在 `media-r1` 正常启动，复位发生在用户态之前，与本轮打开的日志输出无关；复位前的内核日志没有保存 | 原始记录改名为 `kernel-12377-media1-share-r1-fallback`，同配置重跑 |
+| 2026-11-16 01:49、01:51 | `clone-r1` 启动前的运行态收敛（第一次从 `12377-iris1`，第二次从默认镜像） | `recover-loader.py` 两次在复位后约 24 s 才看到 loader 枚举，`oem recovery` 返回 `kernel resources are unavailable for recovery`，loader 自动启动 `boot_a` 默认镜像。默认镜像的 Metal 驱动 `1978de94…`、AIR `a1e7f4d6…` 与 `share-r2`（`ff8552f2…`、`df405d7c…`）不同，用户看到桌面图标透明、只有文字，与 [G5、G7](../backlog/graphics.md) 的冷缓存现象一致，本轮没有单独验证 | 第三次由用户在启动菜单按音量键停住倒计时后收敛成功；见 [ENG-23](../backlog/engineering.md) |
+
+## 12. TrollStore 安装大 IPA 报 181
+
+适用范围：内核 `12377-iris1`（复现）与 `12377-clone1`（修复），2026-11-16。原始日志、剪贴板内容和一次性排查工具在本地 `out/weibo-181/`（Git 忽略）。
+
+### 12.1 现象
+
+- `share-r2` 运行态上，用 TrollStore 安装微博 16.11.0 IPA（197,852,142 字节），约 6 分钟后报 `install error 181`（`Failed to add app to icon cache.`）。同一卷上 Kumone、bili 安装成功。
+- TrollStore「Copy Debug Log」复制的日志：IPA 复制进容器后约 3 s 打印 `Error: Unable to register`，再过 5 分 49 秒打印 `trollstorehelper returning 181`，中间没有 `Used dictionary` 行。
+
+### 12.2 定位
+
+- `registerPath()`（`TrollStore/RootHelper/uicache.m`）的登记分支和注销分支打印同一句 `Error: Unable to register`。读不到 `Info.plist` 的 `CFBundleIdentifier` 时进入注销分支，`unregisterApplication:` 失败后打印这句，所以日志里没有 `Used dictionary`。
+- 用 `trollstorehelper install custom force skip-uicache` 安装后保留容器检查：`trollstorehelper list` 不列出 `com.sina.weibo`；容器内 `Weibo.app/Info.plist` 为 65,511 字节、全部为 0，解压临时目录中改写后的同一文件内容完好。
+- 容器内约 10,800 个文件中有 10,291 个读回全为 0。同一卷上 bili、Kumone 的容器没有全零文件。
+- 根因：`NSFileManager copyItemAtPath:` 在卷类型报 `apfs` 时用 `clonefile` 克隆整个 `.app` 目录，进入 `ramfs_clone_contents()`。源页已换出到磁盘时，它调用 `ramfs_disk_fault_page()`，后者在 `ramfs_pages_in_use >= rm_max_pages / 2` 时不读盘直接返回；克隆随后跳过这一页，目标文件只有 `rn_size`，没有数据页和磁盘块。
+- 克隆为每页新分配的常驻页不回收，越过上限之后克隆的文件都读回全 0。小应用的页仍在内存中，不受影响。
+
+### 12.3 修复与验证
+
+- 修复：`hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_clonefile.inc` 在源页不在内存时，按 `ramfs_fetch()` 的做法用 `rm_io_page` 直接读盘，读盘失败返回错误；目标页写盘后按 `ramfs_store_write_locked()` 的规则调用 `ramfs_disk_evict_page_locked()`。
+- 宿主测试：`hackios-xnu-kernel/tools/tests/test-ramfs-clone-evicted.py` 截取生产代码编译，覆盖超过常驻上限、未超过上限、空洞和读盘失败 4 个用例，修复后全部通过。对修复前的源码运行，4 个用例全部失败，其中超过上限的用例目标块为 0，与真机的全零文件对应。
+- 真机 `kernel-12377-clone1-clone-r1`：只更换内核，`root.apfs` 与启动参数与 `share-r2` 相同。由 `trollstorehelper watch` 安装同一个 IPA，没有出现 `Unable to register`，`trollstorehelper list` 列出 `com.sina.weibo`。
+- 容器内剩余 6 个全零文件（5 个 1 字节的 `.version`、1 个 32 字节的 `coremldata.bin`），其 CRC32 与 IPA 中央目录记录一致，原包内容即为 0。
+
+### 12.4 遗留
+
+- 微博启动约 4 s 后被内核 `exit_with_mach_exception()` 结束，日志为 `[Weibo: killed] exiting with signal 9, force exiting the process`，异常类型未确认，见 [S22](../backlog/system.md)。
+- 大目录删除慢：失败安装后删除容器和解压目录合计约 4 分 40 秒，watcher 线程内核态 CPU 276 s；更新安装时删除旧 `Weibo.app` 用 3 分 06 秒，见 [S21](../backlog/system.md)。
+- `ramfs_resize()` 同样不检查 `ramfs_disk_fault_page()` 是否读入，见 [S23](../backlog/system.md)。
+- `tools/tests/test-ramfs-page-lifetime.py` 在未改动的内核仓库 HEAD 上编译失败，`ufshc_write` 引用的 `hc_lock` 没有桩，与本次修复无关。
