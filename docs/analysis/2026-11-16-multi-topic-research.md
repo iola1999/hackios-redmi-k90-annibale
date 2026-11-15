@@ -8,7 +8,7 @@
 
 | 专题 | 结论 | 状态 | 待办 |
 |---|---|---|---|
-| IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板的界面进程（Angel）没有被 RunningBoard 拉起 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；「打开方式」为空是原生行为；分享面板研究中 | 见 §2.5、§2.6 |
+| IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板的 Angel 登记在 LaunchDaemons 键下，RunningBoard 拒绝启动 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；Angel 缓存键修复 `share-r2` 真机通过：分享面板显示，分享给 TrollStore 弹出安装确认；「打开方式」为空是原生行为 | 见 §2.5、§2.6 |
 | 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`）；补上后又暴露 AIR 的 1 位向量下标 | 542 与下标修复 `rb4-r3` 真机通过：日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票为占位骨架，原因待查 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
 | 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证，其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
@@ -75,7 +75,7 @@ libsandbox 导出的修饰位常量（23G90 `0x2a536e5f0` 起）：DEFAULT 0、C
 
 截图与日志在 `out/research-2026-11-15/device/ipa-r1/`。验证时没有点「Install」，安装确认框以 Cancel 关闭。
 
-- 进度表「Safari 下载的文件……可直接从 TrollStore 选择安装」来自提交 `6ce41fb` 更换 TrollStore 时的改写，11-09 的真机验证（`528f0a2`）只覆盖「文件」能看到下载与旧工具以 root 列目录，选择器与分享安装没有实测记录。这是测试条件不同，不属于回归；进度表措辞待改。
+- 进度表「Safari 下载的文件……可直接从 TrollStore 选择安装」来自提交 `6ce41fb` 更换 TrollStore 时的改写，11-09 的真机验证（`528f0a2`）只覆盖「文件」能看到下载与旧工具以 root 列目录，选择器与分享安装没有实测记录。这是测试条件不同，不属于回归；进度表已按 `ipa-r1`、`share-r2` 的实测改写。
 - 未确认：本项目的无目标令牌格式与原生不同，是否有调用方解析令牌内容。
 
 ### 2.6 分享面板空白与「打开方式」为空
@@ -103,7 +103,23 @@ libsandbox 导出的修饰位常量（23G90 `0x2a536e5f0` 起）：DEFAULT 0、C
 `rb4-r1` 同一次开机上的对照（不改变量）：
 
 - 探针 `rbent` 以 runningboardd 的方式读 SpringBoard（pid 31）权限：`system-shell`、`app-server` 都为布尔真，XML 权限 47,889 字节、DER 33,735 字节均可完整读出。内核与 Security 的权限查询正常。
-- 从主屏点 Safari 能正常打开。`share-r1` 中的拒绝需要 runningboardd 的 default 级日志确定请求目标，`rb4-r2` 打开 `OS_ACTIVITY_MODE=debug` 复现。
+- 从主屏点 Safari 能正常打开。
+
+`rb4-r2`（加 `OS_ACTIVITY_MODE=debug`，日志里仍只有 error 与 fault 级）复现「文件」分享：面板为空白卡片，点分享后 runningboardd 记录 `Attempted to launch angel found a non-angel job: osservice<com.apple.sharinguiservice>` 与 `Launchd could not find angel job`，连续 3 次。登记路径确认为分享面板空白的直接原因。
+
+修复（`tools/k90auto/package.py`）：新增 `cache_key()`，系统镜像中只在 `LaunchAngels` 下存在的任务，缓存键用 `/System/Library/LaunchAngels/<name>`；`add_rest_jobs`、`add_env`、`add_msaa` 都按这个规则取键。`share-r2` 的缓存共 553 个任务，30 个登记在 `LaunchAngels` 下，`com.apple.sharinguiservice` 只有 Angel 键并保留 `_ExperimentalNonLaunching`。PosterBoard 仍由 `EXTRA_JOBS` 以 LaunchDaemons 键登记并去掉 `NonLaunching`，回退这一绕过另起一轮。
+
+`share-r2`（只改缓存键，2026-11-16 01:00 开机）：
+
+| 检查 | 结果 |
+|---|---|
+| 「文件」快速查看页点分享 | 面板显示文件信息，应用行为隔空投送、TrollStore、邮件、备忘录，操作行为拷贝、添加到新快速备忘录、存储到「文件」、添加标签 |
+| 进程 | `SharingUIService` 以 uid 501 运行（pid 352） |
+| runningboardd | 没有 `non-angel job` 与 `could not find angel job` |
+| 面板中点 TrollStore | 打开 TrollStore 并弹出 Kumone 安装确认框（以 Cancel 关闭，未安装） |
+| 渲染与崩溃 | 无进程中止；组件显示与 `rb4-r3` 相同 |
+
+截图与日志在 `out/research-2026-11-15/device/share-r2/`。`share-r2` 开机后 runningboardd 仍有 1 次 `Trying to launch a daemon, agent, or angel as an app`（01:00:09，在点分享之前），请求方未确认。`share-r1`、`rb4-r2` 开机时 SpringBoard 的启动请求被拒（`not entitled to launch processes`）的目标仍未确认，本次开机读到的 SpringBoard 权限正常，主屏打开应用不受影响。
 
 其他日志行：
 

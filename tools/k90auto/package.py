@@ -570,6 +570,17 @@ def add_diag(root, cache):
     return cache
 
 
+def cache_key(name):
+    """The launchd cache key of a job plist from the system image. launchd treats a job as a launch
+    angel only when its path is under /System/Library/LaunchAngels/, and RunningBoard refuses to
+    start an angel that launchd reports as anything else ("Attempted to launch angel found a
+    non-angel job"), so an angel keeps its own directory in the key."""
+    rootfs = WORKSPACE / "ios26/rootfs/System/Library"
+    if (rootfs / "LaunchAngels" / name).exists() and not (rootfs / "LaunchDaemons" / name).exists():
+        return "/System/Library/LaunchAngels/" + name
+    return "/System/Library/LaunchDaemons/" + name
+
+
 def add_env(root, cache, settings):
     """Each (job, key, value) in the job's environment, in its plist and in the launchd cache."""
     for name, key, value in settings:
@@ -577,7 +588,7 @@ def add_env(root, cache, settings):
         job = plistlib.loads(job_path.read_bytes())
         job.setdefault("EnvironmentVariables", {})[key] = value
         job_path.write_bytes(plistlib.dumps(job, fmt=plistlib.FMT_BINARY))
-        cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + name] = job
+        cache["LaunchDaemons"][cache_key(name)] = job
     (root / "xpc/launchd.plist").write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
     return cache
 
@@ -594,7 +605,7 @@ def add_msaa(root):
         job.setdefault("EnvironmentVariables", {})["ANNIBALE_MSAA"] = "1"
         blob = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         job_path.write_bytes(blob)
-        cache["LaunchDaemons"]["/System/Library/LaunchDaemons/" + name] = job
+        cache["LaunchDaemons"][cache_key(name)] = job
     cache_path.write_bytes(plistlib.dumps(cache, fmt=plistlib.FMT_BINARY))
 
 
@@ -639,7 +650,7 @@ def add_rest_jobs(root, cache):
             env.setdefault("OS_ACTIVITY_DT_MODE", "YES")
             data = plistlib.dumps(job, fmt=plistlib.FMT_BINARY)
         (root / "LaunchDaemons" / path.name).write_bytes(data)
-        jobs["/System/Library/LaunchDaemons/" + path.name] = job
+        jobs[cache_key(path.name)] = job
         labels.add(job["Label"])
         services |= set(job["MachServices"])
         added.append(path.name)
