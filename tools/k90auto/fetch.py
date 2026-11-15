@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Copy one file off the iOS a held round is running, through annsh's "cat".
+"""Copy one file off the iOS a round is running.
 
-usage: tools/k90auto/fetch.py ROUND_DIR DEVICE_PATH OUT
+usage: tools/k90auto/fetch.py ROUND_DIR DEVICE_PATH OUT     (ROUND_DIR "-": the running iOS, no round)
 
-Each "cat PATH OFFSET" answers as many 48-byte lines as fit in one command's output and says where
-the next one starts ("cat end SIZE next AT"); this asks again from there until the whole file is
-read. OUT is written only after all offset, Base64, footer and size checks pass. A failed read
-preserves its verified prefix in OUT.partial. Exit status: 0 for a complete file, 1 for a failed read.
+When nothing else talks to the device (a round left running-held, or "-"), annsh "outbox PATH" copies
+the file into one physical piece of kernel memory, whose address the kernel logs ("outbox: N bytes for
+the host at 0x..."); "oem stage ADDRESS LENGTH" and "get_staged" read it at USB speed (71 KB in
+0.07 s on 2026-11-15, against about 10 KB/s for "cat"). While run-auto.py still runs the round, or
+when the outbox fails, the file comes through "cat" instead: each "cat PATH OFFSET" answers as many
+48-byte lines as fit in one command's output and says where the next one starts ("cat end SIZE next
+AT"); this asks again from there until the whole file is read. OUT is written only after all offset,
+Base64, footer and size checks pass. A failed read preserves its verified prefix in OUT.partial.
+Exit status: 0 for a complete file, 1 for a failed read.
 """
 import base64
+import json
 import re
 import subprocess
 import sys
@@ -16,6 +22,47 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MAX_RETRIES = 3   # re-reads of one chunk after a dropped console line or a missing footer
+
+
+def fastboot(*args, timeout=60):
+    return subprocess.run(["fastboot", "-s", "xnuloader", *args], capture_output=True, text=True, timeout=timeout)
+
+
+def via_outbox(round_dir, path, out):
+    """The file through kern.annibale.outbox, or None when that way does not work here."""
+    if round_dir != "-":
+        try:
+            held = json.loads((Path(round_dir) / "run/reboot.json").read_text()).get("left") == "running-held"
+        except (OSError, ValueError):
+            held = False
+        if not held:
+            return None   # run-auto.py owns the USB channel and stages its own logs in between
+    result = subprocess.run([sys.executable, str(HERE / "rsh.py"), round_dir, "outbox", path],
+                            capture_output=True, text=True)
+    m = re.search(r"outbox \S+: (\d+) of \1 bytes", result.stdout)
+    if result.returncode != 0 or m is None:
+        print(f"fetch: outbox failed ({result.stdout.strip() or result.stderr.strip()}); using cat", file=sys.stderr)
+        return None
+    size = int(m.group(1))
+    log = out.with_name(out.name + ".log")
+    try:
+        fastboot("oem", "log")
+        fastboot("get_staged", str(log))
+        found = re.findall(rf"outbox: {size} bytes for the host at (0x[0-9a-f]+)", log.read_text(errors="replace"))
+    finally:
+        log.unlink(missing_ok=True)
+    if not found:
+        print("fetch: the kernel log has no outbox address; using cat", file=sys.stderr)
+        return None
+    staged = out.with_name(out.name + ".staged")
+    if (fastboot("oem", f"stage {found[-1][2:]} {size:x}").returncode != 0
+            or fastboot("get_staged", str(staged)).returncode != 0 or staged.stat().st_size != size):
+        staged.unlink(missing_ok=True)
+        print("fetch: staging the outbox failed; using cat", file=sys.stderr)
+        return None
+    staged.replace(out)
+    print(f"fetch: {path}: {size} bytes to {out} (outbox)")
+    return 0
 
 
 def incomplete(out, data):
@@ -34,6 +81,9 @@ def main():
         print(__doc__.strip())
         return 1
     round_dir, path, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    done = via_outbox(round_dir, path, out)
+    if done is not None:
+        return done
     data = bytearray()
     retries = 0
     while True:

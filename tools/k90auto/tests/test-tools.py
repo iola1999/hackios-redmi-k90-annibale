@@ -422,6 +422,8 @@ class FetchTests(unittest.TestCase):
             fake_rsh.write_text(
                 "#!/usr/bin/env python3\n"
                 "import pathlib, sys\n"
+                "if 'outbox' in sys.argv:\n"
+                "    sys.exit(2)\n"
                 f"p = pathlib.Path({str(attempts)!r})\n"
                 "n = int(p.read_text()) + 1 if p.exists() else 1\n"
                 "p.write_text(str(n))\n"
@@ -439,6 +441,47 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(out.read_bytes(), payload)
             self.assertEqual(int(attempts.read_text()), 3)
+
+
+    def test_fetch_takes_the_outbox_when_nothing_else_uses_the_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            tools.mkdir()
+            shutil.copy(HERE / "fetch.py", tools / "fetch.py")
+            payload = bytes(range(256)) * 3
+            (tools / "rsh.py").write_text(
+                "import sys\n"
+                "assert sys.argv[2:] == ['outbox', '/var/tmp/x'], sys.argv\n"
+                f"print('outbox /var/tmp/x: {len(payload)} of {len(payload)} bytes')\n")
+            (root / "payload").write_bytes(payload)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake = bin_dir / "fastboot"
+            # the last oem command decides what get_staged hands over: the log, or the staged bytes
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import pathlib, shutil, sys\n"
+                f"root = pathlib.Path({str(root)!r})\n"
+                "args = sys.argv[3:]\n"
+                "if args[0] == 'oem':\n"
+                "    (root / 'last').write_text(args[1])\n"
+                "elif args[0] == 'get_staged':\n"
+                "    last = (root / 'last').read_text()\n"
+                "    if last == 'log':\n"
+                f"        pathlib.Path(args[1]).write_text('outbox: {len(payload)} bytes for the host at 0xa1b2c000\\n')\n"
+                f"    elif last == 'stage a1b2c000 {len(payload):x}':\n"
+                "        shutil.copy(root / 'payload', args[1])\n"
+                "    else:\n"
+                "        sys.exit(1)\n")
+            fake.chmod(0o755)
+            out = root / "out.bin"
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+            result = subprocess.run([sys.executable, str(tools / "fetch.py"), "-", "/var/tmp/x", str(out)],
+                                    capture_output=True, text=True, timeout=8, env=env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(out.read_bytes(), payload)
+            self.assertIn("(outbox)", result.stdout)
 
 
 class RunAutoTests(unittest.TestCase):

@@ -289,6 +289,10 @@ def main():
         (round_dir / "render-report.txt").write_text(report.stdout)
         print(f"report: {round_dir / 'render-report.txt'}  sheet: {round_dir / 'run/tour-sheet.png'}")
 
+    # The round is over: its raw screenshots (11.6 MB each) become lossless PNGs in run/png, which
+    # summary.py and visual-audit.py read as well; one round's 13 shots go from 171 MB to 46 MB in 6 s.
+    run(["bash", HERE / "sheets.sh", round_dir / "run"], stdout=subprocess.DEVNULL)
+
     if args.teardown:
         problem = ensure_loader_idle()
         if problem:
