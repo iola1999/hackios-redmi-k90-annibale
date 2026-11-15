@@ -8,13 +8,13 @@
 
 | 专题 | 结论 | 状态 | 待办 |
 |---|---|---|---|
-| IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板另缺 type 1 扩展 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；分享面板空白、「打开方式」为空，研究中 | 见 §2.5、§2.6 |
+| IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板的界面进程（Angel）没有被 RunningBoard 拉起 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；「打开方式」为空是原生行为；分享面板研究中 | 见 §2.5、§2.6 |
 | 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`） | 根因已定位，待实现 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
 | 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证，其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
 | 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 待跑一轮纯观测探针 | [M2](../backlog/multimedia.md) |
-| 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；1080p 与首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
+| 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；Iris 裁剪与拒绝后关闭 `iris-r1` 真机通过：1080p 本地播放 300 帧，被拒会话释放槽位；首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
 | 真机性能 | 首次使用路径（专化等待、AIR 翻译与进程级锁）最重，其次是调频与 4 核、CPU 面板拷贝 | 待 3 轮基线采集 | [G9、G15](../backlog/graphics.md)、[S9](../backlog/system.md)、[P11](../backlog/platform.md) |
 
 ## 2. IPA 在「文件」、分享菜单与 TrollStore 选择器中无反应
@@ -80,9 +80,39 @@ libsandbox 导出的修饰位常量（23G90 `0x2a536e5f0` 起）：DEFAULT 0、C
 
 ### 2.6 分享面板空白与「打开方式」为空
 
-- `ipa-r1` 内核日志反复出现 `minisandbox: extension issue from extensionkitserv[130] not supported: type 1 flags 0x30000 pid 34` 与 `extensionkitserv[163] ... type 1 flags 0x30000 pid 75`。pid 34 为 PosterBoard，pid 75 为 chronod，签发方是两个 `extensionkitservice`。type 1 的含义（推测为 mach 服务扩展）、消费方与签发失败的后果待静态分析确认；分享面板、海报与组件扩展都经 ExtensionKit 拉起，可能都受影响，与 §3 的关系待查。
-- 同轮日志另有 `minisandbox: privilege 12010 refused to sharingd[71]` 与 `privilege 12011 refused to sharingd[71]`，用途待查。
-- 「打开方式」：探针按 LaunchServices 文档代理查询能拿到 TrollStore，「文件」的列表仍为空。DocumentManager 计算这个列表的接口与过滤条件（例如是否要求应用声明 `LSSupportsOpeningDocumentsInPlace`）待查，原生 iOS 上是否本来为空未核实。
+分享面板：
+
+- 面板内容由 `SharingUIService.app` 在远程场景中绘制。ShareSheet 用 `identityForAngelJobLabel:` 与 `_UISceneHostingController initWithProcessIdentity:sceneSpecification:` 托管场景，场景角色为 `UISceneSessionRoleShareSheet`。
+- 它的 launchd 任务 `com.apple.sharinguiservice` 是 LaunchAngel，唯一的 Mach 服务标有 `_ExperimentalNonLaunching`，launchd 不会因服务查找而启动它，只能由 RunningBoard 按场景请求拉起。`ipa-r1` 点分享后没有新进程出现，面板是空白卡片。
+- 本项目由 `mkjobs.py --rest` 把 LaunchAngel 与 LaunchDaemon 一起登记进任务缓存，`NonLaunching` 标记保留，同类 Angel 共 40 个。`package.py` 的 `EXTRA_JOBS` 注释记录过同一现象：PosterBoard 也是 Angel，当时为了让壁纸出现去掉了它的 `NonLaunching`。
+
+`share-r1` 观测轮（内核 `12377-media1`，runningboardd 与 sharingd 以 `OS_ACTIVITY_DT_MODE=YES` 启动，只输出 error 级日志，原始日志在 `out/research-2026-11-15/device/share-r1/`）读数：
+
+- sharingd 在设备时间 00:22:53.116 打出 `Activating com.apple.sharing.sharesheet`；点分享后的截图停在快速查看页，没有面板。
+- runningboardd 在 00:22:52.130 记录 `Process start failed to launch/find job with error Error Domain=NSPOSIXErrorDomain Code=22 "Invalid argument" UserInfo={NSLocalizedDescription=Trying to launch a daemon, agent, or angel as an app.}`。error 级日志不含任务名，是否对应 `com.apple.sharinguiservice` 待确认。
+- runningboardd 在 00:22:51～00:23:05 共 9 次记录 `Rejecting launch request because [osservice<com.apple.SpringBoard>:29] is not entitled to launch processes`。23G90 原版 SpringBoard 的 `com.apple.runningboard.*` 权限里没有名称上对应启动进程的键，RunningBoard 的判定条件与 SpringBoard 在原生系统上是否也被拒，交给静态分析。
+- 开机早期 8 次 `parseAdditionalProperties for RB launch proccess has no RunningBoardLaunchedIdentity`，与任务缓存中的登记方式是否有关待查。
+
+其他日志行：
+
+- `extensionkitservice` 的 type 1 签发：`prepareWithLaunchConfiguration:reply:`（ExtensionFoundation `0x184c048d0`）对每个扩展调用 `sandbox_extension_issue_mach_to_process`，扩展类 `com.apple.pluginkit.plugin-service`，资源为扩展的 serviceName，目标为宿主进程（PosterBoard、chronod）。签发失败与消费失败都只记日志，扩展进程照常启动；MiniSandbox 不限制 mach-lookup，所以它不是分享面板、海报或组件异常的原因。
+- `privilege 12010`、`12011` 是 `PRIV_SKYWALK_OBSERVE_ALL`、`OBSERVE_STATS`。Skywalk 打开 nexus 控制器时依次探测，任一通过即可；sharingd 有 register-user-pipe 权限，原生系统上前两次探测同样被拒，不影响分享。
+
+「打开方式」为空是原生行为：菜单由 CoreServicesUI 的 `CSUIOpenWithFlow` 构建，`CSUIOpenWithMenuConfiguration` 默认 `requireOpenInPlace` 为 YES，LaunchServices 据此只留声明支持原地打开的应用；TrollStore 的 `LSSupportsOpeningDocumentsInPlace` 为 false，被排除。探针用的 `applicationsAvailableForOpeningWithError:` 没有这个条件，所以能拿到 TrollStore。原生上把 `.ipa` 交给 TrollStore 的入口是分享菜单。
+
+MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcache 签发函数 `0xfffffe000a421010`）：
+
+| 位或类型 | 原生 | 当前（`4627a236`） |
+|---|---|---|
+| 0x2 CANONICAL | 规范路径检查，不通过返回 EPERM | 放行，不检查 |
+| 0x4 PREFIXMATCH | 文件类型返回 ENOTSUP，其他类型记入令牌 | 放行 |
+| 0x8 | 只允许文件类型 | ENOTSUP |
+| 0x2000、0x4000、0x8000 | 允许 | ENOTSUP |
+| 0x10000 单独（按 pid） | 支持，pidversion 取进程当前值 | ENOTSUP |
+| 其余位 | EINVAL | ENOTSUP |
+| type 1 mach、type 2 iokit 指定目标 | 支持，令牌追加服务名 | ENOTSUP 并记日志 |
+
+这些差异目前没有对应的用户可见故障，对齐工作记为后续项。
 
 ## 3. 桌面与负一屏组件
 
@@ -195,7 +225,24 @@ IOSurface 修复：只给大小、没有宽高的 surface 不再按空的几何�
 
 HTTP 方式播放 mp4 返回 AVFoundation -11850，原因是 Python `http.server` 不支持按字节范围请求，测 mp4 要用本地文件或支持 Range 的服务。Safari 测试页四种媒体还没测。
 
-后续：静态实现 Iris 裁剪尺寸，主机侧拒绝时正常关闭会话、释放槽位；B 轮插件单独提交参数集，看第一帧能否自己出来；C 轮强制在第 7 帧后 DRAIN，验证参考帧是否失效。
+Iris 修复（`annibale_iris_hfi.c`，内核提交 `c9b9828a`）：
+
+- PSC 按原厂 `msm_vdec.c` 的布局解析编码尺寸与裁剪：`CROP_OFFSETS` 第一个字为 `left << 16 | top`，第二个为 `right << 16 | bottom`。只接受左上角不裁剪、裁剪后正好等于会话宽高，且 RAW 步长、行数和 5 种内部缓冲按编码尺寸计算后都不超过打开时分配值的情况。原厂驱动在 PSC 时按编码尺寸重建内部缓冲（`msm_vdec_input_port_settings_change`），本驱动不重建，放不下时拒绝。
+- PSC 未通过上述主机侧检查时，会话标记为主机拒绝。关闭时如果错误仍是这次拒绝、RAW 端口未启动且硬件在线，按正常顺序 STOP 码流端口、CLOSE，再释放 DMA；固件或协议错误仍保留 DMA。
+- 宿主测试 `test-iris-hfi-wire.py` 新增 640×474 编码为 640×480 的接受用例、裁剪不符的拒绝用例和拒绝后正常关闭的用例，3 个对应变异均被检出：204 个用例、90 个变异检查通过；其余 Iris 宿主测试通过。
+
+内核 `12377-iris1`（20,697,480 字节，SHA-256 `89e7b55dba0c…`）一轮只改这一个变量，`iris-r1` 于 2026-11-16 00:36 开机，采样日志头为 `== XNULOADER run (usb) ==`、`payload entry 'kernel' size 13bd188`：
+
+| 检查 | 结果 |
+|---|---|
+| 本地 1080p H.264 加 AAC，10 s | PSC `resolution=0x7800440 crop=0x0/0x8`，`RAW published`；300 帧、像素错误 0，`result=pass`；`close done slot=1` |
+| 隔行 H.264 720×480（MBAFF），连续 5 次 `video_decode_test --require-hardware` | PSC 因非逐帧编码被拒，测试返回失败；5 次都是 `close done slot=1`，没有 `close retained` |
+| 之后 `video_decode_test --require-hardware` 播 1080p | 60 帧，`hardware=1`，`result=pass` |
+| 之后本地 720p H.264 加 AAC | 300 帧，`result=pass` |
+
+日志与样片在 `out/research-2026-11-15/device/iris-r1/`。修复前同一 1080p 样片在 `media-r1` 中视频 0 帧、槽位保留到重启。
+
+后续：B 轮插件单独提交参数集，看第一帧能否自己出来；C 轮强制在第 7 帧后 DRAIN，验证参考帧是否失效。左上角裁剪、编码尺寸超过打开时分配的流仍被拒绝，出现实际需求时再按原厂做法在 PSC 时重建内部缓冲。
 
 未确认：`2fac3a50` 截断带尺寸 surface 的 AllocSize 的来源；还有哪些系统组件使用无尺寸 IOSurface；长时间播放的主机时钟与 DSP 消费速率偏差；M13 本次未分析。
 
@@ -208,6 +255,7 @@ HTTP 方式播放 mp4 返回 AVFoundation -11850，原因是 Python `http.server
 - 调频：出帧期间 CPU 有 34%～80% 时间停在 384／1017 MHz；XNU 性能控制回调未注册（`machine_routines_common.c:766`）。
 - 持久化：`/private/var` 的写入按页同步写穿并持有 `rm_lock`，每次 fsync 全量重写元数据；开机后 185 s 内 242,280 次 UFS 写请求，在总耗时中的占比未知。
 - 打开设置后的 0.47 s 内，`_RB4` 双平面 surface 反复建纹理失败；是否就是 G18「半屏黑色窗口」的原因为推测，与 §3 同源。
+- RunningBoard 给进程设 GPU 角色失败：`share-r1` 日志 27 s 内 76 次 `setGPURole:pid: failed due to nil IOGPU device ref`，驱动没有发布 RunningBoard 能找到的 IOGPU 服务。前后台切换时 GPU 优先级是否因此不随进程状态调整，待查 RunningBoard 的匹配条件。
 
 瓶颈排序：首次使用路径 > CPU／GPU 调频与只开 4 核 > CPU 面板拷贝 > 持久化同步 > Mach 时钟陷入。
 
@@ -222,3 +270,9 @@ HTTP 方式播放 mp4 返回 AVFoundation -11850，原因是 Python `http.server
 | 2026-11-15 | 蜂窝接入后，CommCenter 下发的 Apple PRI／GRI 运营商配置确认收下后丢弃，生效的是基带自带配置 | 用户 | Apple 运营商配置无法用于高通基带固件；同类项目做法相同 |
 | 2026-11-15 | IPA 问题按内核接受 Seatbelt 修饰位修复，不采用监听下载目录或扫描「下载」目录的方案 | 主会话 | §2.3 根因；AGENTS.md §6 |
 | 2026-11-15 | 组件修复补 542 的导入与渲染目标，不用 `metal_profile=1` 对照，不只实现采样 | 主会话 | §3.2、§3.3 |
+
+## 11. 真机运行异常
+
+| 时间 | 轮次与内核 | 现象 | 处理 |
+|---|---|---|---|
+| 2026-11-16 00:20 | `share-r1` 首次，`12377-media1` | `oem run` 后约 1 s 设备从 USB 消失，重新枚举后 loader 自动启动 `boot_a` 常驻镜像（日志头 `== XNULOADER v3 ==`，内核 `0x1398ce0`）；`run-auto.py` 判为 `RESET_FALLBACK_DETECTED`。同一内核在 `media-r1` 正常启动，复位发生在用户态之前，与本轮打开的日志输出无关；复位前的内核日志没有保存 | 原始记录改名为 `kernel-12377-media1-share-r1-fallback`，同配置重跑 |
