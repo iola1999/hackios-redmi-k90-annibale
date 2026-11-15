@@ -7,7 +7,7 @@
 | 编号 | 事项 | 状态与已知条件 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
 | S6 | XR 与格式 94 精度 | 15 项入口检查复现五处问题；原生 Metal 三路共 24 个像素字一致，局部修复会新增管线／附件不一致 | 完整实现格式 94 的创建、导入、IOSurface 元数据及显示转换；XR 布局单独核对 | [渲染核查 §6](../analysis/2026-11-12-rendering-runtime.md#6-格式-94-的完整路径) |
-| G1 | 大组件黑底、白块或蓝块 | 2026-11-12 用户反馈组件白块；heap 轮完整截图与原尺寸局部已确认天气整块浅白、日历上下白块且中部露出壁纸，组件内容未显示；已有 draw／shader 关联与单变量候选 | 实际查看冷启动、解锁和返回桌面的完整截图与组件原尺寸区域；获取实际完整 AIR，核对输入与目标附件，修复后按相同动作复核内容和遮挡 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
+| G1 | 大组件黑底、白块或蓝块 | 白块与透出壁纸的根因是驱动不支持 542 `RGB8_444_2P`，已随用户态 `9679489`、内核 `c9764b0b` 修复；`rb4-r3` 中日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票组件为占位骨架，负一屏有一块黑底组件 | 查组件扩展的日志，区分缺数据与扩展失败；确认黑底组件的来源；补 542 渲染的宿主原生对照 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
 | G2 | framebuffer fetch 与多附件 | Apple GPU 与 A830 的双附件 8 组／3,072 像素通过，错误 DATA1 对照被检测；交换读取与同 encoder 先写后读已覆盖 | 混合、其他格式、MSAA、memoryless 和 TBDR 路径另行验证，系统画面单独验收 | [双附件参考 §9](../analysis/2026-11-12-rendering-runtime.md#9-g2-双附件-framebuffer-fetch)、[既有设备结果](../progress/2026-11-08-fbfetch-validation.md) |
 | G3 | Mesa alias.rt 与 fsat | 维护补丁已完成；旧版 3／16 失败，修复后 16／16 成功，隔离 iOS 库链接通过 | 验证 A830 像素、16 位 shader 与实际 UI；完整 AIR 语料待恢复宿主工具后运行 | [渲染核查 §2](../analysis/2026-11-12-rendering-runtime.md#2-mesa-aliasrt-与-fsat) |
 | G4 | 其他 ir3／A8xx 正确性 | 候选；大缓冲 NUM_ELEMENTS、布尔 subgroup、fquantize2f16 有上游修复 | 先确认本仓调用会生成对应 NIR 或描述符，再按容量边界、部分活跃 lane、subnormal 构造验证 | [上游对照 §5](../analysis/2026-11-12-upstream-review.md#5-mesa) |

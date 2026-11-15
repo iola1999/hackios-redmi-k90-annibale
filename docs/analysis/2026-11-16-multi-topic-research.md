@@ -9,7 +9,7 @@
 | 专题 | 结论 | 状态 | 待办 |
 |---|---|---|---|
 | IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板的界面进程（Angel）没有被 RunningBoard 拉起 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；「打开方式」为空是原生行为；分享面板研究中 | 见 §2.5、§2.6 |
-| 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`） | 根因已定位，待实现 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
+| 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`）；补上后又暴露 AIR 的 1 位向量下标 | 542 与下标修复 `rb4-r3` 真机通过：日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票为占位骨架，原因待查 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
 | 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证，其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
@@ -84,14 +84,26 @@ libsandbox 导出的修饰位常量（23G90 `0x2a536e5f0` 起）：DEFAULT 0、C
 
 - 面板内容由 `SharingUIService.app` 在远程场景中绘制。ShareSheet 用 `identityForAngelJobLabel:` 与 `_UISceneHostingController initWithProcessIdentity:sceneSpecification:` 托管场景，场景角色为 `UISceneSessionRoleShareSheet`。
 - 它的 launchd 任务 `com.apple.sharinguiservice` 是 LaunchAngel，唯一的 Mach 服务标有 `_ExperimentalNonLaunching`，launchd 不会因服务查找而启动它，只能由 RunningBoard 按场景请求拉起。`ipa-r1` 点分享后没有新进程出现，面板是空白卡片。
-- 本项目由 `mkjobs.py --rest` 把 LaunchAngel 与 LaunchDaemon 一起登记进任务缓存，`NonLaunching` 标记保留，同类 Angel 共 40 个。`package.py` 的 `EXTRA_JOBS` 注释记录过同一现象：PosterBoard 也是 Angel，当时为了让壁纸出现去掉了它的 `NonLaunching`。
+- 本项目由 `mkjobs.py --rest` 把 LaunchAngel 与 LaunchDaemon 一起登记进任务缓存，`NonLaunching` 标记保留。带这个标记的任务共 40 个，其中 30 个是 Angel。`package.py` 的 `EXTRA_JOBS` 注释记录过同一现象：PosterBoard 也是 Angel，当时为了让壁纸出现去掉了它的 `NonLaunching`。
 
 `share-r1` 观测轮（内核 `12377-media1`，runningboardd 与 sharingd 以 `OS_ACTIVITY_DT_MODE=YES` 启动，只输出 error 级日志，原始日志在 `out/research-2026-11-15/device/share-r1/`）读数：
 
 - sharingd 在设备时间 00:22:53.116 打出 `Activating com.apple.sharing.sharesheet`；点分享后的截图停在快速查看页，没有面板。
 - runningboardd 在 00:22:52.130 记录 `Process start failed to launch/find job with error Error Domain=NSPOSIXErrorDomain Code=22 "Invalid argument" UserInfo={NSLocalizedDescription=Trying to launch a daemon, agent, or angel as an app.}`。error 级日志不含任务名，是否对应 `com.apple.sharinguiservice` 待确认。
 - runningboardd 在 00:22:51～00:23:05 共 9 次记录 `Rejecting launch request because [osservice<com.apple.SpringBoard>:29] is not entitled to launch processes`。23G90 原版 SpringBoard 的 `com.apple.runningboard.*` 权限里没有名称上对应启动进程的键，RunningBoard 的判定条件与 SpringBoard 在原生系统上是否也被拒，交给静态分析。
-- 开机早期 8 次 `parseAdditionalProperties for RB launch proccess has no RunningBoardLaunchedIdentity`，与任务缓存中的登记方式是否有关待查。
+- 开机早期 8 次 `parseAdditionalProperties for RB launch proccess has no RunningBoardLaunchedIdentity`。
+
+静态分析（23G90，成员笔记 `out/research-2026-11-15/ipa.md` 第 17、18 节）：
+
+- Angel 的类型由登记路径决定：launchd 只在任务的登记路径（开机读缓存时即缓存键）以 `/System/Library/LaunchAngels/` 开头时置 Angel 标志，回给 RunningBoard 的 `service-type` 为 3。原生缓存里有 32 个 `LaunchAngels` 键；本项目登记的 31 个 Angel 全部用 `/System/Library/LaunchDaemons/` 键（`mkjobs.py:389`～`392`、`package.py:641`～`642`）。RunningBoard 以 Angel 身份请求、launchd 报的不是 Angel 时，记 fault `Attempted to launch angel found a non-angel job` 并放弃启动。
+- `share-r1` 没有出现这条 fault，说明本轮分享面板的请求可能没有到达这一步，登记问题存在但还不是已观测到的直接原因。
+- `Trying to launch a daemon, agent, or angel as an app` 是 RunningBoard 自己的判定：请求按应用身份启动一个 `Info.plist` 带 `LSLaunchDLabel` 的应用。原生遇到同样的请求也会失败；ShareSheet 三处都用 Angel 身份，这一行大概率来自别的请求方。
+- `not entitled to launch processes`：请求方有 `com.apple.runningboard.launchprocess`、`com.apple.assertiond.system-shell`、`com.apple.private.xpc.launchd.app-server` 任一项即放行，原版 SpringBoard 有后两项；没有时只放行 Angel 和带 `runningboard.trustedtarget` 的应用。runningboardd 对每个进程只读一次权限并缓存。
+
+`rb4-r1` 同一次开机上的对照（不改变量）：
+
+- 探针 `rbent` 以 runningboardd 的方式读 SpringBoard（pid 31）权限：`system-shell`、`app-server` 都为布尔真，XML 权限 47,889 字节、DER 33,735 字节均可完整读出。内核与 Security 的权限查询正常。
+- 从主屏点 Safari 能正常打开。`share-r1` 中的拒绝需要 runningboardd 的 default 级日志确定请求目标，`rb4-r2` 打开 `OS_ACTIVITY_MODE=debug` 复现。
 
 其他日志行：
 
@@ -136,6 +148,37 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 - 这些文件 11-14 随相机工作加入，改动前与相机工作协调。宿主读取探针 `hackios-xnu-userland/tools/air/rgb8-444-2p.md` 与新的渲染探针先通过。
 - 验收：`_RB4` 拒绝与 `Failed to allocate MTLTexture` 都为 0，`WidgetRenderer_Default` 的提交有实际绘制，组件不再透出壁纸。不使用 `metal_profile=1` 做对照，它一次改变多个变量。
 - 未确认：白带由哪一层按什么规则跳过；用户所说的黑色块来源；格式 523 的 FourCC；`_RB4` surface 的实际尺寸。
+
+### 3.4 542 实现与真机轮次
+
+实现（用户态 `9679489`、内核 `c9764b0b`）：
+
+- AIR：`rgb2p_format` 加入 542，按 4:4:4 处理（两个平面都是全尺寸，宽高不要求偶数）。渲染中间纹理用可混合的 RGBA8Unorm（格式 70），片元输出不改写成整数码，清屏写浮点颜色且 alpha 固定为 1。pass 开始与结束的转换和采样前转换都是逐像素拷贝：plane 0 为 G，plane 1 为 B、R，与 Mac 原生读取探针的结果一致。采样前转换复用 pass 开始的加载着色器，采样不走 RGB2P 的整数插值，按普通 RGBA8 纹理过滤。
+- 驱动：`_RB4` 双平面 IOSurface 的平面导入（plane 0 为 R8、plane 1 为 RG8），542 纹理走组合 RGB2P 路径，渲染编码器为 542 附件记录 pass 开始与结束。
+
+`rb4-r1`（内核 `12377-iris1` 不变，只换驱动与 AIR 库，2026-11-16 00:47 开机）：
+
+- 桌面日历组件显示「16 初八 周一 今天无日程」，负一屏日历与电池组件正常，backboardd 运行 `RGB2P_542_sample`，组件不再透出壁纸。
+- 天气、备忘录、股票组件只显示占位骨架，负一屏有一块黑色组件。`WidgetRenderer_Default` 中止 8 次，调用栈在 ir3 的 `create_cov`（`ir3_context_error`），是某个 RenderBox 着色器里 ir3 不支持的类型转换。扩展进程的 stderr 是 `/dev/null`，Mesa 打印的着色器转储没有留下来。
+- `rb4-r2` 只加观测：驱动在 stderr 为 `/dev/null` 时把它转到内核日志。Mesa 的报错为 `u2u32 %43 invalid src bit size: 1`，出自描边覆盖率着色器 `foia6pa7oboha4`：LLVM 的 `extractelement` 用 `i1` 比较结果作下标在两个端点样式间选择，AIR 按整数下标生成 `u2u32`，ir3 不支持 1 位源。
+- AIR 修复：`extractelement`、`insertelement` 的 1 位下标改用 `b2i32`（LLVM 把任意宽度的下标当无符号数）。
+
+`rb4-r3`（只改下标转换，2026-11-16 00:55 开机）与 `share-r2` 复核：
+
+| 检查 | 结果 |
+|---|---|
+| `WidgetRenderer_Default` 的 `userabort` | `rb4-r1` 8 次，`rb4-r3`、`share-r2` 均为 0 |
+| 主屏与负一屏 | 日历组件显示「16 初八 周一 今天无日程」，负一屏「屏幕使用时间」组件显示文字；天气、备忘录、股票为占位骨架，负一屏一块组件为黑底加搜索按钮 |
+| `rgb8-444-2p` 读取探针（设备） | 正常输入 153 像素零失配；交换 B、R 后 153 个全失配；半尺寸平面在纹理导入阶段被拒（返回 78） |
+| 渲染报告 | 只剩 MapKit 快照服务的命令缓冲失败（[G19](../backlog/graphics.md)），与基线相同 |
+
+截图与日志在 `out/research-2026-11-15/device/rb4-r1/`～`rb4-r3/`。
+
+后续：
+
+- 占位骨架是 RenderBox 实际画出的占位视图，原因可能是组件扩展拿不到数据（天气需要位置与网络，股票需要网络），也可能是扩展自身失败，需要看对应扩展进程的日志。
+- 黑底组件的来源未确认。
+- 渲染到 542 的像素还没有与原生逐像素对照；宿主侧渲染探针（清屏、带混合的绘制、`loadActionLoad`）待补。
 
 ## 4. 蜂窝数据、电话与短信
 
