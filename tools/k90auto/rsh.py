@@ -124,7 +124,7 @@ def via_round(run, text):
                 break
         if end.search(text_seen):
             break
-        time.sleep(0.5)
+        time.sleep(0.1)
     return finish(seq, text_seen, log.name)
 
 

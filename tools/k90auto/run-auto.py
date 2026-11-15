@@ -327,7 +327,25 @@ def check_boot_header(snap_path, expected_kernel_bytes):
 # Initial command snapshots after `oem sh`. Native calls can outlast these reads;
 # rsh.py also checks the latest periodic snapshot for its command's completion.
 CMD_FOLLOW_SECONDS = (2, 5, 10, 18)
+# Before those, the log is read every 0.2 s for up to this long. Most commands end within a few
+# hundred milliseconds on the device, and rsh.py then answers in under a second instead of at the
+# 2 s read; the round's own snapshots and screenshots wait meanwhile.
+CMD_FAST_FOLLOW = 3.0
 command_reads = []      # (host time due, seq)
+
+
+def follow_command(seq):
+    """Read the log into cmd-SEQ.log every 0.2 s until command SEQ's end line is in it; False when
+    CMD_FAST_FOLLOW passes first."""
+    log = run / f"cmd-{seq}.log"
+    end = re.compile(rf"^annsh {seq} exit ", re.M)
+    deadline = time.monotonic() + CMD_FAST_FOLLOW
+    while time.monotonic() < deadline:
+        time.sleep(0.2)
+        if (call(["oem", "log"], 8, False)["rc"] == 0 and call(["get_staged", log], 20, False)["rc"] == 0
+                and log.exists() and end.search(log.read_text(errors="replace"))):
+            return True
+    return False
 
 
 def serve_commands():
@@ -345,7 +363,7 @@ def serve_commands():
         reply = run / request.name.replace("cmd-request-", "cmd-reply-").replace(".txt", ".json")
         reply.write_text(json.dumps({"text": text, "seq": seq, "rc": record["rc"],
                                      "output": record["output"]}) + "\n")
-        if seq is not None:
+        if seq is not None and not follow_command(seq):
             command_reads.extend((time.monotonic() + after, seq) for after in CMD_FOLLOW_SECONDS)
     for due in sorted(item for item in command_reads if item[0] <= time.monotonic()):
         command_reads.remove(due)

@@ -272,12 +272,37 @@ class CommandBoundsTests(unittest.TestCase):
                     return {"rc": 0, "output": "(bootloader) 9\nOKAY\n"}
 
                 namespace = {"run": run, "call": call, "json": json, "re": __import__("re"),
-                             "time": time, "CMD_FOLLOW_SECONDS": (2, 5, 10, 18), "command_reads": []}
+                             "time": time, "CMD_FOLLOW_SECONDS": (2, 5, 10, 18), "command_reads": [],
+                             "follow_command": lambda seq: False}
                 exec(compile(ast.Module(body=[function], type_ignores=[]), "run-auto.py", "exec"), namespace)
                 namespace["serve_commands"]()
                 reply = json.loads((run / "cmd-reply-test.json").read_text())
                 self.assertEqual(reply["seq"], 9 if allowed else None)
                 self.assertEqual(sent, [["oem", "sh", command]] if allowed else [])
+
+    def test_runner_follows_a_quick_command_until_its_end_line(self):
+        tree = ast.parse((HERE / "run-auto.py").read_text())
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "follow_command")
+        for end_after, expected in ((2, True), (None, False)):
+            with self.subTest(end_after=end_after), tempfile.TemporaryDirectory() as directory:
+                run = Path(directory)
+                reads = []
+
+                def call(args, *_):
+                    if args[0] == "get_staged":
+                        reads.append(args)
+                        done = end_after is not None and len(reads) >= end_after
+                        Path(args[1]).write_text("annsh 9 out\n" + ("annsh 9 exit 0 3 ms\n" if done else ""))
+                    return {"rc": 0, "output": "OKAY\n"}
+
+                namespace = {"run": run, "call": call, "re": __import__("re"), "time": time,
+                             "CMD_FAST_FOLLOW": 1.0}
+                exec(compile(ast.Module(body=[function], type_ignores=[]), "run-auto.py", "exec"), namespace)
+                self.assertEqual(namespace["follow_command"](9), expected)
+                if expected:
+                    self.assertEqual(len(reads), 2)
+                else:
+                    self.assertGreaterEqual(len(reads), 3)
 
 
 class RshTests(unittest.TestCase):
