@@ -9,9 +9,9 @@
 | 专题 | 结论 | 状态 | 待办 |
 |---|---|---|---|
 | IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板的 Angel 登记在 LaunchDaemons 键下，RunningBoard 拒绝启动 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；Angel 缓存键修复 `share-r2` 真机通过：分享面板显示，分享给 TrollStore 弹出安装确认；「打开方式」为空是原生行为 | 见 §2.5、§2.6 |
-| 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`）；补上后又暴露 AIR 的 1 位向量下标 | 542 与下标修复 `rb4-r3` 真机通过：日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票为占位骨架，原因待查 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
+| 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`）；补上后又暴露 AIR 的 1 位向量下标 | 542 与下标修复 `rb4-r3` 真机通过：日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票为占位骨架，用户确认是取不到数据所致，暂不处理 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
-| 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证，其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
+| 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证；改进清单第 1 项已实现，`air0018-r2` 的 7 条巡检命令都读到结束行，直连模式往返 379 ms；其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
 | 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 待跑一轮纯观测探针 | [M2](../backlog/multimedia.md) |
 | 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；Iris 裁剪与拒绝后关闭 `iris-r1` 真机通过：1080p 本地播放 300 帧，被拒会话释放槽位；首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
@@ -231,7 +231,7 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 
 改进清单（按收益排序）：
 
-1. `run-auto.py` 发送命令后每 0.2 s 跟读日志直到结束行，`rsh.py` 轮询改为 0.1 s；模拟 p50 从 2.7 s 降到 0.46 s。
+1. `run-auto.py` 发送命令后每 0.2 s 跟读日志直到结束行，`rsh.py` 轮询改为 0.1 s；模拟 p50 从 2.7 s 降到 0.46 s。（11-16 已实现）
 2. `fetch.py` 改用 outbox 加 `oem stage`，失败时退回 `cat`。
 3. 截图转 PNG 后删除原始数据。
 4. 构建 `trollstorehelper` 或新增独立的打开应用程序，`cycle.py` 打包前检查程序存在。
@@ -314,7 +314,7 @@ Iris 修复（`annibale_iris_hfi.c`，内核提交 `c9b9828a`）：
 - 面板拷贝占 14.4% 时间，43% 的 swap 要等上一帧拷完；设置页静止时每秒 10 帧，每帧仍拷 1,943～1,970 行、耗时 12～14.5 ms。
 - 调频：出帧期间 CPU 有 34%～80% 时间停在 384／1017 MHz；XNU 性能控制回调未注册（`machine_routines_common.c:766`）。
 - 持久化：`/private/var` 的写入按页同步写穿并持有 `rm_lock`，每次 fsync 全量重写元数据；开机后 185 s 内 242,280 次 UFS 写请求，在总耗时中的占比未知。
-- 打开设置后的 0.47 s 内，`_RB4` 双平面 surface 反复建纹理失败；是否就是 G18「半屏黑色窗口」的原因为推测，与 §3 同源。
+- 打开设置后的 0.47 s 内，`_RB4` 双平面 surface 反复建纹理失败；是否就是 G18「半屏黑色窗口」的原因为推测，与 §3 同源；542 修复后用户 11-16 反馈 G18 已无法复现。
 - RunningBoard 给进程设 GPU 角色失败：`share-r1` 日志 27 s 内 76 次 `setGPURole:pid: failed due to nil IOGPU device ref`，驱动没有发布 RunningBoard 能找到的 IOGPU 服务。前后台切换时 GPU 优先级是否因此不随进程状态调整，待查 RunningBoard 的匹配条件。
 
 瓶颈排序：首次使用路径 > CPU／GPU 调频与只开 4 核 > CPU 面板拷贝 > 持久化同步 > Mach 时钟陷入。

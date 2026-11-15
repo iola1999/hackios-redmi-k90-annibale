@@ -7,7 +7,7 @@
 | 编号 | 事项 | 状态与已知条件 | 下一步与验收 | 来源 |
 |---|---|---|---|---|
 | S6 | XR 与格式 94 精度 | 15 项入口检查复现五处问题；原生 Metal 三路共 24 个像素字一致，局部修复会新增管线／附件不一致 | 完整实现格式 94 的创建、导入、IOSurface 元数据及显示转换；XR 布局单独核对 | [渲染核查 §6](../analysis/2026-11-12-rendering-runtime.md#6-格式-94-的完整路径) |
-| G1 | 大组件黑底、白块或蓝块 | 白块与透出壁纸的根因是驱动不支持 542 `RGB8_444_2P`，已随用户态 `9679489`、内核 `c9764b0b` 修复；`rb4-r3` 中日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票组件为占位骨架，负一屏有一块黑底组件 | 查组件扩展的日志，区分缺数据与扩展失败；确认黑底组件的来源；补 542 渲染的宿主原生对照 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
+| G1 | 大组件黑底、白块或蓝块 | 白块与透出壁纸的根因是驱动不支持 542 `RGB8_444_2P`，已随用户态 `9679489`、内核 `c9764b0b` 修复；`rb4-r3` 中日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票组件为占位骨架，用户 11-16 确认是取不到数据所致，暂不处理；负一屏有一块黑底组件 | 确认黑底组件的来源；补 542 渲染的宿主原生对照 | [密集转场采集](../progress/2026-11-08-widget-dense-transition.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常) |
 | G2 | framebuffer fetch 与多附件 | Apple GPU 与 A830 的双附件 8 组／3,072 像素通过，错误 DATA1 对照被检测；交换读取与同 encoder 先写后读已覆盖 | 混合、其他格式、MSAA、memoryless 和 TBDR 路径另行验证，系统画面单独验收 | [双附件参考 §9](../analysis/2026-11-12-rendering-runtime.md#9-g2-双附件-framebuffer-fetch)、[既有设备结果](../progress/2026-11-08-fbfetch-validation.md) |
 | G3 | Mesa alias.rt 与 fsat | 维护补丁已完成；旧版 3／16 失败，修复后 16／16 成功，隔离 iOS 库链接通过 | 验证 A830 像素、16 位 shader 与实际 UI；完整 AIR 语料待恢复宿主工具后运行 | [渲染核查 §2](../analysis/2026-11-12-rendering-runtime.md#2-mesa-aliasrt-与-fsat) |
 | G4 | 其他 ir3／A8xx 正确性 | 候选；大缓冲 NUM_ELEMENTS、布尔 subgroup、fquantize2f16 有上游修复 | 先确认本仓调用会生成对应 NIR 或描述符，再按容量边界、部分活跃 lane、subnormal 构造验证 | [上游对照 §5](../analysis/2026-11-12-upstream-review.md#5-mesa) |
@@ -16,8 +16,9 @@
 | G7 | AIR 未覆盖指令与验证语料 | minnum／maxnum 真机通过；cospi 的 81,920 个数值检查和三条原版管线创建通过，但桌面图标缺失；同一 CI 候选暖缓存复测恢复图标，组件异常保留 | 关联实际专化 shader、绑定与绘制输出，定位首次使用与缓存恢复差异；保持 half 1／float 4 ULP 要求 | [图标缺失核查](../analysis/2026-11-12-air-icon-regression.md)、[多媒体验证 §23、§25](../analysis/2026-11-11-multimedia-validation.md)、[工程待办](engineering.md) |
 | G14 | 相机 MPS 输入与 Core Image stitching | heap 与 R16 探针真机通过，实际相机的 1C0h 别名修复待验；CI 计算图的 A830 128 分量通过，相机后续退出于函数 setLabel 缺失，CI 轮桌面图标缺失 | 验证 1C0h 导入并补齐函数 label 契约；定位新 AIR 的桌面图标缺失；核对进程内存包装 surface 与未对齐行距的写回 | [多媒体验证 §28、§29](../analysis/2026-11-11-multimedia-validation.md) |
 | G17 | 多任务卡片的可见渲染异常 | 2026-11-12 用户反馈前几天上滑进入多任务时，卡片内经常有渲染异常；近期巡检截图未覆盖多任务，当前是否仍复现待确认 | 在当前已验收基线上采集进入多任务、横滑卡片和返回应用的图像，实际检查卡片内容、遮挡、裁剪和残留；结合 S5 的 scene／应用身份定位首个异常阶段 | [图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常)、[系统待办 S5](system.md) |
-| G18 | 打开设置时的半屏黑色窗口 | 2026-11-15 用户在 `wave1-r4b` 反馈：从主屏打开设置的过程中出现约 1 秒的半屏黑色窗口，随后设置正常显示；尚未截取动画过程 | 用 `tour.py` 同一步连拍覆盖打开动画，确认黑色区域的位置、持续帧数与所属图层，再关联同时段的 `annibalemetal` 拒绝行与纹理导入失败 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
+| G18 | 打开设置时的半屏黑色窗口 | 2026-11-15 用户在 `wave1-r4b` 反馈：从主屏打开设置的过程中出现约 1 秒的半屏黑色窗口，随后设置正常显示；542 修复后用户 11-16 反馈已无法复现，暂不处理 | 用 `tour.py` 同一步连拍覆盖打开动画，确认黑色区域的位置、持续帧数与所属图层，再关联同时段的 `annibalemetal` 拒绝行与纹理导入失败 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
 | G19 | MapKit 快照服务的渲染目标与重叠拷贝 | `wave1-r4`、`wave1-r4b` 的渲染报告中 `com.apple.MapKit.SnapshotService` 命令缓冲失败：`BGRA8Unorm_sRGB` 颜色附件创建时没有 `MTLTextureUsageRenderTarget`，以及驱动不支持源与目标区域重叠的纹理拷贝；`wave1-r4c`～`wave1-r4f` 未再出现 | 先确认触发快照的界面与纹理来源，核对原生 Metal 对缺少渲染目标用途和重叠拷贝的行为，再决定驱动侧的实现 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
+| G20 | 「钱包」打开后黑屏 | 2026-11-16 `air0018-r2` 与刷入 `v0.1.4` 后的测试机上，点开「钱包」约 10 s 内屏幕为黑色或变暗的主屏，`com.apple.Passbook-default` 场景已在前台；「设置」正常；`rebase-26/0018` 前没有对照记录 | 先用不含 0018 的 AIR 库跑同一步，确认是否与 0018 有关；再查 Passbook 进程的提交、渲染失败与依赖服务（passd 等）的日志 | [v0.1.4 发布记录 §3](../progress/2026-11-16-release.md#3-构建与发布校验) |
 
 ## 2. 显示完成与性能
 

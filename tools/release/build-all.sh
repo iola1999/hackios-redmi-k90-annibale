@@ -43,7 +43,8 @@ kernel() (
 	xnu26/build-macos.sh exporthdrs installhdrs
 	xnu26/deps-macos.sh --stage2
 	xnu26/build-macos.sh
-	cd "$R" && python3 tools/k90auto/register-kernel.py 12377-local
+	# a copy rather than register-kernel.py, which refuses a name it has used: this phase runs again
+	cp xnu-src/xnu-12377.121.6/BUILD/obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837 out/xnu12377-local.bin
 )
 
 userland() (
