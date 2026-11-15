@@ -14,7 +14,7 @@
 | 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证，其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
 | 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 待跑一轮纯观测探针 | [M2](../backlog/multimedia.md) |
-| 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | 根因已定位，audiomxd 退出已在当前内核复现；待实现 | [M1、M3、M4](../backlog/multimedia.md) |
+| 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；1080p 与首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
 | 真机性能 | 首次使用路径（专化等待、AIR 翻译与进程级锁）最重，其次是调频与 4 核、CPU 面板拷贝 | 待 3 轮基线采集 | [G9、G15](../backlog/graphics.md)、[S9](../backlog/system.md)、[P11](../backlog/platform.md) |
 
 ## 2. IPA 在「文件」、分享菜单与 TrollStore 选择器中无反应
@@ -183,7 +183,19 @@ libsandbox 导出的修饰位常量（23G90 `0x2a536e5f0` 起）：DEFAULT 0、C
 - 1080p 硬解：宽高不是 16 倍数的 H.264 在 Iris 上一律被拒（`annibale_iris_hfi.c:659-660`），`wave1-r3` 中 Bilibili 四个 1080p 会话都因此失败；原厂驱动按对齐尺寸分配缓冲、按裁剪区输出（`msm_vdec.c:1342-1416`）。被拒的会话关闭时保留 DMA、不释放槽位，4 个槽占满后同一次开机所有硬解返回 -12911。
 - 首包 Finish 的 27 帧错误与两帧缺失：第一个 IDR 帧的输出被固件扣住，要等下一个输入或 DRAIN；插件在 Finish 时遇到未出帧就发 DRAIN（`videotoolbox_iris.c:885`、`891`），DRAIN 后 sample 2 与 sample 5（P 帧）被固件标为数据损坏。推测固件把 DRAIN 当成流结束、丢掉参考帧，错误延续到帧 30 的下一个 IDR；原生解码器的 Finish 不触发硬件排空。
 
-下一步：先在当前开机上不改代码，用 `video_player_test` 播一个带 AAC 的 720p 文件，确认 audiomxd 退出；A 轮只修无尺寸 IOSurface，同轮依次测左右声道、AVPlayer 播 AAC 文件与 HLS、Safari 测试页四种媒体，最后放一条 1080p 记录被拒与占槽基线；静态实现 Iris 裁剪尺寸，主机侧拒绝时正常关闭会话、释放槽位；B 轮插件单独提交参数集，看第一帧能否自己出来；C 轮强制在第 7 帧后 DRAIN，验证参考帧是否失效。
+IOSurface 修复：只给大小、没有宽高的 surface 不再按空的几何尺寸截断，按页对齐保留请求大小；带宽高的 surface 保持 `2fac3a50` 的行为（`MiniIOSurface.cpp`，`test-iosurface-abi.py` 新增 3 种请求大小的用例，内核提交 `1ffe6abc`）。内核 `12377-media1` 一轮只改这一个变量，`media-r1` 于 2026-11-16 00:12 起验证：
+
+| 检查 | 结果 |
+|---|---|
+| 本地 720p H.264 加 AAC，10 s | 出现 `Created new AudioQueue for format:'aac '`，300 帧、像素错误 0，`result=pass`；audiomxd pid 85 不变 |
+| 本地双声道测试音（左 1 kHz、右 440 Hz 同时） | 播完，用户听到声音，同时响时分不出左右 |
+| 本地分时测试音（先左 3 s，再右 3 s） | 用户确认两段来自不同扬声器，哪段在上、哪段在下未确认 |
+| HLS（主机临时 HTTP 服务，Wi-Fi 拉流，20 s） | 12 次请求，599 帧，无卡顿，`result=pass`；audiomxd 不变 |
+| 本地 1080p | 音频播完、视频 0 帧；Iris PSC 报 `resolution=0x7800440`（1920×1088），关闭时 `close retained slot=1 error=102`，槽位保留到重启，与上面的分析一致 |
+
+HTTP 方式播放 mp4 返回 AVFoundation -11850，原因是 Python `http.server` 不支持按字节范围请求，测 mp4 要用本地文件或支持 Range 的服务。Safari 测试页四种媒体还没测。
+
+后续：静态实现 Iris 裁剪尺寸，主机侧拒绝时正常关闭会话、释放槽位；B 轮插件单独提交参数集，看第一帧能否自己出来；C 轮强制在第 7 帧后 DRAIN，验证参考帧是否失效。
 
 未确认：`2fac3a50` 截断带尺寸 surface 的 AllocSize 的来源；还有哪些系统组件使用无尺寸 IOSurface；长时间播放的主机时钟与 DSP 消费速率偏差；M13 本次未分析。
 
