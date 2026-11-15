@@ -11,12 +11,12 @@
 | IPA 在「文件」、分享菜单、TrollStore 选择器中无反应 | MiniSandbox 不接受 Seatbelt 修饰位，FileProvider 包装对象建不出来；分享面板的 Angel 登记在 LaunchDaemons 键下，RunningBoard 拒绝启动 | 修饰位修复 `ipa-r1` 真机通过：选择器与「文件」单击可用；Angel 缓存键修复 `share-r2` 真机通过：分享面板显示，分享给 TrollStore 弹出安装确认；「打开方式」为空是原生行为 | 见 §2.5、§2.6 |
 | 桌面与负一屏组件白块、透出壁纸 | 驱动声明 Apple3 却没实现 542 `RGB8_444_2P`（`_RB4`）；补上后又暴露 AIR 的 1 位向量下标 | 542 与下标修复 `rb4-r3` 真机通过：日历组件正常显示，WidgetRenderer 不再中止；天气、备忘录、股票为占位骨架，用户确认是取不到数据所致，暂不处理 | [G1](../backlog/graphics.md)、[S11](../backlog/system.md) |
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
-| 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证；改进清单第 1 项已实现，`air0018-r2` 的 7 条巡检命令都读到结束行，直连模式往返 379 ms；其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
+| 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证；改进清单第 1～3 项已实现：`air0018-r2` 的 7 条巡检命令都读到结束行，直连模式往返 379 ms；`fetch.py` 经 outbox 取 1.33 MB 用时 0.64 s；每轮结束截图自动转 PNG；其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
 | 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 待跑一轮纯观测探针 | [M2](../backlog/multimedia.md) |
 | 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；Iris 裁剪与拒绝后关闭 `iris-r1` 真机通过：1080p 本地播放 300 帧，被拒会话释放槽位；首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
 | 真机性能 | 首次使用路径（专化等待、AIR 翻译与进程级锁）最重，其次是调频与 4 核、CPU 面板拷贝 | 待 3 轮基线采集 | [G9、G15](../backlog/graphics.md)、[S9](../backlog/system.md)、[P11](../backlog/platform.md) |
-| TrollStore 安装大 IPA 报 181 | ramfs 克隆目录时跳过已换出到磁盘的页，复制进容器的文件读回全 0，`Info.plist` 读不出，LaunchServices 登记失败 | 克隆读盘修复 `clone-r1` 真机通过：微博安装成功，容器内没有被破坏的文件；微博启动后被内核结束，原因待查 | 见 §12 |
+| TrollStore 安装大 IPA 报 181 | ramfs 克隆目录时跳过已换出到磁盘的页，复制进容器的文件读回全 0，`Info.plist` 读不出，LaunchServices 登记失败；装好后启动被结束，是因为 MiniAMFI 把安装的应用当成平台二进制 | 克隆读盘修复 `clone-r1` 真机通过：微博安装成功，容器内没有被破坏的文件；平台判定修复 `amfi-r1` 真机通过：微博启动到首次运行的用户协议对话框 | 见 §12 |
 
 ## 2. IPA 在「文件」、分享菜单与 TrollStore 选择器中无反应
 
@@ -232,8 +232,8 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 改进清单（按收益排序）：
 
 1. `run-auto.py` 发送命令后每 0.2 s 跟读日志直到结束行，`rsh.py` 轮询改为 0.1 s；模拟 p50 从 2.7 s 降到 0.46 s。（11-16 已实现）
-2. `fetch.py` 改用 outbox 加 `oem stage`，失败时退回 `cat`。
-3. 截图转 PNG 后删除原始数据。
+2. `fetch.py` 改用 outbox 加 `oem stage`，失败时退回 `cat`。（11-16 已实现，只在没有 `run-auto.py` 占用 USB 时使用；真机取 `/usr/lib/dyld` 1,333,584 字节用时 0.64 s，与 IPSW 原文件相同）
+3. 截图转 PNG 后删除原始数据。（11-16 已实现：`cycle.py` 每轮结束调用 `sheets.sh`，一轮 13 张截图从 171 MB 降到 46 MB，用时 6 s）
 4. 构建 `trollstorehelper` 或新增独立的打开应用程序，`cycle.py` 打包前检查程序存在。
 5. 启动阶段每 1 s 取一份日志快照并写解锁标记，每轮预计少 4～8 s。
 6. annsh 新增内建命令执行收件区里的文本，绕开 119 字节限制且不改 ABI。
@@ -340,7 +340,7 @@ Iris 修复（`annibale_iris_hfi.c`，内核提交 `c9b9828a`）：
 
 ## 12. TrollStore 安装大 IPA 报 181
 
-适用范围：内核 `12377-iris1`（复现）与 `12377-clone1`（修复），2026-11-16。原始日志、剪贴板内容和一次性排查工具在本地 `out/weibo-181/`（Git 忽略）。
+适用范围：内核 `12377-iris1`（复现）、`12377-clone1`（克隆修复）与 `12377-amfi1`（平台判定修复），2026-11-16。原始日志、剪贴板内容和一次性排查工具在本地 `out/weibo-181/`（Git 忽略）。
 
 ### 12.1 现象
 
@@ -362,9 +362,18 @@ Iris 修复（`annibale_iris_hfi.c`，内核提交 `c9b9828a`）：
 - 真机 `kernel-12377-clone1-clone-r1`：只更换内核，`root.apfs` 与启动参数与 `share-r2` 相同。由 `trollstorehelper watch` 安装同一个 IPA，没有出现 `Unable to register`，`trollstorehelper list` 列出 `com.sina.weibo`。
 - 容器内剩余 6 个全零文件（5 个 1 字节的 `.version`、1 个 32 字节的 `coremldata.bin`），其 CRC32 与 IPA 中央目录记录一致，原包内容即为 0。
 
-### 12.4 遗留
+### 12.4 启动后被内核结束
 
-- 微博启动约 4 s 后被内核 `exit_with_mach_exception()` 结束，日志为 `[Weibo: killed] exiting with signal 9, force exiting the process`，异常类型未确认，见 [S22](../backlog/system.md)。
+- 现象：`clone-r1` 上微博安装成功，经 LaunchServices 启动约 4 s 后内核打印 `[Weibo: killed] exiting with signal 9, force exiting the process`。
+- 崩溃报告（`osanalytics/DiagnosticReports`）：`EXC_GUARD`，`GUARD_TYPE_MACH_PORT`，违规项 `SET_EXCEPTION_BEHAVIOR`。调用来自微博主程序自身，在创建首个 scene 时经 `dispatch_once` 调用 `task_set_exception_ports`，使用的异常行为不带 identity 保护。
+- 内核判定（xnu-12377 `ipc_tt.c`）：目标任务带增强 IPC 策略时，这种设置按违规处理，`thid_should_crash` 默认为真，进程被结束。增强策略来自平台二进制（`imgact_setup_platform_restrictions()` 给平台二进制设限制版本 3）或 `hardened-process` 一类权限。
+- 根因：微博主程序是 TrollStore 生成的 ad-hoc 签名（CodeDirectory 标志 `0x6`），权限里没有 `hardened-process` 与浏览器引擎条目。MiniAMFI（`kern_minimac.c`）此前把所有 ad-hoc 签名都标成平台二进制，安装的第三方应用因此拿到系统程序的策略。真机上 trust cache 只含系统代码，原版 TrollStore 安装的应用只有声明 `platform-application` 才是平台二进制。
+- 修复（内核子模块 `4370dec3`）：`/private/var/containers/Bundle/` 下的 ad-hoc 二进制只有声明 `platform-application` 才置 `CS_PLATFORM_BINARY`。TrollStore 与 `trollstorehelper` 都声明了这项权限，其他位置的程序保持原行为。宿主测试 `tools/tests/test-miniamfi-platform.py` 覆盖系统路径、安装应用、带权限的安装应用、非 ad-hoc 签名与路径查询失败。
+- 真机 `kernel-12377-amfi1-amfi-r1`：root.apfs 从 `clone-r1` 载荷中取出，与 `share-r2` 相同（sha256 `7dbfdcf1…`），启动参数相同。微博停在首次运行的「用户协议和隐私条款」对话框，运行数分钟未被结束；TrollStore、bili 与重装的 Kumone 正常运行。
+
+### 12.5 遗留
+
+- 克隆修复之前安装的应用可能有局部页被克隆成 0，整文件不全零，按全零文件扫描查不出。手机上原有的 Kumone（`sb.moe.kumone-ios`）主程序末尾的签名区读回全 0，启动时报 `unable to create a validated cs_blob object: 85`；用「下载」里的 IPA 重装（bundle id 为 `sb.moe.kumone`）后正常。bili 也是修复前安装的，尚未核对，修复前装过的应用都应重装。
 - 大目录删除慢：失败安装后删除容器和解压目录合计约 4 分 40 秒，watcher 线程内核态 CPU 276 s；更新安装时删除旧 `Weibo.app` 用 3 分 06 秒，见 [S21](../backlog/system.md)。
 - `ramfs_resize()` 同样不检查 `ramfs_disk_fault_page()` 是否读入，见 [S23](../backlog/system.md)。
 - `tools/tests/test-ramfs-page-lifetime.py` 在未改动的内核仓库 HEAD 上编译失败，`ufshc_write` 引用的 `hc_lock` 没有桩，与本次修复无关。
