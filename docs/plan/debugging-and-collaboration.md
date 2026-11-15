@@ -158,13 +158,20 @@ Android、LK fastboot、fastbootd、驻留 loader 和 XNU 是不同的执行环�
 
 ## 10. 合入前检查
 
-改动合入前跑与改动对应的主机检查，比较改动前后的结果。各套测试里已有改动前就失败的项（2026-11-09 的清单见[交接](../progress/2026-11-09-handoff.md)），合入要求是没有新增失败。
+改动合入前跑与改动对应的主机检查，合入要求是没有失败。两个代码子模块的主机测试由 `python3 tools/run-host-tests.py` 统一运行，参数为路径子串时只跑匹配的测试，如 `ramfs`、`loader`、`adreno8`。2026-11-16 起这些测试全部成功，或因缺少外部输入而跳过；外部输入与对应的环境变量见脚本开头的说明。
 
 | 改动范围 | 检查 |
 |---|---|
-| 内核 ramfs、持久化格式、loader 与镜像装配 | `hackios-xnu-kernel/tools/tests/` 下同主题的 `test-*.py`，如 `test-annfs-inspect.py`、`test-ramfs-*.py`、`test-payload-*.py`、`test-bootshim-contract.py` |
+| 内核驱动、ramfs、持久化格式、loader 与镜像装配 | `python3 tools/run-host-tests.py`，或传入同主题的路径子串 |
 | 内核启动参数 | `python3 tools/bootargs.py` 重新生成[启动参数目录](../analysis/boot-args.md)，`--check` 确认与源码一致 |
 | AIR 前端与 Mesa 补丁 | `hackios-xnu-userland/tools/air/check.sh`；库用 `tools/k90auto/build-air.py` 编译，它在源码与构建树不一致时拒绝编译 |
-| 用户态启动、注入库与服务 | `hackios-xnu-userland/tools/tests/` 与 `userland/test_*.py` |
+| 用户态启动、注入库与服务 | `python3 tools/run-host-tests.py hackios-xnu-userland` |
 | 发布脚本 | `python3 tools/release/test-localfiles.py` |
 | 改名与路径 | 用 `git ls-files` 取得文件清单后逐个扫描，遵守 [AGENTS.md](../../AGENTS.md) §7 禁止目录递归检索的约定 |
+
+新增或修改的主机测试遵守下列约定。
+
+- 测试编译或运行生产代码，硬件寄存器、固件接口和设备命令用桩函数或假命令代替，不连接真机。
+- 读取源码文本只用于三件事：取出要编译的函数，在变异检查前确认替换目标存在，核对分别编译的两处定义取值一致。在源码里搜索字符串、统计文件行数或检查构建产物是否存在，都不能算作测试。
+- 临时文件写入临时目录或 Git 忽略的 `out/` 子目录。测试不运行会改写共享构建目录的构建脚本。
+- 需要外部源码、模块或镜像的测试：通过命令行参数接收输入的，在 `tools/run-host-tests.py` 的 `INPUTS` 中登记对应的环境变量；使用默认路径的，在输入缺失时输出 `SKIP` 并以 77 退出。
