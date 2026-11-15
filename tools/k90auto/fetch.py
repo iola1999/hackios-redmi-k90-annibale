@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+MAX_RETRIES = 3   # re-reads of one chunk after a dropped console line or a missing footer
 
 
 def incomplete(out, data):
@@ -34,39 +35,57 @@ def main():
         return 1
     round_dir, path, out = sys.argv[1], sys.argv[2], Path(sys.argv[3])
     data = bytearray()
+    retries = 0
     while True:
         before = len(data)
         result = subprocess.run([sys.executable, str(HERE / "rsh.py"), round_dir, "cat", path, str(before)],
                                 capture_output=True, text=True)
         if result.returncode != 0:
+            if retries < MAX_RETRIES:
+                retries += 1
+                print(f"fetch: rsh exit {result.returncode} at offset {before}, retry {retries}/{MAX_RETRIES}",
+                      file=sys.stderr)
+                continue
             print(f"fetch: rsh failed at offset {before} with exit {result.returncode}", file=sys.stderr)
             print(result.stdout, end="", file=sys.stderr)
             print(result.stderr, end="", file=sys.stderr)
             return incomplete(out, data)
         answer = result.stdout
         size = after = None
+        dropped_msg = None
         for line in answer.splitlines():
             m = re.match(r"\s*cat (\d+) (\S+)$", line)
             if m:
                 if int(m.group(1)) != len(data):
-                    print(f"fetch: expected offset {len(data)}, got {m.group(1)}: the console dropped a line")
-                    return incomplete(out, data)
+                    dropped_msg = f"fetch: expected offset {len(data)}, got {m.group(1)}: the console dropped a line"
+                    break
                 try:
                     data += base64.b64decode(m.group(2), validate=True)
                 except ValueError as error:
-                    print(f"fetch: invalid base64 at offset {len(data)}: {error}")
+                    del data[before:]
+                    print(f"fetch: invalid base64 at offset {before}: {error}")
                     return incomplete(out, data)
                 continue
             m = re.match(r"\s*cat end (\d+) next (\d+)$", line)
             if m:
                 size, after = int(m.group(1)), int(m.group(2))
-        # Only earlier responses have passed the footer checks.
-        if size is None or after != len(data):
-            print(f"fetch: no end line for offset {len(data)}:\n{answer[-400:]}")
-            return incomplete(out, data[:before])
+        if dropped_msg is not None or size is None or after != len(data):
+            err_offset = len(data)
+            del data[before:]
+            if retries < MAX_RETRIES:
+                retries += 1
+                reason = dropped_msg or f"fetch: no end line for offset {err_offset}"
+                print(f"{reason} (retry {retries}/{MAX_RETRIES} from {before})", file=sys.stderr)
+                continue
+            if dropped_msg is not None:
+                print(dropped_msg)
+            else:
+                print(f"fetch: no end line for offset {err_offset}:\n{answer[-400:]}")
+            return incomplete(out, data)
         if len(data) > size:
             print(f"fetch: received {len(data)} bytes, exceeding declared file size {size}")
             return incomplete(out, data[:before])
+        retries = 0
         if len(data) == size:
             break
         if len(data) == before:

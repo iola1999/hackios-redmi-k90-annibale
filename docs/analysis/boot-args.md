@@ -29,7 +29,7 @@
 | `als_lux` | `bsd/dev/annibale/annibale_sensors.c` |
 | `annibale_adsp` | `bsd/dev/annibale/annibale_adsp.c` |
 | `annibale_reboot_lk` | `bsd/dev/annibale/annibale_reboot_probe.inc` |
-| `apfs_cheap` | `bsd/miscfs/apfs/apfs_vfsops.c` |
+| `apfs_cheap` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
 | `apfs_check` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_chunk` | `bsd/sys/annibale_apfs_check.h` |
 | `apfs_contents` | `bsd/dev/annibale/annibale_apfs_check_walk.c` |
@@ -37,12 +37,12 @@
 | `apfs_dev` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_hash` | `bsd/dev/annibale/annibale_apfs_check_walk.c` |
 | `apfs_max` | `bsd/dev/annibale/annibale_apfs_check.c` |
-| `apfs_meta_cluster` | `bsd/miscfs/apfs/apfs_vfsops.c` |
+| `apfs_meta_cluster` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
 | `apfs_mnt` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_par` | `bsd/miscfs/apfs/apfs_vfsops.c` |
-| `apfs_root_c` | `bsd/miscfs/apfs/apfs_vfsops.c` |
-| `apfs_root_v` | `bsd/miscfs/apfs/apfs_vfsops.c` |
-| `apfs_round` | `bsd/miscfs/apfs/apfs_vfsops.c` |
+| `apfs_root_c` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
+| `apfs_root_v` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
+| `apfs_round` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
 | `apfs_rw` | `bsd/miscfs/apfs/apfs_vfsops_write.inc` |
 | `apfs_skip` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_sparse` | `bsd/dev/annibale/annibale_sparse.c` |
@@ -51,7 +51,7 @@
 | `apfs_store_seed` | `bsd/dev/annibale/annibale_apfs_check_write.c` |
 | `apfs_subtree` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_threads` | `bsd/dev/annibale/annibale_apfs_check.c` |
-| `apfs_ubc_read` | `bsd/miscfs/apfs/apfs_vfsops.c` |
+| `apfs_ubc_read` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
 | `apfs_volume` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_volume_at` | `bsd/dev/annibale/annibale_apfs_check.c` |
 | `apfs_walkers` | `bsd/dev/annibale/annibale_apfs_check.c` |

@@ -21,8 +21,9 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-WORKSPACE = HERE.parents[1] / "hackios-xnu-kernel"
-SRC = WORKSPACE / "tools/mesa/air"
+REPO = HERE.parents[1]
+WORKSPACE = REPO / "hackios-xnu-kernel"
+SRC = (WORKSPACE / "tools/mesa/air") if (WORKSPACE / "tools/mesa/air").is_dir() else (REPO / "hackios-xnu-userland/tools/mesa/air")
 TREE = WORKSPACE / "out/ios26-resume/mesa-arm64e"
 MESA = TREE / "mesa-26.2.5/src/compiler/air"
 BUILD = TREE / "build"

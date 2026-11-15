@@ -70,9 +70,11 @@ K90_FREEZE_OFF=1 python3 tools/k90auto/run-auto.py ROUND_DIR 0 0,0,5
 - 启动卷：先上传 payload，使 loader 按本轮 `memsize` 分配窗口；再通过 `oem ramdisk` 上传小型 `flashboot.apfs` 启动卷，核对 loader 报告的实际长度与窗口。该卷只提供 `stage0` 和挂载目录，系统卷由内核从 `darwin` 分区按需读取，`/private/var` 由 `darwin_var` 直接持久化。
 - 帧停止 `K90_FREEZE_SECONDS`（默认 20）秒后提前收尾；`K90_FREEZE_OFF=1` 关闭这项检查，运行时长由时长参数决定。
 - `run/shot-request` 出现时拍一张（`shot-now.py` 写这个文件，`SHOT_ON_ACTION=0` 忽略）；`run/stop-request` 出现时提前收尾。
-- `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 UTF-8 字节）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `annsh`，输出从日志取回；内建命令见 `hackios-xnu-userland/userland/src/apps/annsh.c`。输出等待默认为 40 秒，慢原生调用可通过 `RSH_OUTPUT_TIMEOUT` 延长，调用方的子进程期限也要相应放宽。
+- `rsh.py ROUND_DIR COMMAND...` 把一行命令（最多 119 UTF-8 字节）交给 `run-auto.py`，经 `oem sh` 发给设备上的 `annsh`，输出从日志取回；内建命令见 `hackios-xnu-userland/userland/src/apps/annsh.c`。输出等待默认为 40 秒，慢原生调用可通过 `RSH_OUTPUT_TIMEOUT` 延长，调用方的子进程期限也要相应放宽。`rsh.py - COMMAND...` 不经过 `run-auto.py`，自行用 `fastboot oem sh` 发送并读取 loader 日志直到命令结束；`run/reboot.json` 中 `left` 为 `running-held` 的留机轮次也走这条路径，已退回 loader 的轮次直接拒绝。直连期间不要让其他进程操作设备。
 - `ios-state.py ROUND_DIR [--ls PATH] [--sysctl NAME] [--threads PID]` 通过 `rsh.py` 采集只读状态，默认覆盖进程、`trollstorehelper list`、`/Applications`、下载目录和 IPA 暂存目录，结果写入 `run/ios-state-*.json`。`trollstorehelper list` 列出 `/private/var/containers/Bundle/Application` 中已安装的应用；系统应用可通过 `trollstorehelper open` 和主屏复核。命令返回非零会保留在对应记录中；传输失败停止后续查询，并在报告里标明失败命令。
-- `fetch.py ROUND_DIR DEVICE_PATH OUT` 通过 `annsh cat` 分块读回设备文件，检查偏移连续性，任一段缺失就以失败退出。
+- `fetch.py ROUND_DIR DEVICE_PATH OUT` 通过 `annsh cat` 分块读回设备文件并检查偏移连续性；丢行、缺少结尾行或 `rsh.py` 失败时从该块起点重读，每块最多 3 次，仍失败则以失败退出。
+- 启动日志核对：每份采样日志出现 `== XNULOADER v3 ==`、缺少 `== XNULOADER run (usb) ==`，或 `payload entry 'kernel' size` 与 `manifest.json` 的内核字节数不一致时，判定设备回退到常驻旧内核，`reboot.json` 记 `fallback` 并以非零退出。
+- 留机运行：`run/leave-running` 出现时取最后一份日志后结束，内核继续运行，`reboot.json` 的 `left` 记为 `running-held`；下一轮启动前由 `cycle.py` 的 `ensure_loader_idle()` 收敛到空闲 loader。
 - 收尾：`oem stop` 后按秒轮询状态（`K90_STOP_WAIT`，默认 70 秒），离开 running 后先 `get_staged` 保存 loader 持有的快照，再取串口日志。自动复位仅接受 `returned`、`returned-held`、`hung`、`hung-held` 及其完整零错误状态；未知状态、格式错误或复位命令失败会停止队列。内核始终不应答时不复位，保存 `running.log` 并以非零退出。`reboot.json` 的 `left` 记复位前的状态，完成条件是 loader 重新应答 idle 且启动卷常驻区为空。源码与实测见[无人值守收尾](../../docs/analysis/2026-10-28-unattended-teardown.md)。
 
 `round-run.py ROUND_DIR [SECONDS] [TIMING]` 是 `cycle.py` 的测试轮启动入口，在 `run-auto.py` 外面加两项：一轮 5 秒内以 `returned` 结束且日志有 `PANIC caller` 时视为早期启动 panic，最多重试 `K90_PANIC_RETRY`（默认 3）次，全部 panic 时以 3 退出；设备处于 LK 时检查 `slot-retry-count:a`，低于 3 先 `set_active a`。
@@ -168,7 +170,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 
 ## 8. 渲染问题的无人值守检查
 
-`cycle.py` 从工作树跑完一轮：打包、做载荷、上传启动卷并启动，等 SpringBoard 报出 `sb26: boot unlock done` 后执行一段固定的操作与截图，然后提前结束这一轮，写出 `render-report.txt`。日常使用见[体验说明 §11](../../docs/user-guide.md#11-日常使用与切换)。
+`cycle.py` 从工作树跑完一轮：打包、做载荷、上传启动卷并启动，等 SpringBoard 报出 `sb26: boot unlock done` 后执行一段固定的操作与截图，写出 `render-report.txt`，并让设备留在 iOS 运行态（`run/leave-running`）。加 `--teardown` 时改为提前结束这一轮并退回空闲 loader。日常使用见[体验说明 §11](../../docs/user-guide.md#11-日常使用与切换)。
 
 ```sh
 ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --baseline docs/progress/evidence/k90auto/kernel-NAME-上一轮
@@ -178,11 +180,11 @@ ANDROID_SERIAL=<序列号> python3 tools/k90auto/cycle.py LABEL --kernel 12377-c
 python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL --env iconservicesagent:-FD_MESA_DEBUG --restart iconservicesagent --wait 30 --tour "home@3*2"
 ```
 
-- 默认值：内核记录由 [`cycle.py`](cycle.py) 的 `KERNEL` 定义，可用 `--kernel` 选择；其余为 `--seconds 900`、`jobs/rc.jobs.interactive`、`GPU_SPEED=14`、CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。启动测试轮后最多等 420 s 看到开机解锁，等不到就跳过操作。
+- 默认值：内核记录由 [`cycle.py`](cycle.py) 的 `KERNEL` 定义，可用 `--kernel` 选择；其余为 `--seconds 900`、`jobs/rc.jobs.interactive`、`GPU_SPEED=14`、CPU 参数 `cpus=4 bootcpu=7 small_cores_after=0`。启动测试轮后最多等 420 s 看到开机解锁，等不到就跳过操作并结束这一轮。
 - 固定启动参数 `FIXED_ARGS`：GPU 与调频（`gpu_log=1 metal=1 cpufreq=1 fb_threads=2 touch_lat=1 gpu_coherent=1`）、120 Hz（`fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1`）、`touch_poll_us=4000` 和 Wi-Fi（`pcie=10` 一组与 `wifi_station=1`），诊断开关不放在这里。之后是 `--boot-args`，最后是 `fbwidth=1206 fbheight=2622 fbpitch=460`（iPhone 17 画布，见[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md)）。
 - `CYCLE_FIXED_ARGS`、`CYCLE_CPU_ARGS`、`GPU_SPEED` 分别替换固定参数、CPU 参数和 GPU 档位。同一个键出现两次时内核取第一个，所以本轮变量是 `FIXED_ARGS` 里的键时要用 `CYCLE_FIXED_ARGS` 整串替换；画布三个键排在最后，可以在 `--boot-args` 里改。`CYCLE_PROGRAMS=路径[:路径]` 往根盘的 `/annibale/bin` 多放程序。
 - 启动测试轮前由 `ensure_loader_idle()` 将运行态（`oem stop` 后 `reboot` 加 `oem recovery`）、收尾态或 B 槽 Android（`recover-loader.py`）收敛到已枚举的 `xnuloader` 且 `result` 为 `idle`、启动卷常驻区为空。显式指定 `LOADER_IMAGE` 或设置 `CYCLE_CHECKPOINT=1`（配合 `ANDROID_SERIAL`）时经 `reboot-lk.py` 进 LK、`set_active a` 并读回 `slot-retry-count:a: 7`，再启动对应镜像。
-- `--hold` 在操作截图后不结束这一轮，运行满 `--seconds` 或收到 `respin.py --stop` 才结束。期间用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传辅助盘；需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 annsh。SpringBoard 被结束后停在 backboardd 的转圈界面，所以修改 SpringBoard 的设置仍须重新启动测试轮。
+- `--hold` 在操作截图并写出 `render-report.txt` 后不结束这一轮，运行满 `--seconds` 或收到 `respin.py --stop` 才结束。期间用 `respin.py` 改驱动设置、重启进程，不必重新打包和上传辅助盘；需要 12377-cmd14 起的内核和带 `setenv`、`addenv`、`restart` 的 annsh。SpringBoard 被结束后停在 backboardd 的转圈界面，所以修改 SpringBoard 的设置仍须重新启动测试轮。
   - `--env` 把 `kern.annibale.env` 设为给出的词（`进程名:变量=值` 或 `进程名:-变量`），超过 119 字符时拆成一条 `setenv` 和若干条 `addenv`；不带词时清空。
   - `--restart` 向同名进程发 SIGKILL，由 launchd 重新启动；驱动在进程加载时把本进程名下的设置写进环境变量，覆盖 plist 里的同名变量，每条打印 `kern.annibale.env: 词`。
   - `--wait` 是重启后等待的秒数（默认 30），`--until` 改为等日志出现指定文字，`--tour` 接着执行 `tour.py` 的步骤。

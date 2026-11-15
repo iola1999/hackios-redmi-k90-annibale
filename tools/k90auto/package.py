@@ -37,7 +37,9 @@ import zlib
 
 HERE = Path(__file__).resolve().parent        # tools/k90auto/
 REPO = HERE.parents[1]
-WORKSPACE = REPO / "hackios-xnu-kernel"      # the kernel checkout, from <workspace>/tools/k90auto
+KERNEL_DIR = REPO / "hackios-xnu-kernel"
+USERLAND_DIR = REPO / "hackios-xnu-userland"
+WORKSPACE = KERNEL_DIR      # the kernel checkout, from <workspace>/tools/k90auto
 OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and the logs stay
 # PAYLOAD_SRC_ROOT packs from a clean copy of the sources instead of the working tree, so a package
 # can be built while somebody else has an edit in flight (and the manifest records which sources).
@@ -80,7 +82,9 @@ PROBE_LINE = "/annibale/bin/lsprobe 60 &\n/annibale/bin/lsprobe 300 &\n"
 # sends on this phone (pcie_bdf= picks a board data file by name, pcie_qdss=1 sends the QDSS file).
 # lfw-*.bin, when there, are linux-firmware's ath12k/WCN7850/hw2.0 amss.bin and m3.bin, copied by hand
 # (pcie_fw=3).
-WIFI_FW_DIR = WORKSPACE / "hackios-xnu-kernel/out/fw-wifi" if (WORKSPACE / "hackios-xnu-kernel/out/fw-wifi").is_dir() else WORKSPACE / "out/fw-wifi"
+WIFI_FW_DIR = (KERNEL_DIR / "out/fw-wifi" if (KERNEL_DIR / "out/fw-wifi").is_dir()
+               else REPO / "out/fw-wifi" if (REPO / "out/fw-wifi").is_dir()
+               else WORKSPACE / "out/fw-wifi")
 WIFI_FW_USED = ["amss20.bin", "regdb.bin", "bd_p11.elf", "phy_ucode20.elf"]
 WIFI_FW_MODE = os.environ.get("WIFI_FW", "used" if all((WIFI_FW_DIR / n).exists() for n in WIFI_FW_USED) else "0")
 WIFI_FW = WIFI_FW_MODE != "0"
@@ -93,15 +97,19 @@ WIFI_FW_FILES = (WIFI_FW_USED if WIFI_FW_MODE == "used" else
 # By default, when hackios-xnu-kernel/tools/mk-fw-bt.py has extracted the phone's bluetooth partition
 # into out/fw-bt, the three files WCN7850 ROM 0x20 board 0 uses on the K90 go into fw/ (hmtbtfw20.tlv,
 # hmtbtfw20.ver and hmtnv20.bin, 285 KB; kernel-12377-st2-r1). BT_FW=all puts in every hmt* file; BT_FW=0 none.
-BT_FW_DIR = WORKSPACE / "hackios-xnu-kernel/out/fw-bt" if (WORKSPACE / "hackios-xnu-kernel/out/fw-bt").is_dir() else WORKSPACE / "out/fw-bt"
+BT_FW_DIR = (KERNEL_DIR / "out/fw-bt" if (KERNEL_DIR / "out/fw-bt").is_dir()
+             else REPO / "out/fw-bt" if (REPO / "out/fw-bt").is_dir()
+             else WORKSPACE / "out/fw-bt")
 BT_FW_USED = ["hmtbtfw20.tlv", "hmtbtfw20.ver", "hmtnv20.bin"]
 BT_FW_MODE = os.environ.get("BT_FW", "used" if all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else "0")
 BT_FW = BT_FW_MODE != "0"
 BT_FW_FILES = (BT_FW_USED if BT_FW_MODE in ("used", "1") and all((BT_FW_DIR / n).exists() for n in BT_FW_USED) else
                sorted(p.name for p in BT_FW_DIR.glob("hmt*")) if BT_FW else [])
 assert not BT_FW or BT_FW_FILES, f"BT_FW={BT_FW_MODE}, but {BT_FW_DIR} has no hmt* files (tools/mk-fw-bt.py extract)"
-IRIS_FW_DIR = (WORKSPACE / "hackios-xnu-kernel/out/fw-iris" if (WORKSPACE / "hackios-xnu-kernel/out/fw-iris").is_dir()
-               else WORKSPACE / "out/fw-iris" if (WORKSPACE / "out/fw-iris").is_dir() else WORKSPACE / "fw-iris")
+IRIS_FW_DIR = (KERNEL_DIR / "out/fw-iris" if (KERNEL_DIR / "out/fw-iris").is_dir()
+               else REPO / "out/fw-iris" if (REPO / "out/fw-iris").is_dir()
+               else WORKSPACE / "out/fw-iris" if (WORKSPACE / "out/fw-iris").is_dir()
+               else WORKSPACE / "fw-iris")
 IRIS_FW_FILE = "vpu35_4v.mbn"
 IRIS_FW = os.environ.get("IRIS_FW", "1" if (IRIS_FW_DIR / IRIS_FW_FILE).is_file() else "0") == "1"
 assert not IRIS_FW or (IRIS_FW_DIR / IRIS_FW_FILE).is_file(), f"IRIS_FW=1, but {IRIS_FW_DIR / IRIS_FW_FILE} is missing"
@@ -121,7 +129,7 @@ WIFI_CONTROL_LINES = ["d\t755\t0\t0\t/private/var/preferences/SystemConfiguratio
 # The packer keeps only generic parent directories in userland/var.skel.extra and never assigns
 # a process-specific home, AppGroup UUID, or temporary directory.
 # userland/build.sh's staging directory; xpc/launchd.plist is there only when it ran with IOS=../ios26
-BASE = SRC_ROOT / "userland/root"
+BASE = SRC_ROOT / "userland/root" if (SRC_ROOT / "userland/root").is_dir() else USERLAND_DIR / "userland/root"
 TOOLS = WORKSPACE / "tools/apfs"
 # XPCWATCH="NAME ..." inserts libannibale-xpcwatch.dylib (userland/src/xpcwatch.c) into the programs
 # with those file names: it puts the named services they connect to, with counts, into the kernel
@@ -670,13 +678,18 @@ def add_extra_jobs(root):
 
 
 def main():
-    userland_sub = REPO / "hackios-xnu-userland/userland/src"
+    userland_sub = USERLAND_DIR / "userland/src"
     kernel_userland = SRC_ROOT / "userland/src"
     if userland_sub.is_dir() and kernel_userland.is_dir():
-        diff_res = subprocess.run(["diff", "-rq", str(userland_sub), str(kernel_userland)],
-                                  capture_output=True, text=True)
-        assert diff_res.returncode == 0, (
-            f"userland/src out of sync between hackios-xnu-userland and hackios-xnu-kernel:\n{diff_res.stdout}")
+        try:
+            is_same = kernel_userland.samefile(userland_sub)
+        except OSError:
+            is_same = False
+        if not is_same:
+            diff_res = subprocess.run(["diff", "-rq", str(userland_sub), str(kernel_userland)],
+                                      capture_output=True, text=True)
+            assert diff_res.returncode == 0, (
+                f"userland/src out of sync between hackios-xnu-userland and hackios-xnu-kernel:\n{diff_res.stdout}")
     dirty = dirty_sources()
     if dirty:
         print("工作树有未提交的改动，打包照常进行。改动清单写进 pack 记录的 worktree_status，"
@@ -887,6 +900,13 @@ def main():
     for dylib_file in sorted((dest / "lib").glob("*.dylib")):
         sig = subprocess.run(["/usr/bin/codesign", "-dv", str(dylib_file)], capture_output=True, text=True)
         assert "Signature=adhoc" in sig.stderr, f"{dylib_file} is not adhoc signed: {sig.stderr}"
+    for check_dir in (dest / "sbin", dest / "bin"):
+        if check_dir.is_dir():
+            for exe_file in sorted(check_dir.iterdir()):
+                if exe_file.is_file() and not exe_file.is_symlink():
+                    sig = subprocess.run(["/usr/bin/codesign", "-dv", str(exe_file)], capture_output=True, text=True)
+                    if "not signed at all" in sig.stderr:
+                        subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", str(exe_file)], check=True)
     for program in EXTRA_PROGRAMS:
         assert program.is_file(), f"{program} is named in PAYLOAD_PROGRAMS and is not a file"
         shutil.copy2(program, dest / "bin" / program.name)

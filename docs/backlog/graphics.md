@@ -16,6 +16,8 @@
 | G7 | AIR 未覆盖指令与验证语料 | minnum／maxnum 真机通过；cospi 的 81,920 个数值检查和三条原版管线创建通过，但桌面图标缺失；同一 CI 候选暖缓存复测恢复图标，组件异常保留 | 关联实际专化 shader、绑定与绘制输出，定位首次使用与缓存恢复差异；保持 half 1／float 4 ULP 要求 | [图标缺失核查](../analysis/2026-11-12-air-icon-regression.md)、[多媒体验证 §23、§25](../analysis/2026-11-11-multimedia-validation.md)、[工程待办](engineering.md) |
 | G14 | 相机 MPS 输入与 Core Image stitching | heap 与 R16 探针真机通过，实际相机的 1C0h 别名修复待验；CI 计算图的 A830 128 分量通过，相机后续退出于函数 setLabel 缺失，CI 轮桌面图标缺失 | 验证 1C0h 导入并补齐函数 label 契约；定位新 AIR 的桌面图标缺失；核对进程内存包装 surface 与未对齐行距的写回 | [多媒体验证 §28、§29](../analysis/2026-11-11-multimedia-validation.md) |
 | G17 | 多任务卡片的可见渲染异常 | 2026-11-12 用户反馈前几天上滑进入多任务时，卡片内经常有渲染异常；近期巡检截图未覆盖多任务，当前是否仍复现待确认 | 在当前已验收基线上采集进入多任务、横滑卡片和返回应用的图像，实际检查卡片内容、遮挡、裁剪和残留；结合 S5 的 scene／应用身份定位首个异常阶段 | [图像验收](../plan/device-test-playbook.md#71-图像审阅与短暂异常)、[系统待办 S5](system.md) |
+| G18 | 打开设置时的半屏黑色窗口 | 2026-11-15 用户在 `wave1-r4b` 反馈：从主屏打开设置的过程中出现约 1 秒的半屏黑色窗口，随后设置正常显示；尚未截取动画过程 | 用 `tour.py` 同一步连拍覆盖打开动画，确认黑色区域的位置、持续帧数与所属图层，再关联同时段的 `annibalemetal` 拒绝行与纹理导入失败 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
+| G19 | MapKit 快照服务的渲染目标与重叠拷贝 | `wave1-r4`、`wave1-r4b` 的渲染报告中 `com.apple.MapKit.SnapshotService` 命令缓冲失败：`BGRA8Unorm_sRGB` 颜色附件创建时没有 `MTLTextureUsageRenderTarget`，以及驱动不支持源与目标区域重叠的纹理拷贝；`wave1-r4c`～`wave1-r4f` 未再出现 | 先确认触发快照的界面与纹理来源，核对原生 Metal 对缺少渲染目标用途和重叠拷贝的行为，再决定驱动侧的实现 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
 
 ## 2. 显示完成与性能
 

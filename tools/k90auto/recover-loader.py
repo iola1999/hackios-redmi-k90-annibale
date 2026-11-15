@@ -16,7 +16,7 @@ def call(argv,limit=8,check=True):
         if isinstance(out,bytes):out=out.decode(errors="replace")
     except OSError as error:
         rc,out=127,str(error)
-    item={"argv":argv,"rc":rc,"output":out,"seconds":time.monotonic()-started}
+    item={"argv":argv,"rc":rc,"output":out,"at":started,"seconds":time.monotonic()-started}
     records.append(item);(base/"commands.json").write_text(json.dumps(records,indent=2)+"\n")
     if check:assert rc==0 and "FAILED" not in out,item
     return out
@@ -154,7 +154,8 @@ def converge_runtime():
             call(pre+["oem","recovery"])
             assert value(call(pre+["getvar","build-id"]),"build-id")==original_build,"loader build changed after reset"
             return idle()
-        time.sleep(0.25)
+        # oem recovery must land inside the loader's boot-menu window, which the host sees near its end.
+        time.sleep(0.05)
     raise AssertionError("loader did not enumerate after runtime reset")
 configured=os.environ.get("ANDROID_SERIAL")
 assert not configured or (configured!="xnuloader" and not any(c.isspace() for c in configured)),"invalid ANDROID_SERIAL"

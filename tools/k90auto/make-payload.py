@@ -36,7 +36,9 @@ base = evidence / f"kernel-{name}-{label}"
 assert not base.exists(), f"{base} already exists: this label has a round record"
 root = Path("hackios-xnu-kernel")
 kernel = Path(record["kernel"]["path"])
-ramdisk = root / ramdisk_arg
+ramdisk = (root / ramdisk_arg if (root / ramdisk_arg).is_file()
+           else Path("hackios-xnu-userland") / ramdisk_arg if (Path("hackios-xnu-userland") / ramdisk_arg).is_file()
+           else Path(ramdisk_arg))
 payload = root / f"out/handoff-{name}-{label}.bin"
 def digest(path):
     """Hash build inputs without keeping the whole file in memory."""
@@ -72,7 +74,10 @@ page = 0x4000
 room = 0x08000000 - (kernel_top(kernel) + page - 1) // page * page
 assert (ramdisk.stat().st_size + page - 1) // page * page <= room, (
     f"{ramdisk} is {ramdisk.stat().st_size} bytes and only {room} fit between the kernel and the resident image")
-boot_image = Path(os.environ.get("BOOT_IMAGE", "hackios-xnu-kernel/userland/flashboot.apfs"))
+default_boot = Path("hackios-xnu-kernel/userland/flashboot.apfs")
+if not default_boot.is_file() and Path("hackios-xnu-userland/userland/flashboot.apfs").is_file():
+    default_boot = Path("hackios-xnu-userland/userland/flashboot.apfs")
+boot_image = Path(os.environ.get("BOOT_IMAGE", str(default_boot)))
 assert boot_image.is_file(), f"{boot_image} is missing; build with FLASHBOOT=1 CRYPTEXES=flash"
 boot_bytes = boot_image.stat().st_size
 MAX_BOOT_IMAGE_BYTES = 64 * 1024 * 1024

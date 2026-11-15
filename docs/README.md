@@ -140,6 +140,7 @@
 - [HackiOS 遗留问题交接](progress/2026-11-08-handoff.md)。
 - [11-09 交接](progress/2026-11-09-handoff.md)。
 - [架构审查跟进、亮度同步、相机与触觉反馈推进记录（2026-11-10）](progress/2026-11-10-arch-review-execution.md)。
+- [11-15 Wave 1 真机验收、应用闪退修复与提交](progress/2026-11-15-handoff.md)。
 
 ## 10. 代码仓库中的说明
 

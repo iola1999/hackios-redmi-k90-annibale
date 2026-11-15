@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """One unattended desktop round from the working tree: pack, boot, tour, render report.
 
-usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kernel NAME] [--hold] [--tour STEP ...]
+usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kernel NAME] [--hold | --teardown]
+                              [--tour STEP ...]
 
   1. package.py with the interactive jobs and annsh (the caller's environment goes through, so
      ICON_METAL=1 and the other package switches work as they do there), then make-payload.py
@@ -11,13 +12,15 @@ usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kern
      When LOADER_IMAGE or CYCLE_CHECKPOINT=1 is set with ANDROID_SERIAL,
      checkpoint() resets slot A's retry count at LK and boots the requested loader image.
   3. round-run.py in the background; once SpringBoard reports the boot unlock, tour.py runs TOUR or --tour
-     (only its first step when the GPU has already stopped), and the round is asked to stop
-     (run/stop-request) instead of running out its N seconds. With --hold it is not asked: it runs
-     until respin.py --stop or the N seconds, and respin.py changes settings and restarts processes
-     in it meanwhile.
+     (only its first step when the GPU has already stopped). By default run-auto.py is then asked to
+     leave iOS running (run/leave-running) and the device stays on the home screen. --teardown asks
+     the round to stop instead (run/stop-request). With --hold the round runs until respin.py --stop
+     or the N seconds, and respin.py changes settings and restarts processes in it meanwhile. No boot
+     unlock within UNLOCK_WAIT skips the tour and stops the round.
   4. render-health.py, against --baseline when given, into ROUND_DIR/render-report.txt.
+  5. With --teardown, ensure_loader_idle() again after the round.
 
-Exit code: 0 when the round ran and the loader came back idle, 1 otherwise.
+Exit code: 0 when the round ran (and, with --teardown, the loader came back idle), 1 otherwise.
 """
 import argparse
 import json
@@ -190,6 +193,7 @@ def main():
     ap.add_argument("--kernel", default=KERNEL)
     ap.add_argument("--boot-args", default="", help="observation boot-args added after the fixed ones")
     ap.add_argument("--hold", action="store_true", help="keep the round up after the tour, for respin.py")
+    ap.add_argument("--teardown", action="store_true", help="explicitly teardown and return to xnuloader after the round")
     ap.add_argument("--tour", nargs="+", help="tour.py steps instead of TOUR")
     args = ap.parse_args()
     if args.hold and "--seconds" not in sys.argv:
@@ -216,9 +220,13 @@ def main():
     # is screen class 15, the iPhone X notch layout, which puts the clock and the battery near the corners
     # (docs/analysis/2026-11-02-status-bar-layout.md). These come after --boot-args, so a round can still
     # set its own fbwidth=, fbheight= and fbpitch=.
+    default_boot = ("hackios-xnu-userland/userland/flashboot.apfs"
+                    if not (WORKSPACE / "hackios-xnu-kernel/userland/flashboot.apfs").is_file()
+                    and (WORKSPACE / "hackios-xnu-userland/userland/flashboot.apfs").is_file()
+                    else "hackios-xnu-kernel/userland/flashboot.apfs")
     payload_env = dict(os.environ, GPU_SPEED=gpu_speed,
                        CPU_ARGS=os.environ.get("CYCLE_CPU_ARGS", "cpus=4 bootcpu=7 small_cores_after=0"),
-                       BOOT_IMAGE="hackios-xnu-kernel/userland/flashboot.apfs",
+                       BOOT_IMAGE=os.environ.get("BOOT_IMAGE", default_boot),
                        MEMSIZE="300000000", IDENTITY="v57")
     made = run([sys.executable, HERE / "make-payload.py", args.kernel, args.label,
                 "out/ios26-resume/bbmetal-device/root.apfs",
@@ -254,6 +262,7 @@ def main():
     while rounder.poll() is None and UNLOCK_LINE not in newest_log(round_dir / "run"):
         if time.monotonic() - begun > UNLOCK_WAIT:
             print("no boot unlock seen; the tour is skipped")
+            (round_dir / "run" / "stop-request").write_text("")
             break
         time.sleep(5)
     if rounder.poll() is None and UNLOCK_LINE in newest_log(round_dir / "run"):
@@ -263,19 +272,28 @@ def main():
         tour = args.tour or TOUR
         run([sys.executable, HERE / "tour.py", round_dir, *(tour[:1] if gpu_stopped else tour)])
         if args.hold:
+            report = run([sys.executable, HERE / "render-health.py", round_dir,
+                          *(["--baseline", args.baseline] if args.baseline else [])], capture_output=True, text=True)
+            (round_dir / "render-report.txt").write_text(report.stdout)
+            print(f"report: {round_dir / 'render-report.txt'}  sheet: {round_dir / 'run/tour-sheet.png'}")
             print(f"held: tools/k90auto/respin.py {round_dir} ... (--stop ends it)", flush=True)
-        else:
+        elif args.teardown:
             (round_dir / "run" / "stop-request").write_text("")
+        else:
+            (round_dir / "run" / "leave-running").write_text("")
     rounder.wait()
 
-    report = run([sys.executable, HERE / "render-health.py", round_dir,
-                  *(["--baseline", args.baseline] if args.baseline else [])], capture_output=True, text=True)
-    (round_dir / "render-report.txt").write_text(report.stdout)
-    print(f"report: {round_dir / 'render-report.txt'}  sheet: {round_dir / 'run/tour-sheet.png'}")
-    problem = ensure_loader_idle()
-    if problem:
-        print(f"loader not ready after the round: {problem}")
-        return 1
+    if not (round_dir / "render-report.txt").exists():
+        report = run([sys.executable, HERE / "render-health.py", round_dir,
+                      *(["--baseline", args.baseline] if args.baseline else [])], capture_output=True, text=True)
+        (round_dir / "render-report.txt").write_text(report.stdout)
+        print(f"report: {round_dir / 'render-report.txt'}  sheet: {round_dir / 'run/tour-sheet.png'}")
+
+    if args.teardown:
+        problem = ensure_loader_idle()
+        if problem:
+            print(f"loader not ready after the round: {problem}")
+            return 1
     return 0 if rounder.returncode == 0 else 1
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KERNEL = ROOT / "hackios-xnu-kernel"
 DOC = ROOT / "docs/analysis/boot-args.md"
-CALL = re.compile(r'PE_parse_boot_arg(?:n|_str)\(\s*"([A-Za-z0-9_.\-]+)"')
+CALL = re.compile(r'PE_parse_boot_arg(?:n|_str)\s*\(\s*"([A-Za-z0-9_.\-]+)"', re.DOTALL)
 
 
 def source_name(path):
@@ -28,7 +28,8 @@ def source_name(path):
 
 
 def catalog():
-    files = subprocess.run(["git", "-C", str(KERNEL), "ls-files", "xnu/files", "xnu26/files", "xnu26/patches"],
+    files = subprocess.run(["git", "-C", str(KERNEL), "ls-files", "--cached", "--others", "--exclude-standard",
+                            "xnu/files", "xnu26/files", "xnu26/patches"],
                            capture_output=True, text=True, check=True).stdout.split()
     readers = collections.defaultdict(set)
     for path in files:
@@ -36,11 +37,13 @@ def catalog():
             text = (KERNEL / path).read_text(errors="replace")
         except (IsADirectoryError, FileNotFoundError):
             continue
-        for line in text.split("\n"):
-            if path.endswith(".patch") and not line.startswith("+"):
-                continue
-            for match in CALL.finditer(line):
-                readers[match.group(1)].add(source_name(path))
+        if path.endswith(".patch"):
+            content = "\n".join(line[1:] for line in text.splitlines()
+                                if line.startswith("+") and not line.startswith("+++"))
+        else:
+            content = text
+        for match in CALL.finditer(content):
+            readers[match.group(1)].add(source_name(path))
     lines = ["# 内核启动参数目录", "",
              "本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 "
              "`xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。"

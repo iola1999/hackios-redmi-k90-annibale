@@ -154,6 +154,7 @@ for name, key in (("payload", "EXPECT_PAYLOAD_SHA256"), ("root", "EXPECT_ROOT_SH
         raise SystemExit(f"refusing to run: {key}={wanted[:16]} but this payload's {name} is "
                          f"{actual[:16]}; the pack that was meant to produce it did not")
 entries = payload_entries(payload_path)
+expected_kernel_bytes = entries["kernel"]["bytes"]
 if {"kernel", "ramdisk", "cmdline"} - entries.keys():
     raise SystemExit(f"refusing to run: payload entries are incomplete: {sorted(entries)}")
 if {"rdimage", "rdfile", "rdres"} & entries.keys():
@@ -271,6 +272,58 @@ def frame_progress(path):
             "max_gap_seconds": round(max(gaps), 3) if gaps else 0.0, "quiet_seconds": quiet}
 
 
+def check_boot_header(snap_path, expected_kernel_bytes):
+    """Verify log header: must not be fallback resident loader or mismatched kernel size."""
+    if not snap_path:
+        return
+    path = Path(snap_path)
+    if not path.is_file() or path.stat().st_size == 0:
+        return
+    text = path.read_text(errors="replace")
+    is_fallback = False
+    reason = None
+    if "== XNULOADER v3 ==" in text:
+        is_fallback = True
+        reason = "log contains '== XNULOADER v3 =='"
+    elif "== XNULOADER" in text and "== XNULOADER run (usb) ==" not in text:
+        is_fallback = True
+        reason = "log contains '== XNULOADER' without '== XNULOADER run (usb) =='"
+    elif "payload entry 'kernel' size " in text:
+        match = re.search(r"payload entry 'kernel' size ([0-9a-fA-F]+)", text)
+        if match:
+            kernel_bytes = int(match.group(1), 16)
+            if kernel_bytes != expected_kernel_bytes:
+                is_fallback = True
+                reason = f"kernel byte count mismatch: recorded {kernel_bytes} != expected {expected_kernel_bytes}"
+    elif "== XNULOADER run (usb) ==" in text:
+        is_fallback = True
+        reason = "missing 'payload entry kernel size' line"
+
+    if is_fallback:
+        print(f"RESET_FALLBACK_DETECTED: {reason} in {path.name}", flush=True)
+        summary = {
+            "off_seen": False,
+            "mode": "loader",
+            "seconds": 0.0,
+            "left": "idle",
+            "reset": True,
+            "fallback": True,
+            "failed": {"state": "RESET_FALLBACK_DETECTED", "reason": reason, "snapshot": path.name},
+            "samples": index if "index" in globals() else 0,
+            "loader_build_id": loader_build_id if "loader_build_id" in globals() else "unknown",
+            "payload_sha256": manifest["payload"]["sha256"],
+            "resident_boot_sha256": resident_boot["sha256"],
+            "status": "idle",
+            "product": "xnuloader",
+            "shots": shots if "shots" in globals() else 0,
+            "ready_for_next_run": False,
+            "logs": {p.name: p.stat().st_size for p in sorted(run.glob("*.log"))}
+        }
+        (run / "reboot.json").write_text(json.dumps(summary, indent=2) + "\n")
+        print("REBOOT_END", summary, flush=True)
+        sys.exit(1)
+
+
 # Initial command snapshots after `oem sh`. Native calls can outlast these reads;
 # rsh.py also checks the latest periodic snapshot for its command's completion.
 CMD_FOLLOW_SECONDS = (2, 5, 10, 18)
@@ -319,6 +372,29 @@ def take_shot(elapsed):
         call(["get_staged", run / f"shot-{int(elapsed * 10):05d}.raw"], 30, False)
 
 
+def leave_running(elapsed):
+    """cycle.py's leave-running request: take a last snapshot and end with the kernel still running."""
+    global index
+    (run / "leave-running").unlink()
+    print("LEAVE_RUNNING_REQUESTED", round(elapsed, 1), flush=True)
+    if call(["oem", "log"], 8, False)["rc"] == 0:
+        call(["get_staged", run / f"s{index:03d}.log"], 20, False)
+        check_boot_header(run / f"s{index:03d}.log", expected_kernel_bytes)
+        index += 1
+    summary = {"off_seen": False, "mode": "ios", "seconds": 0.0, "left": "running-held", "reset": False,
+               "failed": failed, "samples": index, "loader_build_id": loader_build_id,
+               "payload_sha256": manifest["payload"]["sha256"],
+               "resident_boot_sha256": resident_boot["sha256"],
+               "status": "running", "product": "xnuloader", "shots": shots,
+               "ready_for_next_run": False,
+               "logs": {path.name: path.stat().st_size for path in sorted(run.glob("*.log"))}}
+    if frozen is not None:
+        summary["frozen"] = frozen
+    (run / "reboot.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print("REBOOT_END", summary, flush=True)
+    sys.exit(0 if failed is None else 1)
+
+
 index = 0
 failed = None
 last_shot = -1e9
@@ -334,16 +410,25 @@ while duration <= 0 or time.monotonic() - start < duration:
         (run / "stop-request").unlink()
         print("STOP_REQUESTED", round(elapsed, 1), flush=True)
         break
+    if (run / "leave-running").exists():
+        leave_running(elapsed)
     name = state()
     if name != "running":
-        failed = {"state": name, "elapsed_seconds": elapsed}
-        print("NOT_RUNNING", name, flush=True)
-        break
+        retries = 0
+        while name == "unknown" and retries < int(os.environ.get("K90_STATE_RETRIES", "20")):
+            time.sleep(1)
+            name = state()
+            retries += 1
+        if name != "running":
+            failed = {"state": name, "elapsed_seconds": elapsed}
+            print("NOT_RUNNING", name, flush=True)
+            break
     if elapsed >= log_every * index:
         if call(["oem", "log"], 8, False)["rc"] == 0:
             call(["get_staged", run / f"s{index:03d}.log"], 20, False)
         snap_path = run / f"s{index:03d}.log"
         index += 1
+        check_boot_header(snap_path, expected_kernel_bytes)
         if freeze_watch:
             reading = frame_progress(snap_path)
             if reading is not None:
@@ -384,6 +469,8 @@ while duration <= 0 or time.monotonic() - start < duration:
     serve_pushes()
     time.sleep(0.5)
 print("SAMPLED_SECONDS", time.monotonic() - start, "failed_call", failed, flush=True)
+if (run / "leave-running").exists():
+    leave_running(time.monotonic() - start)
 
 
 FETCH_LINE = re.compile(rb"fetch: (\w+) 0x([0-9a-f]+) 0x([0-9a-f]+)")
@@ -418,6 +505,7 @@ def teardown():
             if stopped:
                 call(["oem", "log"], 8, False)
                 call(["get_staged", run / "running.log"], 40, False)
+                check_boot_header(run / "running.log", expected_kernel_bytes)
                 return name, False
             stopped = True
             call(["oem", "stop"], 20, False)
@@ -429,8 +517,10 @@ def teardown():
         # compose the loader's own serial log over it (32,767 bytes, `log_buf`), which is how the
         # 2026-10-27 rounds lost the stop-side lines. Take that snapshot first and keep both.
         call(["get_staged", run / f"{name}.log"], 40, False)
+        check_boot_header(run / f"{name}.log", expected_kernel_bytes)
         call(["oem", "log"], 8, False)
         call(["get_staged", run / f"{name}-serial.log"], 40, False)
+        check_boot_header(run / f"{name}-serial.log", expected_kernel_bytes)
         if name not in ("returned", "returned-held", "hung", "hung-held"):
             return name, False
         if re.fullmatch(re.escape(name) + r"(?: [0-9a-fA-F]+ 0)?", variable("result", check=False)) is None:
@@ -503,6 +593,8 @@ if frozen is not None:
 summary["logs"] = {path.name: path.stat().st_size
                    for path in sorted(run.glob("*.log"))}
 summary["ready_for_next_run"] = mode == "loader" and fresh_loader()
+for p in sorted(run.glob("*.log")):
+    check_boot_header(p, expected_kernel_bytes)
 (run / "reboot.json").write_text(json.dumps(summary, indent=2) + "\n")
 print("REBOOT_END", summary, flush=True)
 if failed is not None or not summary["ready_for_next_run"]:

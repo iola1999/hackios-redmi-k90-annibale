@@ -87,7 +87,7 @@ elif args[:1] == ["getvar"]:
     else:
         say(key + ": ")
 elif args[:2] == ["oem", "run"]:
-    state_path.write_text("running")
+    state_path.write_text(os.environ.get("FB_AFTER_RUN", "running"))
 elif args[:2] == ["oem", "stop"]:
     state_path.with_name("stopped").touch()
     if "FB_AFTER_STOP_RAMDISK" in os.environ:
@@ -329,6 +329,91 @@ class RshTests(unittest.TestCase):
         result = self.invoke({"s037.log": "annsh 8| other\nannsh 8 exit 0 24035 ms\n"}, output_wait=1)
         self.assertEqual(result.returncode, 3)
         self.assertNotIn("other", result.stdout)
+
+    def direct(self, target_of):
+        """Run rsh.py uname against a fake fastboot; TARGET_OF(root) gives the ROUND_DIR argument."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bins = root / "bin"
+            bins.mkdir()
+            fb_log = root / "fb.jsonl"
+            fb = bins / "fastboot"
+            fb.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, pathlib, sys\n"
+                f"pathlib.Path({str(fb_log)!r}).open('a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+                "if sys.argv[3:] == ['oem', 'sh uname']:\n"
+                "    print('(bootloader) 42\\nOKAY')\n"
+                "elif sys.argv[3] == 'get_staged':\n"
+                "    pathlib.Path(sys.argv[4]).write_text('annsh 42 start\\nannsh 42| Darwin\\nannsh 42 exit 0 2 ms\\n')\n"
+            )
+            fb.chmod(0o755)
+            env = dict(os.environ, PATH=str(bins) + os.pathsep + os.environ["PATH"])
+            result = subprocess.run([sys.executable, str(HERE / "rsh.py"), target_of(root), "uname"],
+                                    env=env, capture_output=True, text=True, timeout=8)
+            calls = [json.loads(line) for line in fb_log.read_text().splitlines()] if fb_log.exists() else []
+            return result, calls
+
+    @staticmethod
+    def finished_round(root, left):
+        run = root / "round/run"
+        run.mkdir(parents=True)
+        (run / "reboot.json").write_text(json.dumps({"left": left}))
+        return str(root / "round")
+
+    def test_direct_dash_mode_strips_dash_and_cleans_tmp_log(self):
+        result, calls = self.direct(lambda root: "-")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "Darwin\n")
+        self.assertIn(["-s", "xnuloader", "oem", "sh uname"], calls)
+        self.assertEqual(list(Path("/tmp").glob("rsh-direct-42-*.log")), [])
+
+    def test_round_left_running_is_reached_directly(self):
+        result, calls = self.direct(lambda root: self.finished_round(root, "running-held"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "Darwin\n")
+        self.assertIn(["-s", "xnuloader", "oem", "sh uname"], calls)
+
+    def test_round_back_at_the_loader_is_refused_without_fastboot(self):
+        result, calls = self.direct(lambda root: self.finished_round(root, "idle"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("is not a running round", result.stderr)
+        self.assertEqual(calls, [])
+
+
+class FetchTests(unittest.TestCase):
+    def test_fetch_retries_on_console_dropped_line_and_succeeds(self):
+        import base64
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "tools"
+            tools.mkdir()
+            shutil.copy(HERE / "fetch.py", tools / "fetch.py")
+            payload = bytes(range(96))
+            b0 = base64.b64encode(payload[:48]).decode()
+            b1 = base64.b64encode(payload[48:]).decode()
+            attempts = root / "attempts"
+            fake_rsh = tools / "rsh.py"
+            fake_rsh.write_text(
+                "#!/usr/bin/env python3\n"
+                "import pathlib, sys\n"
+                f"p = pathlib.Path({str(attempts)!r})\n"
+                "n = int(p.read_text()) + 1 if p.exists() else 1\n"
+                "p.write_text(str(n))\n"
+                "if n == 1:\n"
+                f"    print('cat 48 {b1}\\ncat end 96 next 96')\n"
+                "elif n == 2:\n"
+                f"    print('cat 0 {b0}')\n"
+                "else:\n"
+                f"    print('cat 0 {b0}\\ncat 48 {b1}\\ncat end 96 next 96')\n"
+            )
+            fake_rsh.chmod(0o755)
+            out = root / "out.bin"
+            result = subprocess.run([sys.executable, str(tools / "fetch.py"), "-", "/var/tmp/x", str(out)],
+                                    capture_output=True, text=True, timeout=8)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(out.read_bytes(), payload)
+            self.assertEqual(int(attempts.read_text()), 3)
 
 
 class RunAutoTests(unittest.TestCase):
@@ -717,6 +802,65 @@ class RunAutoTests(unittest.TestCase):
         self.assertEqual(Path(staged_path).name, "flashboot.apfs")
         self.assertEqual(int(staged_bytes), 4096)
         self.assertNotIn(["oem", "run"], sent)
+
+
+    def test_idle_state_after_oem_run_fails_immediately_without_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root)
+            start_t = time.monotonic()
+            result = self.invoke(root, base, FB_AFTER_RUN="idle")
+            elapsed = time.monotonic() - start_t
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("NOT_RUNNING idle", result.stdout)
+            self.assertLess(elapsed, 15)
+            summary_path = base / "run/reboot.json"
+            self.assertTrue(summary_path.is_file())
+            summary_data = json.loads(summary_path.read_text())
+            self.assertEqual(summary_data["failed"]["state"], "idle")
+
+    def test_boot_header_detects_xnuloader_v3_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root)
+            log = "== XNULOADER v3 ==\nCurrentEL=1 MIDR=514f0014\n"
+            result = self.invoke(root, base, FB_KERNEL_LOG=log)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("RESET_FALLBACK_DETECTED", result.stdout)
+            summary_path = base / "run/reboot.json"
+            self.assertTrue(summary_path.is_file())
+            summary_data = json.loads(summary_path.read_text())
+            self.assertTrue(summary_data["reset"])
+            self.assertTrue(summary_data["fallback"])
+            self.assertEqual(summary_data["failed"]["state"], "RESET_FALLBACK_DETECTED")
+
+    def test_boot_header_detects_missing_run_usb_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root)
+            log = "== XNULOADER standalone ==\npayload entry 'kernel' size 1234\n"
+            result = self.invoke(root, base, FB_KERNEL_LOG=log)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("RESET_FALLBACK_DETECTED", result.stdout)
+            summary_path = base / "run/reboot.json"
+            self.assertTrue(summary_path.is_file())
+            summary_data = json.loads(summary_path.read_text())
+            self.assertTrue(summary_data["reset"])
+            self.assertTrue(summary_data["fallback"])
+
+    def test_boot_header_detects_kernel_byte_count_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root)
+            log = "== XNULOADER run (usb) ==\npayload entry 'kernel' size 99999\n"
+            result = self.invoke(root, base, FB_KERNEL_LOG=log)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("RESET_FALLBACK_DETECTED", result.stdout)
+            summary_path = base / "run/reboot.json"
+            self.assertTrue(summary_path.is_file())
+            summary_data = json.loads(summary_path.read_text())
+            self.assertTrue(summary_data["reset"])
+            self.assertTrue(summary_data["fallback"])
 
 
 if __name__ == "__main__":
