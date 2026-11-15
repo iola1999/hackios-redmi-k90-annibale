@@ -40,6 +40,14 @@ REPO = HERE.parents[1]
 KERNEL_DIR = REPO / "hackios-xnu-kernel"
 USERLAND_DIR = REPO / "hackios-xnu-userland"
 WORKSPACE = KERNEL_DIR      # the kernel checkout, from <workspace>/tools/k90auto
+# The sources below compile with the kernel checkout as their working directory and reach the userland
+# repository through links in it (userland, ios26, tools/apfs, tools/mesa), so the paths the build and the
+# manifest record are the same in every checkout. The kernel's .gitignore keeps the links out of Git, so a
+# fresh clone has none until this makes them.
+for _name in ("userland", "ios26", "tools/apfs", "tools/mesa"):
+    _link = KERNEL_DIR / _name
+    if not _link.exists() and not _link.is_symlink():
+        _link.symlink_to(os.path.relpath(USERLAND_DIR / _name, _link.parent))
 OUT = WORKSPACE / "out/ios26-resume/bbmetal-device"   # where the products and the logs stay
 # PAYLOAD_SRC_ROOT packs from a clean copy of the sources instead of the working tree, so a package
 # can be built while somebody else has an edit in flight (and the manifest records which sources).

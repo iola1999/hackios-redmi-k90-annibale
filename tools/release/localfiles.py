@@ -5,14 +5,15 @@ IPSW and phone, and is described here as recipes (local-files.plist in the relea
 
   copy      an iOS file as it is (iOS path)
   plist     an iOS property list with this project's edits applied (iOS path, edit list)
-  cache     iOS's launchd cache with its LaunchDaemons replaced by the image's LaunchDaemons/
-            (what userland/mkcache.py does), then the edit list
+  cache     iOS's launchd cache with its LaunchDaemons replaced by the image's LaunchDaemons/,
+            each under the key iOS's cache gives that name, then the edit list
   skeleton  the /private/var template: ios26/full-system.py skeleton of the root volume listing,
             with this project's lines inserted
   firmware  a file read out of the phone's partitions
 
-An edit list holds only the project's changes: ["del", keys] and ["set", keys, value], keys being
-the path of dictionary keys from the top. Every recipe records the SHA-256 of the file it has to
+An edit list holds only the project's changes: ["del", keys], ["set", keys, value] and
+["insert", keys, index, value] (an element added to the array at keys), keys being the path of
+dictionary keys from the top. Every recipe records the SHA-256 of the file it has to
 produce, and make() checks it, so a different IPSW or a changed recipe stops the build.
 """
 import difflib
@@ -22,8 +23,9 @@ import plistlib
 import stat
 from pathlib import Path
 
-FORMAT = 1
+FORMAT = 2
 CACHE_JOB_PREFIX = "/System/Library/LaunchDaemons/"
+CACHE_ANGEL_PREFIX = "/System/Library/LaunchAngels/"
 
 
 def sha256(data):
@@ -49,12 +51,28 @@ def plist_edits(base, wanted, keys=()):
             else:
                 edits.append(["set", [*keys, k], wanted[k]])
         return edits
+    if isinstance(base, list) and isinstance(wanted, list) and len(wanted) > len(base):
+        # an array the project only added to: the added elements, in order, when the rest is base's
+        edits, i = [], 0
+        for j, value in enumerate(wanted):
+            if i < len(base) and not plist_edits(base[i], value):
+                i += 1
+            else:
+                edits.append(["insert", list(keys), j, value])
+        if i == len(base):
+            return edits
     return [["set", list(keys), wanted]]
 
 
 def apply_edits(value, edits):
     for edit in edits:
         keys = edit[1]
+        if edit[0] == "insert":
+            node = value
+            for k in keys:
+                node = node[k]
+            node.insert(edit[2], edit[3])
+            continue
         if not keys:
             value = edit[2]
             continue
@@ -75,9 +93,14 @@ def dump_plist(value):
 
 
 def cache_base(apple_cache, jobs):
-    """iOS's launchd cache with the jobs of the image, as userland/mkcache.py builds it."""
+    """iOS's launchd cache with the jobs of the image. A job keeps the directory iOS's cache files it
+    under: launchd treats a job as a launch angel only under /System/Library/LaunchAngels/ (package.py
+    cache_key), and every other job is under /System/Library/LaunchDaemons/ as userland/mkcache.py
+    puts it."""
     cache = plistlib.loads(apple_cache)
-    cache["LaunchDaemons"] = {CACHE_JOB_PREFIX + name: plistlib.loads(data) for name, data in sorted(jobs.items())}
+    angels = {key[len(CACHE_ANGEL_PREFIX):] for key in cache["LaunchDaemons"] if key.startswith(CACHE_ANGEL_PREFIX)}
+    cache["LaunchDaemons"] = {(CACHE_ANGEL_PREFIX if name in angels else CACHE_JOB_PREFIX) + name: plistlib.loads(data)
+                              for name, data in sorted(jobs.items())}
     return cache
 
 

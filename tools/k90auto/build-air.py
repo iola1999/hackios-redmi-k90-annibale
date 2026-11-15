@@ -70,17 +70,19 @@ def strings(path):
 def main():
     check_only = "--check" in sys.argv
     record = {}
-    yuv_patch = WORKSPACE / "tools/mesa/rebase-26/0017-nir-yuv-explicit-lod.patch"
-    mesa_root = MESA.parents[2]
-    patch_args = ["patch", "--batch", "-p1", "-d", str(mesa_root), "-i", str(yuv_patch)]
-    applied = subprocess.run(patch_args + ["--dry-run", "-R"], capture_output=True).returncode == 0
-    if not applied:
-        if check_only:
-            print("out of sync: explicit-LOD YUV lowering patch")
-        else:
-            subprocess.run(patch_args + ["--forward"], check=True, capture_output=True)
-    record["yuv_patch_sha256"] = digest(yuv_patch)
-    record["nir_lower_tex_sha256"] = digest(mesa_root / "src/compiler/nir/nir_lower_tex.c")
+    # The tree has to be the one tools/mesa's patches make (mk-mesa.sh PREPARE=1, then
+    # setup-mesa-arm64e.py, about a minute): a patch added or changed after the tree was made never
+    # reaches the library otherwise, and nothing in the build shows it. mk-mesa.sh stamps the tree.
+    patches = sorted(SRC.parent.glob("*.patch")) + sorted((SRC.parent / "rebase-26").glob("*.patch"))
+    patches_sha = hashlib.sha256(b"".join(p.read_bytes() for p in patches)).hexdigest()
+    stamp = MESA.parents[2] / ".annibale-patches"
+    if not stamp.is_file() or stamp.read_text().strip() != patches_sha:
+        message = (f"{TREE} was made from other patches than tools/mesa's: move it away, run PREPARE=1 "
+                   "REBASE=26 tools/mk-mesa.sh in the container and tools/k90auto/setup-mesa-arm64e.py")
+        if not check_only:
+            raise SystemExit(message)
+        print("out of sync: " + message)
+    record["patches_sha256"] = patches_sha
     for name in FILES:
         src, tree = SRC / name, MESA / name
         assert src.is_file(), f"{src} is missing"

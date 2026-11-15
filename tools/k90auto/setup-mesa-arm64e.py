@@ -2,14 +2,15 @@
 """Create the arm64e Mesa build tree that build-air.py builds libannibaleair.dylib in.
 
 The source is the tree `PREPARE=1 VERSION=26.2.5 SHA256=... REBASE=26 tools/mk-mesa.sh` leaves in
-hackios-xnu-kernel/xnu-deps/build/mesa/mesa-26.2.5 (run in the hackios-dev container: the patch
-step needs GNU patch). This program copies it, writes a cross file for Xcode's arm64e clang and the
+hackios-xnu-kernel/xnu-deps/build/mesa/mesa-26.2.5 (run in hackios-xnu-userland/ in the hackios-dev
+container: the patch step needs GNU patch). This program copies it, writes a cross file for Xcode's arm64e clang and the
 iPhoneOS SDK, and runs meson setup with the options mk-mesa.sh uses. It refuses an existing
 destination, so the tree a round was built from is never overwritten by accident.
 
 usage: tools/k90auto/setup-mesa-arm64e.py [DEST]   (default hackios-xnu-kernel/out/ios26-resume/mesa-arm64e)
 env:   AIR_VENV (meson 1.12.1, default /tmp/mesa-rebase/venv/bin), AIR_BISON (default homebrew bison)
 """
+import hashlib
 import os
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 KERNEL = HERE.parents[1] / "hackios-xnu-kernel"
+PATCHES = HERE.parents[1] / "hackios-xnu-userland/tools/mesa"
 SOURCE = KERNEL / "xnu-deps/build/mesa/mesa-26.2.5"
 DEFAULT_DEST = KERNEL / "out/ios26-resume/mesa-arm64e"
 VENV = Path(os.environ.get("AIR_VENV", "/tmp/mesa-rebase/venv/bin"))
@@ -45,6 +47,12 @@ def main():
         sys.exit(f"{dest} exists; move it away first (it may be the tree the current library was built in)")
     if not (SOURCE / "src/compiler/air").is_dir():
         sys.exit(f"{SOURCE} has no src/compiler/air: run PREPARE=1 REBASE=26 tools/mk-mesa.sh in the container first")
+    # mk-mesa.sh's stamp of the patches the tree was made with; a tree from older patches fails later in
+    # meson with an error that does not name the cause
+    patches = sorted(PATCHES.glob("*.patch")) + sorted((PATCHES / "rebase-26").glob("*.patch"))
+    stamp = SOURCE / ".annibale-patches"
+    if not stamp.is_file() or stamp.read_text().strip() != hashlib.sha256(b"".join(p.read_bytes() for p in patches)).hexdigest():
+        sys.exit(f"{SOURCE} was made with other patches than tools/mesa's: run PREPARE=1 REBASE=26 tools/mk-mesa.sh again")
     for tool in (VENV / "meson", BISON):
         if not tool.exists():
             sys.exit(f"missing {tool} (set AIR_VENV / AIR_BISON)")

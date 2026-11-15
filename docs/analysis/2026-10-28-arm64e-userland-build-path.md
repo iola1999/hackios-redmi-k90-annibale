@@ -79,7 +79,7 @@ arm64e 构建树 `out/ios26-resume/mesa-arm64e/mesa-26.2.5` 的源码等于 Mesa
 python3 -m venv /tmp/mesa-rebase/venv           # 放别处时用 AIR_VENV 指向它的 bin/
 /tmp/mesa-rebase/venv/bin/pip install meson==1.12.1 mako==1.4.3 PyYAML==6.0.3 packaging==26.0
 brew install ninja bison
-# hackios-dev 容器里，hackios-xnu-kernel/ 目录（补丁步骤要 GNU patch）
+# hackios-dev 容器里，hackios-xnu-userland/ 目录（补丁步骤要 GNU patch）
 PREPARE=1 VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5 REBASE=26 tools/mk-mesa.sh
 # 宿主上，工作区根目录（Xcode 的 arm64e clang 与 iPhoneOS SDK）
 python3 tools/k90auto/setup-mesa-arm64e.py      # 目标目录已存在时拒绝执行
@@ -88,5 +88,6 @@ python3 tools/k90auto/build-air.py
 
 - 2026-11-05 实测：用上面版本新建的 venv，按上面步骤在另一个目录建的树，源码与真机构建树 `diff -r` 无差异（只差 Python 缓存），编出的 `libannibaleair.dylib` 与真机构建树编出的逐字节相同（未签名 `6c65dc5a…`，签名后 `70f072b2…`）。
 - Mesa 的 isaspec 生成器按 Python 集合的顺序写 `build/src/freedreno/isa/encode.h`，这个顺序随每个进程的哈希种子变化，同一份源码两次构建会得到语句顺序不同的 `encode.h` 和不同字节的库。`build-air.py` 与 `setup-mesa-arm64e.py` 因此固定 `PYTHONHASHSEED=0`。
-- 改构建树里的 Mesa 源码时同时改 `rebase-26` 的补丁，改完在容器里用 `PREPARE=1` 重打一遍，与构建树 `diff -r` 应无差异，再跑 `build-air.py`。补丁与构建树不一致时构建照样成功，唯一的迹象是一轮跑完日志里少几行。
+- 改构建树里的 Mesa 源码时同时改 `rebase-26` 的补丁，改完在容器里用 `PREPARE=1` 重打一遍，与构建树 `diff -r` 应无差异，再跑 `build-air.py`。`build-air.py` 比对构建树里 `mk-mesa.sh` 写下的补丁摘要 `.annibale-patches` 与当前 `tools/mesa/` 的补丁，不一致时拒绝构建；`setup-mesa-arm64e.py` 对容器准备的源码做同样的检查。
+- 2026-11-16 实测：日常构建树缺 `rebase-26/0018`，与补丁摘要不一致。在发布克隆和日常工作区分别从零准备、建树、构建，两处 `libannibaleair.dylib` 未签名均为 `360b2f39…`，签名后均为 `7d0c6050…`；源码与旧构建树只差 0018 涉及的 `ir3_alias.c`、`instr-a3xx.h` 两个文件。
 - `air-build-record.json` 只覆盖 `build-air.py` 的 `FILES`（`tools/mesa/air/` 里的文件）。判断库里有没有某段插桩，用 `strings <库> | grep -c '<格式串>'`。

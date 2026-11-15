@@ -50,9 +50,18 @@ hackios-xnu-userland/ios26/fetch.sh
 
 ## 4. 提取硬件固件
 
-这三类固件要在打包根盘前准备好。
+下面的文件来自手机，要在构建用户态前准备好，放在 Git 忽略的目录里。Android 开机并连接电脑后，在工作区根目录执行：
 
-- GPU 固件：按 [Adreno 830 固件说明](../hackios-xnu-userland/firmware-gen8/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-userland/blob/k90-port/firmware-gen8/README.md)）把 `gen80000_gmu.bin`、`gen80000_sqe.fw`、`gen80000_aqe.fw` 放进 `hackios-xnu-kernel/fw-gpu/`，再用 `adb -s "$ANDROID_SERIAL" pull /odm/firmware/gen80000_zap.mbn hackios-xnu-kernel/fw-gpu/` 从手机取出签名固件。
+```sh
+mkdir -p hackios-xnu-userland/fw-gpu hackios-xnu-userland/fw-camera hackios-xnu-kernel/out/fw-iris
+adb -s "$ANDROID_SERIAL" pull /odm/firmware/gen80000_zap.mbn hackios-xnu-userland/fw-gpu/
+adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin hackios-xnu-userland/fw-camera/
+adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin hackios-xnu-userland/fw-camera/
+```
+
+- GPU 固件：`userland/build.sh` 直接使用仓库里 `hackios-xnu-userland/firmware-gen8/` 的三个固件，签名固件 `gen80000_zap.mbn` 从 `fw-gpu/` 取，见 [Adreno 830 固件说明](../hackios-xnu-userland/firmware-gen8/README.md)（[GitHub](https://github.com/iola1999/hackios-xnu-userland/blob/k90-port/firmware-gen8/README.md)）。
+- 相机传感器模块：`userland/build.sh` 用 `hackios-xnu-kernel/tools/camsensor.py` 从这两个文件生成前摄与主摄的寄存器表，缺少时停止构建。
+- Iris 视频固件：按[体验说明 §5](user-guide.md#5-读取手机固件)找到并读出 `vpu35_4v.mbn`，放进 `hackios-xnu-kernel/out/fw-iris/`，`package.py` 把它合并进根盘的 `fw/`。
 - Wi-Fi 固件（WCN7850）：从手机读出 `modem_a` 分区，执行 `python3 hackios-xnu-kernel/tools/mk-fw-wifi.py extract modem_a.img.gz hackios-xnu-kernel/out/fw-wifi`。`package.py` 把其中 `amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf` 4 个文件合并进根盘的 `fw/`。
 - 蓝牙固件（WCN7850，可选）：从手机读出 `bluetooth_a` 分区，执行 `python3 hackios-xnu-kernel/tools/mk-fw-bt.py extract bluetooth_a.img.gz hackios-xnu-kernel/out/fw-bt`，得到 `hmtbtfw20.tlv`、`hmtbtfw20.ver`、`hmtnv20.bin`。
 
@@ -60,7 +69,7 @@ hackios-xnu-userland/ios26/fetch.sh
 
 按[内核仓库说明](../hackios-xnu-kernel/README.md) §2 构建。执行 `xnu26/build-macos.sh` 之前必须先运行 `hackios-xnu-kernel/tools/mk-ath12k.sh`，生成 `hackios-xnu-kernel/xnu-deps/build/ath12k/out/ath12k.o`；`build-macos.sh` 只在该文件存在时把 WCN7850 的 `ath12k` 驱动与 FreeBSD LinuxKPI 层链接进内核，缺少时编出的内核没有 Wi-Fi。
 
-`build-macos.sh` 已默认在 `gmake` 参数中固化 `CWARNFLAGS_ADD` 与 `CXXWARNFLAGS_ADD` 屏蔽 `-Wreserved-identifier` 与 `-Wreserved-macro-identifier` 警告。执行全量或增量构建时，建议将标准输出与标准错误重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止管道缓冲反压降低编译吞吐。在工作区根目录执行命令如下：
+`build-macos.sh` 通过 `RC_NONARCH_CFLAGS` 默认屏蔽 `-Wreserved-identifier` 与 `-Wreserved-macro-identifier` 警告。执行全量或增量构建时，建议将标准输出与标准错误重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止管道缓冲反压降低编译吞吐。在工作区根目录执行命令如下：
 
 ```sh
 bash <<'BASH'
@@ -87,7 +96,19 @@ FLASHBOOT=1 FLASHBOOT_ONLY=1 CRYPTEXES=flash bash build.sh   # 只含 stage0 与
 
 ## 7. 打包根盘
 
-先按 [arm64e 用户态构建 §6](analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建) 运行 `python3 tools/k90auto/setup-mesa-arm64e.py` 与 `python3 tools/k90auto/build-air.py`，编译并签名 `libannibaleair.dylib`。再在工作区根目录执行 `python3 tools/k90auto/package.py`，打包开关见 [k90auto 说明](../tools/k90auto/README.md) §7。
+先编译并签名 `libannibaleair.dylib`，宿主需要一次性安装的工具见 [arm64e 用户态构建 §6](analysis/2026-10-28-arm64e-userland-build-path.md#6-构建树从仓库重建)：
+
+```sh
+# hackios-dev 容器里，hackios-xnu-userland/ 目录：准备打好补丁的 Mesa 源码
+PREPARE=1 VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5 REBASE=26 tools/mk-mesa.sh
+# 宿主上，工作区根目录
+python3 tools/k90auto/setup-mesa-arm64e.py
+python3 tools/k90auto/build-air.py
+```
+
+`tools/mesa/` 的补丁更新后，`build-air.py` 会拒绝构建，这时移走 `hackios-xnu-kernel/out/ios26-resume/mesa-arm64e/`，重新执行上面三步，约一分钟。
+
+再在工作区根目录执行 `python3 tools/k90auto/package.py`，打包开关见 [k90auto 说明](../tools/k90auto/README.md) §7。
 
 `package.py` 基于 `userland/root/` 编译并注入 Metal 驱动与各个注入库，合并 Wi-Fi、蓝牙固件，输出 `hackios-xnu-kernel/out/ios26-resume/bbmetal-device/root/`（根盘目录）和同目录的 `root.apfs`。
 
@@ -131,8 +152,22 @@ python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
 Release 只放本项目的文件。根盘里来自 IPSW 的文件（launchd 任务与缓存、`/private/var` 模板和少量原样复制的系统文件）和手机厂商固件不进 Release，改为记录生成方法，由用户在本地用 `tools/release/assemble.py` 从自己的 IPSW 和手机重新生成。
 
 1. 三个仓库的改动都已提交并推送，然后在本机重新克隆一份，目录不限。`xnu26/build-macos.sh` 与 `tools/mk-ath12k.sh` 用 `-ffile-prefix-map` 把内核里 `__FILE__` 的路径改成相对源码目录的路径，产物里不再有本机目录；`build-release.py` 仍会检查，发现本机用户目录时拒绝生成 Release 包。已有构建树里旧的目标文件不会因为参数变化自动重新编译，所以要用新克隆。
-2. 在这份克隆里按第 2～8 节构建全部产物，再执行 `bash hackios-xnu-kernel/tools/android/build.sh` 编译安卓端分区工具。
-3. 在工作区根目录执行：
+2. 准备仓库之外的输入：第 3 节的 IPSW 镜像与提取结果、第 4 节的手机固件、参考 loader 镜像 `hackios-xnu-kernel/out/handoff-loader-v19.img`（UEFI 没有改动时沿用上一版的，否则按第 8 节重建）。日常工作区已有这些输入时，在新克隆根目录执行下面的命令复用，不用重新下载和提取。镜像用硬链接，提取结果用 APFS 克隆（`cp -c`），都不占额外空间，构建对提取结果的改动也不会影响日常工作区。
+
+```sh
+W=<日常工作区>
+mkdir -p hackios-xnu-kernel/out/ipsw/v57/26
+ln "$W"/hackios-xnu-kernel/out/ipsw/v57/26/{os,systemos,appos}.dmg hackios-xnu-kernel/out/ipsw/v57/26/
+for f in rootfs cryptex cryptex-app '23G90__iPhone18,3' cryptex-app.dmg rootfs.slt system.manifest var.skel .done-rootfs .done-cryptex .done-cryptex-app; do
+  cp -c -R "$W/hackios-xnu-userland/ios26/$f" hackios-xnu-userland/ios26/
+done
+touch hackios-xnu-userland/ios26/rootfs/.file && chmod 000 hackios-xnu-userland/ios26/rootfs/.file   # 权限 000，cp 读不了
+cp -R "$W"/hackios-xnu-userland/{fw-gpu,fw-camera} hackios-xnu-userland/
+cp -R "$W"/hackios-xnu-kernel/out/{fw-wifi,fw-bt,fw-iris,handoff-loader-v19.img} hackios-xnu-kernel/out/
+```
+
+3. 在新克隆根目录执行 `tools/release/build-all.sh`，按第 3～8 节构建全部产物：内核在后台构建，同时构建用户态、启动卷和 AIR 库，再打包根盘、封装 loader，最后编译安卓端分区工具。每一步的日志在 `out/release-build/`，失败时脚本停下并打印日志末尾。只重跑某几步时把步骤名作为参数，例如 `tools/release/build-all.sh package loader`。
+4. 在工作区根目录执行：
 
 ```sh
 python3 tools/release/build-release.py vX.Y.Z \
@@ -149,8 +184,8 @@ python3 tools/release/build-release.py vX.Y.Z \
 - 把参考 loader 镜像的载荷换成只含 loader 的最小载荷，用作 Release 里的 loader 外壳；用外壳与参考镜像分别封装，结果必须相同，给了 `--expect-boot` 时还要与它相同。
 - 检查包内没有 ssh 密钥和本机用户目录，输出 `out/release/hackios-k90-vX.Y.Z.tar.gz` 与 `.sha256`。末尾的 review 行列出名称来自 Apple、但按本项目文件放入 Release 的文件，发布前逐个确认来源。
 
-4. 发布前在一台 Linux 机器或容器里解包，按[体验说明](user-guide.md)第 4～6 步合成一次，确认输出「holds exactly the release's files」或「byte for byte」；有条件时按第 7 步在真机临时启动。
-5. 发布：
+5. 发布前在一台 Linux 机器或容器里解包，按[体验说明](user-guide.md)第 4～6 步合成一次，确认输出「holds exactly the release's files」或「byte for byte」；有条件时按第 7 步在真机临时启动。只改了内核或注入库、`assemble.py` 与 `localfiles.py` 没有改动的修订版可以跳过这一步。
+6. 发布：
 
 ```sh
 gh release create vX.Y.Z out/release/hackios-k90-vX.Y.Z.tar.gz out/release/hackios-k90-vX.Y.Z.tar.gz.sha256 \
@@ -167,7 +202,7 @@ gh release create vX.Y.Z out/release/hackios-k90-vX.Y.Z.tar.gz out/release/hacki
 - 保留该目录的脚本、`hackios-xnu-kernel/out/ipsw/v57/26/` 中的三个原始镜像、源码、工具链、发布包与校验文件。
 - 下次构建前执行 `bash hackios-xnu-kernel/ios26/fetch.sh`，脚本会重新提取并检查系统文件。
 
-三个原始镜像可在同一文件系统的工作区之间使用硬链接，共享文件按只读输入使用。提取目录由构建脚本删改，继续在各构建目录独立准备。发布构建会写入用户态和打包输出，正式发布继续使用第 1 步的新克隆，保留日常调试工作区的输入和产物。
+三个原始镜像可在同一文件系统的工作区之间使用硬链接，共享文件按只读输入使用。提取目录由构建脚本删改，各工作区用 APFS 克隆各自持有一份（第 2 步），不要用符号链接或硬链接共享。发布构建会写入用户态和打包输出，正式发布继续使用第 1 步的新克隆，保留日常调试工作区的输入和产物。
 
 ## 11. 版本号
 

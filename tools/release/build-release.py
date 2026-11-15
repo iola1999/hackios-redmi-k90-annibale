@@ -52,10 +52,18 @@ IPSW_SOURCE = {"url": "https://updates.cdn-apple.com/2026SummerFCS/c2f9fa07-0acc
                "zip_bytes": 11481186987,
                "members": {"os": "094-96558-090.dmg.aea", "systemos": "094-95851-092.dmg.aea",
                            "appos": "094-96441-094.dmg"}}
-# the phone's own firmware: which partition image each file is extracted from
+# the phone's own firmware: which of assemble.py's sources each file comes from
 VENDOR_FIRMWARE = {"gen80000_zap.mbn": "zap", "vpu35_4v.mbn": "iris",
                    "amss20.bin": "modem", "regdb.bin": "modem", "bd_p11.elf": "modem", "phy_ucode20.elf": "modem",
-                   "hmtbtfw20.tlv": "bluetooth", "hmtbtfw20.ver": "bluetooth", "hmtnv20.bin": "bluetooth"}
+                   "hmtbtfw20.tlv": "bluetooth", "hmtbtfw20.ver": "bluetooth", "hmtnv20.bin": "bluetooth",
+                   "camera-ov20b-front-mode4.tab": "camera", "camera-ovx8000-wide-mode24.tab": "camera"}
+# the camera's register tables: camsensor.py --profile of a sensor module in /odm/lib64/camera/ of
+# the phone, in the mode userland/build.sh makes them with
+CAMERA_PROFILES = {"camera-ov20b-front-mode4.tab": ("com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin", 4),
+                   "camera-ovx8000-wide-mode24.tab": ("com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin", 24)}
+# property lists of the root image made from an iOS one other than the jobs (userland/mkcameraresources.py)
+PLIST_SOURCES = {"lib/CMCaptureResources/V57/AVCaptureSession.plist":
+                 "os:System/Library/PrivateFrameworks/CMCapture.framework/V57/AVCaptureSession.plist"}
 # fw/ files a release may carry: the GPU firmware of firmware-gen8/ (Qualcomm's redistribution
 # licence beside it) and package.py's own InterfaceNamer preference
 RELEASE_FIRMWARE = {"gen80000_aqe.fw", "gen80000_gmu.bin", "gen80000_sqe.fw", "LICENSE.qcom.txt", "NOTICE.qcom.txt",
@@ -67,6 +75,8 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/xnuloader/loader-phone.efi",
                  "hackios-xnu-kernel/tools/reseal-loader-img.py", "hackios-xnu-kernel/prebuilt/uefi/mkbootimg.py",
                  "hackios-xnu-kernel/tools/mk-fw-wifi.py", "hackios-xnu-kernel/tools/mk-fw-bt.py",
+                 "hackios-xnu-kernel/tools/camsensor.py", "hackios-xnu-kernel/tools/camsensor_profile.py",
+                 "hackios-xnu-kernel/tools/camsensor_v5.py",
                  "hackios-xnu-kernel/tools/userdata-dual-carve.py",
                  "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py"]
 LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
@@ -131,6 +141,8 @@ def split(root):
             if name not in VENDOR_FIRMWARE:
                 raise SystemExit(f"{rel}: firmware this script does not know; add it to VENDOR_FIRMWARE or RELEASE_FIRMWARE")
             recipes[rel] = {"kind": "firmware", "name": name, "source": VENDOR_FIRMWARE[name]}
+            if name in CAMERA_PROFILES:
+                recipes[rel]["module"], recipes[rel]["mode"] = CAMERA_PROFILES[name]
             continue
         same = [ref for ref in index.get(len(data), []) if read_ios(":".join(ref)) == data] if len(data) > 8 else []
         if same:
@@ -139,6 +151,8 @@ def split(root):
             recipes[rel] = {"kind": "cache", "from": "os:System/Library/xpc/launchd.plist"}
         elif rel == "etc/var.skel":
             recipes[rel] = {"kind": "skeleton"}
+        elif rel in PLIST_SOURCES:
+            recipes[rel] = {"kind": "plist", "from": PLIST_SOURCES[rel]}
         elif rel.startswith("LaunchDaemons/"):
             for kind in ("LaunchDaemons", "LaunchAngels"):
                 if (IOS_VOLUMES["os"] / "System/Library" / kind / name).is_file():
@@ -323,8 +337,8 @@ def main():
     for r in recipes.values():
         sizes[r["kind"]] = sizes.get(r["kind"], 0) + 1
     # bytes of the values the edit lists publish, to review what a release carries of iOS's files
-    published = sum(len(localfiles.dump_plist({"v": e[2]})) for r in recipes.values() if r["kind"] in ("plist", "cache")
-                    for e in r["edits"] if e[0] == "set")
+    published = sum(len(localfiles.dump_plist({"v": e[-1]})) for r in recipes.values() if r["kind"] in ("plist", "cache")
+                    for e in r["edits"] if e[0] in ("set", "insert"))
     print(f"build-release: {archive} ({archive.stat().st_size} bytes)")
     print(f"build-release: local files by kind {sizes}; property list edits carry {published} bytes of values")
     print(f"build-release: expected root.apfs {manifest['expected']['root_sha256']}, boot image {boot_sha}")

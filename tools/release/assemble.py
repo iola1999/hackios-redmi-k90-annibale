@@ -4,12 +4,15 @@
 usage: assemble.py ipsw DIR
            downloads os.dmg, systemos.dmg and appos.dmg of the release's iOS build from Apple
            into DIR and decrypts them (about 10.4 GB of downloads, 15 GB on disk)
-       assemble.py build --ipsw DIR --modem IMG --bluetooth IMG --zap FILE [--iris FILE] [-o DIR]
+       assemble.py build --ipsw DIR --modem IMG --bluetooth IMG --zap FILE [--iris FILE] [--camera DIR]
+                         [-o DIR]
            makes DIR/root.apfs and DIR/boot-ios.img (default DIR: ./out)
 
 Run it from the unpacked release (hackios-k90-vX.Y.Z/tools/release/assemble.py). --modem and
 --bluetooth are images of the phone's modem_a and bluetooth_a partitions (.img or .img.gz),
---zap is the phone's /odm/firmware/gen80000_zap.mbn; docs/user-guide.md says how to read them.
+--zap is the phone's /odm/firmware/gen80000_zap.mbn, --camera a directory with the phone's camera
+sensor modules (/odm/lib64/camera/com.qti.sensormodule.annibale_*.bin); docs/user-guide.md says
+how to read them.
 
 Needs Python 3.10 or newer and 7-Zip 23 or newer (7zz or 7z) on PATH; `ipsw` also needs the
 Python package cryptography. Nothing here talks to the phone.
@@ -132,6 +135,13 @@ def firmware(args, recipes, work):
             if args.iris is None:
                 raise SystemExit("this release requires --iris FILE (the phone's vpu35_4v.mbn)")
             files[r["name"]] = args.iris.read_bytes()
+        if r["kind"] == "firmware" and r["source"] == "camera":
+            module = (args.camera or Path()) / r["module"]
+            if args.camera is None or not module.is_file():
+                raise SystemExit(f"this release requires --camera DIR with the phone's {r['module']}")
+            out = work / r["name"]
+            run([sys.executable, K / "tools/camsensor.py", "--profile", module, r["mode"], out], stdout=subprocess.DEVNULL)
+            files[r["name"]] = out.read_bytes()
     return files
 
 
@@ -221,6 +231,8 @@ def main():
     p.add_argument("--bluetooth", type=Path, required=True)
     p.add_argument("--zap", type=Path, required=True)
     p.add_argument("--iris", type=Path, help="the phone's signed vpu35_4v.mbn, required by releases with Iris")
+    p.add_argument("--camera", type=Path, help="directory with the phone's camera sensor modules, "
+                                                "required by releases with the camera")
     p.add_argument("-o", "--output", type=Path, default=Path("out"))
     args = ap.parse_args()
     if sys.version_info < (3, 10):

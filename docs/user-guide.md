@@ -56,11 +56,13 @@ python3 tools/release/assemble.py ipsw ipsw
 
 ## 5. 读取手机固件
 
-GPU、Wi-Fi、蓝牙与 Iris 视频固件从你自己的手机读出，Android 开机并连接电脑后执行：
+GPU、Wi-Fi、蓝牙、Iris 视频固件与相机传感器模块从你自己的手机读出，Android 开机并连接电脑后执行：
 
 ```sh
-mkdir -p fw
+mkdir -p fw/camera
 adb -s "$ANDROID_SERIAL" pull /odm/firmware/gen80000_zap.mbn fw/
+adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin fw/camera/
+adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin fw/camera/
 adb -s "$ANDROID_SERIAL" shell su -c "dd if=/dev/block/by-name/modem_a bs=4096 2>/dev/null" | gzip -1 > fw/modem_a.img.gz
 adb -s "$ANDROID_SERIAL" shell su -c "dd if=/dev/block/by-name/bluetooth_a bs=4096 2>/dev/null" | gzip -1 > fw/bluetooth_a.img.gz
 adb -s "$ANDROID_SERIAL" shell 'find /odm/firmware /vendor/firmware -name vpu35_4v.mbn 2>/dev/null'
@@ -79,7 +81,7 @@ adb -s "$ANDROID_SERIAL" pull "$IRIS_FIRMWARE_PATH" fw/vpu35_4v.mbn
 
 ```sh
 python3 tools/release/assemble.py build --ipsw ipsw --modem fw/modem_a.img.gz \
-  --bluetooth fw/bluetooth_a.img.gz --zap fw/gen80000_zap.mbn --iris fw/vpu35_4v.mbn -o out
+  --bluetooth fw/bluetooth_a.img.gz --zap fw/gen80000_zap.mbn --iris fw/vpu35_4v.mbn --camera fw/camera -o out
 ```
 
 脚本从 IPSW 取出需要的系统配置，按 Release 记录的改动重新生成，再合并固件，得到 `out/root.apfs` 与 `out/boot-ios.img`。每个生成的文件都会和 Release 记录的 SHA-256 比对，不一致时脚本会停下并报出文件名。脚本最后会输出下面三种结论之一。

@@ -29,6 +29,18 @@ class TestEdits(unittest.TestCase):
         # only the changed parts are carried, not the untouched values of the base
         self.assertNotIn("Label", str(edits))
 
+    def test_array_insert_carries_only_the_added_elements(self):
+        base = {"Devices": [{"name": "Back"}, {"name": "Front Ultra Wide"}, {"name": "Microphone"}]}
+        wanted = {"Devices": [{"name": "Back"}, {"name": "Front"}, {"name": "Front Ultra Wide"},
+                              {"name": "Microphone"}, {"name": "Extra"}]}
+        edits = localfiles.plist_edits(base, wanted)
+        self.assertEqual(edits, [["insert", ["Devices"], 1, {"name": "Front"}],
+                                 ["insert", ["Devices"], 4, {"name": "Extra"}]])
+        made = localfiles.apply_edits(plistlib.loads(localfiles.dump_plist(base)), edits)
+        self.assertEqual(localfiles.dump_plist(made), localfiles.dump_plist(wanted))
+        # an array changed in place is still replaced as a whole
+        self.assertEqual(localfiles.plist_edits({"a": [1, 2]}, {"a": [3, 2, 1]}), [["set", ["a"], [3, 2, 1]]])
+
     def test_whole_value_replaced(self):
         self.assertEqual(localfiles.apply_edits({"a": 1}, localfiles.plist_edits({"a": 1}, [1, 2])), [1, 2])
 
@@ -52,10 +64,15 @@ class TestMake(unittest.TestCase):
             localfiles.make(recipe, lambda ref: localfiles.dump_plist({"Label": "y"}), "", {}, None)
 
     def test_cache_takes_the_image_jobs(self):
-        apple = localfiles.dump_plist({"LaunchDaemons": {"/System/Library/LaunchDaemons/old.plist": {}},
+        apple = localfiles.dump_plist({"LaunchDaemons": {"/System/Library/LaunchDaemons/old.plist": {},
+                                                         "/System/Library/LaunchAngels/angel.plist": {}},
                                        "VersionNumber": 1})
-        jobs = {"new.plist": localfiles.dump_plist({"Label": "new"})}
-        wanted = {"LaunchDaemons": {"/System/Library/LaunchDaemons/new.plist": {"Label": "new"}}, "VersionNumber": 1}
+        jobs = {"new.plist": localfiles.dump_plist({"Label": "new"}),
+                "angel.plist": localfiles.dump_plist({"Label": "angel"})}
+        # an angel stays under LaunchAngels/, or RunningBoard refuses to start it
+        wanted = {"LaunchDaemons": {"/System/Library/LaunchDaemons/new.plist": {"Label": "new"},
+                                    "/System/Library/LaunchAngels/angel.plist": {"Label": "angel"}},
+                  "VersionNumber": 1}
         recipe = {"path": "xpc/launchd.plist", "kind": "cache", "from": "os:launchd.plist", "edits": [],
                   "sha256": localfiles.sha256(localfiles.dump_plist(wanted))}
         self.assertEqual(plistlib.loads(localfiles.make(recipe, lambda ref: apple, "", jobs, None)), wanted)
