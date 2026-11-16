@@ -13,7 +13,7 @@
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
 | 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证；改进清单第 1～3 项已实现：`air0018-r2` 的 7 条巡检命令都读到结束行，直连模式往返 379 ms；`fetch.py` 经 outbox 取 1.33 MB 用时 0.64 s；每轮结束截图自动转 PNG；其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
-| 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 会话已建立，建图在 `BWGraph` 以 -666 失败 | [M2](../backlog/multimedia.md) |
+| 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 后摄预览已出图，偏暗偏绿，约 8.7 帧/秒；前摄与拍照未通过 | [M2](../backlog/multimedia.md) |
 | 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；Iris 裁剪与拒绝后关闭 `iris-r1` 真机通过：1080p 本地播放 300 帧，被拒会话释放槽位；首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
 | 真机性能 | 首次使用路径（专化等待、AIR 翻译与进程级锁）最重，其次是调频与 4 核、CPU 面板拷贝 | 待 3 轮基线采集 | [G9、G15](../backlog/graphics.md)、[S9](../backlog/system.md)、[P11](../backlog/platform.md) |
 | TrollStore 安装大 IPA 报 181 | ramfs 克隆目录时跳过已换出到磁盘的页，复制进容器的文件读回全 0，`Info.plist` 读不出，LaunchServices 登记失败；装好后启动被结束，是因为 MiniAMFI 把安装的应用当成平台二进制 | 克隆读盘修复 `clone-r1` 真机通过：微博安装成功，容器内没有被破坏的文件；平台判定修复 `amfi-r1` 真机通过：微博启动到首次运行的用户协议对话框 | 见 §12 |
@@ -261,7 +261,7 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 - 前摄 VANA 对应 PM8010M L3M（SPMI SID `0xC`，基址 `0x4200`），内核只看投票命令返回值，从没读回使能或过流状态。
 - 后摄：曝光辅助函数只认 4096×3072（`annibale_camera_exposure.inc:47-51`），实际 profile 为 2560×1920；91.x 时期内核不发布 `BACK_MODE24`，后摄只建了手电筒 stream，formats 为空；HEAD 上后摄没有观测记录，后摄采集从没在真机上跑过。
 
-会话建图（11-16，`cam-v57-r1`～`r6`，内核 `12377-iris1`）：
+会话建图（11-16，`cam-v57-r1`～`r12`，内核 `12377-iris1`）：
 
 - 根因：`init.c` 以 union 方式把只含 `AVCaptureSession.plist` 的目录挂到 `CMCapture.framework/V57`，列目录时只看得到上层这一个文件。CMCapture 经 NSBundle 查 `*-DeviceInfoBase.plist` 失败，机型专属配置加载不了，退回 `iOS/AVCaptureSession.plist`，所有源都按 deviceType 15 请求，`copyStreamsFromDevice` 返回 -12780。
 - 根盘改为带完整 V57 目录，`init.c` 用普通只读挂载。
@@ -269,9 +269,12 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 - 流格式必须带 `VideoFieldOfView`，缺少时 CMCapture 组装格式字典崩溃；流属性 `PixelSize` 必须在 0～100 之间，否则 `BWFigVideoCaptureStream` 初始化失败。两项数值取自传感器模组：前摄 77.3°、0.702 µm，后摄 69.4°、1.008 µm。
 - 接管流不再启动采集。CMCapture 开机列举相机时会逐个接管每路流；原实现一接管就开采，前摄取帧超时（错误 60）后内核保留资源，之后两路相机都装不上 profile。
 - 格式的 `SmartStyleRenderingSupported` 与 `SemanticRenderingSupported` 改为 false（用户 11-16 确认）。这两项要求流的 Metadata 输出提供语义遮罩，本机 ISP 不生成，建图会在 `BWMultiStreamCameraSourceNode` 断言失败。
-- 现状：相机应用建立会话，录制指示灯亮；建图在 `BWGraph.m:1312` 以 -666 失败，`NSError` 没有输出，预览仍黑。后摄能出帧（2560×1920，绿通道高出黑电平 33）。
+- 建图的 -666 由 `-[BWGraph _resolveFormats:]` 返回，`NSError` 只有错误码。`r8`、`r9` 的探针定位到失败连接：后摄源节点的 `StillImageSensorRaw(StillImageRaw)` 输出经透传到达 PhotonicEngine 的 sensor raw 输入，该输入只接受 `bxc8`／`bvc8` 压缩 Bayer，流给的是 BGRA，两端没有公共格式。
+- 这路 sensor raw 输出供照片链路的软件 ISP 使用。设备级 `AVCaptureDeviceCommonSettings/softISPSupported` 经源属性 `SoftISP` 打开它；格式级 `ConfigureForSoftISPSupport` 只在前者为假时才起作用。`r10` 只改格式级，建图仍失败；`r11` 两项都改为 false 后建图通过。
+- 会话启动随后在 `BWMultiStreamCameraSourceNode.m:13971` 以 -12780 失败。源节点建缓冲池前读流属性 `VideoOutputsColorInfo`，静止图输出的颜色附件要与会话请求的色彩空间一致；CMCapture 不写这个属性，原实现只回传写入值，读到的是空字典。该属性改为只读，按流给缓冲加的标签（BT.709 原色与传递函数、BT.601 矩阵）报告四路画面输出。
+- 现状（`r12`）：会话启动，相机应用显示后摄预览，PrimaryScaler 输出 2216×1584 `420f`，约 8.7 帧/秒。画面偏暗偏绿，首帧绿通道高出黑电平 39。照片处理链有多组 Metal 管线编译失败（affineGPUMetalV2、GDC、DeepZoom、Demosaic 等），拍照未验证。
 
-下一步：一轮探针取得 `BWGraph` 提交配置时的 `NSError` 与失败节点，再定单个变量。前摄取帧超时、黑电平与半块问题按原顺序排在会话建图之后。
+下一步：校正后摄预览的亮度、颜色与帧率；拍照链路的 Metal 编译失败归 AIR 着色器翻译排查。前摄取帧超时、黑电平与半块问题按原顺序排在后摄预览之后。
 
 未确认：PM8010 状态寄存器位定义与 QTB 寄存器布局；`inject_media.c` 沿用 iOS 16.5 时期的替换（稳定化固定为 0、跳过 GNR 节点等）对 iOS 26 建图的影响。
 
