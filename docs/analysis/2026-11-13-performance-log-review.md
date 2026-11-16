@@ -30,7 +30,7 @@ S9 修改保持 ANNFS001 version 3 和双槽提交顺序，处理容量失败后
 | 打包区间并集 | 12.037835 秒，占该锁等待区间 84.4278% |
 | 取得锁后的本次打包 | 13.629 ms，随后返回 ENOSPC |
 
-诊断轮使用的 [`ramfs_disk_sync_impl()`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 在容量失败出口保留 `rm_meta_dirty`。后续同步重新取得 `rm_lock` 并全量打包。该出口尚未执行本次 payload／super 写入，以上读数无法确定 UFS 写入耗时。
+诊断轮使用的 `ramfs_disk_sync_impl()`（原 `ramfs_disk.inc`）在容量失败出口保留 `rm_meta_dirty`。后续同步重新取得 `rm_lock` 并全量打包。该出口尚未执行本次 payload／super 写入，以上读数无法确定 UFS 写入耗时。
 
 私有 pack 失败输出在持锁期间执行，阶段计时结束后仍有打印开销；正式源码没有该容量失败打印。760 次遍历和锁竞争已确认，诊断输出的额外锁持有时间与生产版本等待量仍需分开测量。
 
@@ -38,7 +38,7 @@ S9 修改保持 ANNFS001 version 3 和双槽提交顺序，处理容量失败后
 
 ### 2.2 已提交检查点的容量组成
 
-ANNFS001 version 3 的记录由 [`ramfs_disk_pack_locked()`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 写入、[`ramfs_disk_unpack()`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk_restore.inc) 恢复。每槽 payload 上限为 33,550,336 字节；变长段分别按 8 字节对齐。
+ANNFS001 version 3 的记录由原 `ramfs_disk.inc` 的 `ramfs_disk_pack_locked()` 写入、`ramfs_disk_restore.inc` 的 `ramfs_disk_unpack()` 恢复。每槽 payload 上限为 33,550,336 字节；变长段分别按 8 字节对齐。
 
 | 类别 | 字节组成 |
 |---|---|

@@ -65,10 +65,10 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - **明确禁止的做法。** 不得用方法交换（swizzling）强改 UI 视图背景色或伪造通知／权限授权返回值；不得在渲染管线编译失败时回退为固定纯色管线掩盖着色器错误；不得针对单个应用硬编码环境变量绕过通用容器目录初始化；不得用用户态定时轮询打包脚本代替内核块设备直写持久化。
 - **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区，见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。
   - `darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex，支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`。
-  - `darwin_var`（`/dev/ufs_darwin_var`）为 APFS 容器时挂载其中的 Data 卷；早期安装由内核直写块持久化层（`ANNFS001`，`ramfs_disk.inc`）直接读写物理块，并以双 32 MiB 乒乓元数据槽位实时落盘。
+  - `darwin_var`（`/dev/ufs_darwin_var`）为可写 APFS 容器并挂载其中的 Data 卷；旧版 `ANNFS001` 内核与 `init` 挂载路径已移除，早期安装需先经 `annfs-to-apfs.py` 迁移。
   - `darwin_nvram`（32 MiB，`/dev/ufs_darwin_nvram`）放 NVRAM bank 与 panic 日志：loader 读入 bank 交给 `IODTNVRAM`，内核经 `IONVRAMController` 写回，见[持久化 NVRAM](docs/analysis/2026-11-16-persistent-nvram.md)。
   - 内核 `IOKit` 拓扑为 `disk0 -> disk0s1 -> AppleAPFSContainer (disk1) -> AppleAPFSVolume (disk1s1 System / disk1s2 Data / disk1s3 Preboot)`；`devfs` 的 `/dev/disk*` 节点与 iPhone 真机保持一致。
-  - `statfs` 的 `/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`；总容量按 128 GB 容器十进制口径计算，扣除系统卷、Cryptex 与 `/private/var` 实际已用空间。
+  - `statfs` 的 `/` 对应 `/dev/disk1s1`、`/private/var` 对应 `/dev/disk1s2`，`f_fstypename` 统一报 `"apfs"`；总容量按 `darwin` 与 `darwin_var` 真实分区字节数之和计算（无 `darwin_var` 时回退 128 GB 十进制口径），扣除系统卷、Cryptex 与 `/private/var` 实际已用空间。
 - **子 Agent 与团队成员模型选择。** 派发复杂排查、反汇编分析、内核／驱动编码或 Teamwork 成员任务时，指定使用高能力模型（`inherit`／Gemini 4 Argon 或 `pro`）。
 - **主 Agent 过程与产物审查。** 派发子 Agent 或团队成员执行分析、实现、构建与真机测试后，主 Agent 必须在提交或采信结论前亲自审阅实际 `git diff`、构建树同步状态、编译日志与真机原始日志／截图，核查空壳伪实现、底层契约遗漏、锁与中断上下文错误、未提交改动混入打包，以及测试程序返回码为 0 但内核日志已报错等偏差，发现问题立即打回修正。
 

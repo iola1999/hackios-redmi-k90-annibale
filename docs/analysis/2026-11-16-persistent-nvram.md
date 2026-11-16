@@ -9,7 +9,7 @@
 - 内核的 `AnnibaleNVRAM` 继承 `IONVRAMController`，经平台专家交给 `IODTNVRAM`。XNU 的 `IONVRAMCHRPHandler` 每次同步写下一个 bank，与 iPhone 的 `AppleARMNORNVRAM` 对应。
 - 背光改存 NVRAM 变量 `backlight-level` 和 `backlight-nits`，名称与格式取自 iOS 26 kernelcache 中 AppleARMPlatform 内核扩展的字符串；`darwin_var` 末尾的 `BLS3` 记录已删除。
 - 真机上 NVRAM 变量和 panic 日志都能跨重启保留，背光驱动开机时恢复上次保存的亮度；较旧的 bank 写到一半时，loader 读回较新的完整 bank（第 6 节）。
-- 开机后 CoreBrightness 初始化时把亮度设为 140 nits，用户调过的亮度在解锁后仍不能保留，原因待查（第 5 节）。
+- 第二阶段反汇编 23G90 `CoreBrightness`（`DisplayOpen` `0x1e27444a4`）与 `AppleARMBacklight::setPropertiesGated`（`0xfffffe00084b3d6c`）查明：`useNewBacklightArchitecture` 下 `IODisplayParameters["brightness"]` 为 `0..65536` 归一化滑块位置，`DisplayBrightnessNitsNVRAM` 仅用于向 iBoot 写入开机苹果标亮度种子，不改动当前面板亮度。对齐该契约后，低亮度（40.513 nits）跨连续两次重启与解锁完整保留（`stage2-r1`～`stage2-r3`）。
 
 ## 2. 分区布局
 
@@ -44,9 +44,8 @@
 ## 5. 背光
 
 - 用户调节亮度时（触摸或滑块），`MiniAppleARMBacklight` 把面板值写进 `backlight-level`（十进制），把亮度写进 `backlight-nits`（16.16 nits，`0x%08x`）。这两个变量先进 `IODTNVRAM` 的字典，下一次同步时写进 `darwin_nvram`。
-- 启动时背光驱动和 `MiniFramebufferDCS.inc` 先读这两个变量。读不到时退回 `ANNFS001` 超级块里的记录，没有 `darwin_nvram` 的早期安装照旧在那里保存背光。
-- iOS 26 kernelcache 中 AppleARMPlatform 的字符串里，`DisplayBrightnessNitsNVRAM`、`backlight-nits`、`0x%08x` 与 `updated NVRAM with level 0x%x` 相邻，推测 AppleARMBacklight 收到 backboardd 的 `DisplayBrightnessNitsNVRAM` 时改写这两个变量，未反汇编确认。本机在用户触摸或拖动滑块之后保存，时机与之不同。
-- 2026-11-16 用 `v0.2.0` 发布镜像启动时，驱动以 NVRAM 里的 354.468 nits 启动，随后 backboardd 下发 `DisplayBrightnessNitsNVRAM=9175040`（140 nits），驱动按普通请求执行，屏幕停在 140 nits。`/private/var/mobile/Library/Preferences` 下没有 `com.apple.CoreBrightness.plist`，`com.apple.backboardd.plist` 里只有 `BacklightLevel = 1.0`。CoreBrightness 开机时从偏好、NVRAM 还是背光服务的属性取当前亮度，需要反汇编确认，记在平台待办 P1。
+- 早期在没有 `darwin_nvram` 的安装上曾回退读取 `ANNFS001` 超级块记录；第二阶段移除内核 `ANNFS001` 代码后，背光持久化统一走 `darwin_nvram` 的 `backlight-level` 与 `backlight-nits`。
+- 反汇编 23G90 `AppleARMBacklight::setPropertiesGated`（`0xfffffe00084b3d6c`）与 `CoreBrightness`（`0x1e27444a4`、`0x1e274544c`）确认：`DisplayBrightnessNitsNVRAM` 仅用于同步 iBoot 启动画面 NVRAM 亮度种子，已有用户保存亮度时忽略该键且不更新实时面板 DBV；同时 `IODisplayParameters` 发布 `brightness = {0, 65536, slider16}` 与 `rawBrightness = {5, 6750, value}`。修复后在 `stage2-r1`～`stage2-r3` 验证滑块拉至底端（`backlight-level = 611`，40.513 nits）连续两次重启并解锁均保持不变，同时验证了 `ufs_native=0` 经 loader 块服务写回 `darwin_nvram` bank 跨重启保留。
 - AppleARMPlatform 的字符串里没有 `IONVRAM-SYNCNOW-PROPERTY`。这里同样只改字典，靠第 4 节的同步时机写回，强制断电会丢掉上次同步之后的调节。
 
 ## 6. 真机验证
@@ -75,5 +74,4 @@ GPT 改写与 loader 刷写的步骤记录在第 7 节，下表是之后的四�
 ## 8. 未完成事项
 
 - 发布与安装：Release 和体验说明还按两分区布局编写。新装划分已会建出 `darwin_nvram`；已安装的用户需要先转为 APFS 数据卷，再用 `--split-nvram` 拆出分区，步骤见[双系统部署手册 §4](../plan/dual-boot-setup.md#4-建立数据卷)。`ANNFS001` 数据卷用到分区末尾，不能直接拆分。
-- 开机后亮度被 CoreBrightness 设为 140 nits（第 5 节），用户调过的亮度要等这一来源查清后才能保留。
 - 内核在 `darwin_nvram` 上没有 `/dev` 以外的诊断接口；查看 bank 内容要在 Android 下读分区，或在 iOS 下用 `nvram -p`。

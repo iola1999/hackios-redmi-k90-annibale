@@ -157,10 +157,10 @@ ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和
 6. panic 日志写不出去：`loader_panic_sync_ufs` 屏蔽中断后调用 `annibale_ufs_var_io`，后者在中断关闭时返回 `EBUSY`。现在改走 `ufshc_write_polled`，并且只在发生 panic 后写（第 7 节）。原先每次退回 loader 和 `hv_wdt_pet` 都会调用这条路径，有了可用的写路径后，不加这个条件会在每次退回时覆盖上一次的 panic 日志。
 7. 两个处理器同时 panic 时日志正文损坏。原先的锁等 100 万次失败后照样写，两个处理器会同时改写同一个缓冲区。这次 panic 中还出现了一次 `ml_set_interrupts_enabled` 的部分屏蔽断言（DAIF 为 `0xc0`），引起第二次 panic，没有回溯，调用点不确定。现在锁等不到就放弃，屏蔽 A、I、F 三位，轮询写先等上一次写完成，详见第 7 节；修复后的一次测试没有再出现这个断言。
 
-### 8.5 未完成事项
+### 8.5 未完成事项与第二阶段收尾（2026-11-16）
 
-- `fsync` 后立即断电再读回，还没有在真机上验证。
-- panic 日志没有回溯。XNU 停不住其他处理器（`halt not supported for this configuration`），调试器同步超时，没有生成完整的 panic 报告；panic 缓冲区里只有停核失败的几行，panic 原因来自 `loader_panic_log` 写进控制台日志的那一行。
-- 持久化 NVRAM 与 `darwin_nvram` 分区已完成并上机验证，见[持久化 NVRAM](2026-11-16-persistent-nvram.md)。
-- 删除 `ramfs_disk*.inc` 等 ANNFS 支持，排在 `v0.2.0` 之后的下一个版本（待办 S25）。
-- 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；不维护写入代数（`va_write_gencount`）。
+- 物理拔电／长按硬断电后的 `fsync` 读回未在无人值守轮次执行（会进入需人工按键恢复状态）；已在 `ufshc_write_polled` 补齐 64 KiB 分块 `FUA`（`cdb[1] = 0x08`）与轮询 `SYNCHRONIZE CACHE(10)`（`0x35`），消除 SoC 复位时 UFS 易失写缓存丢失末尾 32 KiB 块的问题，并在双核并发 `panic_test=4` 复位后完整验证校验和读回（`stage2-r4`）。
+- panic 跨核停止与调用栈回溯已在第二阶段补齐（`stage2-r4`）：`GenericARMPE::haltRestart` 忽略非终态通知，`model_dep.c` 增加 `psci_panic_stop_loser`、跳过空 `coresight_base` 的 `dbgwrap` 并放宽 `DebuggerXCallEnter` 同步等待上限至 100 ms，`loader_return.c` 提取 `panic_info` 文本段；双核并发 `panic_test=4` 后 `/private/var/db/panic.log` 完整产出 4 核寄存器、26 帧回溯与 `Stackshot Succeeded`（298,754 字节）。
+- 持久化 NVRAM 与 `darwin_nvram` 分区（含 `ufs_native=0` 经 loader 块服务写回与解锁后亮度保留）已完成真机验证，见[持久化 NVRAM](2026-11-16-persistent-nvram.md)。
+- 内核 `ramfs_disk*.inc` 与 `init` 按 ANNFS 挂载路径已在第二阶段移除（`S25` 结案）；保留 `annfs-to-apfs.py`、`apfs-tool annfs` 与 `annfs-inspect.py` 供旧安装迁移，`darwin_var` 非 APFS 时 `init` 输出迁移提示并停机。APFS 下实测卸载 183.7 MB `Weibo` 耗时 5.76 s、卸载 24.4 MB `bili` 耗时 0.43 s、覆盖重装耗时 5.35 s（`S21`、`S23` 结案）。
+- 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；暂不维护写入代数（`va_write_gencount`）。

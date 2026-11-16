@@ -263,7 +263,21 @@ def prepare_ipa(ipa_path):
 
 
 def push(round_dir, data):
-    """One piece into the kernel's inbox through the running round's push request."""
+    """One piece into the kernel's inbox through the running round's push request, or directly for '-'."""
+    if str(round_dir) == "-":
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".piece") as f:
+            f.write(data)
+            piece_path = Path(f.name)
+        try:
+            pushed = subprocess.run(["fastboot", "-s", "xnuloader", "oem", "push"],
+                                    capture_output=True, text=True)
+            if pushed.returncode != 0 or "FAILED" in pushed.stdout + pushed.stderr:
+                return False
+            staged = subprocess.run(["fastboot", "-s", "xnuloader", "stage", str(piece_path)],
+                                    capture_output=True, text=True)
+            return staged.returncode == 0 and "FAILED" not in staged.stdout + staged.stderr
+        finally:
+            piece_path.unlink(missing_ok=True)
     run = Path(round_dir) / "run"
     with tempfile.NamedTemporaryFile(delete=False, suffix=".piece") as f:
         f.write(data)
@@ -325,8 +339,8 @@ def main():
         print(__doc__.strip())
         return 1
 
-    if not round_dir or not (round_dir / "run").is_dir() or (round_dir / "run/reboot.json").exists():
-        print(f"install-ipa: {round_dir} is not a running round (specify running ROUND_DIR or start cycle.py)")
+    if str(round_dir) != "-" and (not round_dir or not (round_dir / "run").is_dir() or (round_dir / "run/reboot.json").exists()):
+        print(f"install-ipa: {round_dir} is not a running round (specify running ROUND_DIR, '-', or start cycle.py)")
         return 1
 
     identifier, name, is_encrypted = app_info(ipa_path)

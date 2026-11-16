@@ -31,7 +31,7 @@
 
 ### 1.3 可写 APFS 正式接管 `/private/var`（下线 `ANNFS001`）的准入条件
 
-正式切换并删除 [ramfs_disk.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 前须满足以下条件，当前状态见[可写 APFS](../analysis/2026-11-16-apfs-write-path.md)。
+正式切换并删除 `ramfs_disk.inc` 前须满足以下条件，已全部达成并下线旧代码，状态见[可写 APFS](../analysis/2026-11-16-apfs-write-path.md)。
 
 - 补齐 `/private/var` 用到的全部 VNOP，写路径走 UBC 与 cluster 层，周期提交并在提交时刷盘：2026-11-16 已实现，测试机上机验证通过。
 - `loader_return.c` 的 panic 日志移出 APFS 容器：2026-11-16 改存到容器之外的分区末尾 32 MiB，同日该区域划为独立分区 `darwin_nvram`（[持久化 NVRAM](../analysis/2026-11-16-persistent-nvram.md)）。屏蔽中断后改走轮询写，2026-11-16 真机 panic 后日志已由 init 存入 `/private/var/db/panic.log`。

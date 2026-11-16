@@ -4,7 +4,7 @@
 
 当前默认生效参数为 `rootdev=md0 root_apfs=ufs_darwin ufs=2 ufs_native=1 ufs_write=1 metal=1 cpufreq=1 fb_threads=2 gpu_coherent=1 fb_flip=2 fb_beat=0 fb_hz=120 fb_ca_hz=120 dl_max=1 fbwidth=1206 fbheight=2622 fbpitch=460`。
 
-全仓除计划下线的 `darwin_var` 内存落盘层（[ramfs_disk.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) `ANNFS001`）外，共查明 **6 项 P0 核心热路径瓶颈**、**8 项 P1 轮询与串行瓶颈** 及 **4 项 P2 启动期或遗留路径开销**。各项问题的架构改造方案与寄存器设计，连同文件拆分边界和分批实施计划，统一见 [性能与原生硬件对齐改造方案](../plan/2026-11-14-performance-and-native-alignment-plan.md)。
+全仓除随后已下线的 `darwin_var` 内存落盘层（`ramfs_disk.inc` `ANNFS001`）外，共查明 **6 项 P0 核心热路径瓶颈**、**8 项 P1 轮询与串行瓶颈** 及 **4 项 P2 启动期或遗留路径开销**。各项问题的架构改造方案与寄存器设计，连同文件拆分边界和分批实施计划，统一见 [性能与原生硬件对齐改造方案](../plan/2026-11-14-performance-and-native-alignment-plan.md)。
 
 ## 1. 已接入原生硬件能力的基线与第 0 批已完成减负项
 

@@ -53,7 +53,7 @@ HakiOS 的近期开发主要发生在 `mtk` 分支。`main` 相对上次记录�
 
 11-06 合入的 [PR #54](https://github.com/oosexgang/hakios-xnu-kernel/pull/54)包含[提交 `04aad08`](https://github.com/oosexgang/hakios-xnu-kernel/commit/04aad08c8e2f86ee97599490cd0b740b55715274)，修正主机端 `var-store-read.py` 的槽位选择：按代次从新到旧读取并校验完整内容 CRC，内容损坏或截断才尝试旧槽，底层读错误继续返回。测试覆盖空存档、相同代次、两个槽都损坏及旧实现失败对照。
 
-我方 [ramfs_disk_mount.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk_mount.inc)已按代次检查元数据槽；读取或解包失败后清理部分恢复的数据，仅 `EINVAL` 允许继续尝试旧槽。[恢复测试](../../hackios-xnu-kernel/tools/tests/test-ramfs-disk-recovery.py)已有旧槽恢复场景。
+我方旧版 `ramfs_disk_mount.inc` 已按代次检查元数据槽；读取或解包失败后清理部分恢复的数据，仅 `EINVAL` 允许继续尝试旧槽。配套 `test-ramfs-disk-recovery.py` 覆盖过旧槽恢复场景（`ANNFS001` 内核落盘代码已在 APFS 正式接管后移除）。
 
 可借鉴的检查是核对主机读取器与内核恢复规则是否一致，覆盖内容 CRC 损坏、截断、底层读错误和合法空存档。上游使用完整存档槽；我方 `ANNFS001` 的元数据槽与数据块分开存放。该修复无法解决数据页原位覆盖或释放块立即复用的问题，这部分分析见[系统契约核查](2026-11-12-system-contracts.md)。
 

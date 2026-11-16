@@ -82,7 +82,7 @@
 ### 1.7 `/private/var` 内核直写块持久化（`ANNFS001`）与原版未裁剪三容器镜像直挂
 
 1. **`/private/var` 内核直写 UFS 块持久化（`ANNFS001`）**：
-   - 在 [`ramfs_disk.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc)、[`ramfs_fsctl.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_fsctl.inc) 与 [`annibale_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 中为 `/private/var` 实现直接绑定 UFS `darwin_var` 分区的内核块级持久化文件系统（魔数 `"ANNFS001"`）。
+   - 在原 `ramfs_disk.inc`、[`ramfs_fsctl.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_fsctl.inc) 与 [`annibale_ufs_rw.inc`](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_ufs_rw.inc) 中为 `/private/var` 实现直接绑定 UFS `darwin_var` 分区的内核块级持久化文件系统（魔数 `"ANNFS001"`）。
    - `[0, 32 MiB)` 与 `[32 MiB, 64 MiB)` 为双乒乓元数据槽位（保存全部 inode、目录树、符号链接、xattr 与 4 KB 物理块号表，带独立头部与负载 CRC32 校验），`[64 MiB, ...)` 为保留区与 4 KB 数据块区。
    - 文件写入（`ramfs_store`）直接将 4 KB 数据页同步写入 `darwin_var` 物理块；读取（`ramfs_fetch`）按需从物理块缺页读入；目录与属性修改由内核线程自动聚合提交到乒乓槽位，并在 `fsync()`、`sync()`、`unmount()` 与关机时立即落盘。
 2. **原版未裁剪 iOS 26.6.2（`23G90`）三容器镜像 UFS 直挂**：
@@ -109,7 +109,7 @@
 ### 1.10 内核 Panic 与看门狗崩溃日志硬件同步直写与开机自愈
 
 - **现象**：内核触发 panic 或看门狗复位时，日志仅留在物理内存环形缓冲区；硬复位或断电后现场日志丢失。
-- **修复**：在 [`ramfs_disk.inc`](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 中划定 `darwin_var` 的 `[64 MiB, 80 MiB)` 为 16 MiB 崩溃日志保留扇区 `ANNFS_PANIC_OFFSET`（魔数 `'KLOG'`，头部与载荷双 CRC32 校验）；在 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 中实现 `loader_panic_sync_ufs()`，在硬件静默前将崩溃回溯与控制台上下文同步直写至 UFS；下次开机挂载时由 `ramfs_disk_restore_panic_log()` 还原至 `/private/var/db/panic.log` 并将头部标记为 `'DLOG'`。
+- **修复**：在原 `ramfs_disk.inc` 中划定 `darwin_var` 的 `[64 MiB, 80 MiB)` 为 16 MiB 崩溃日志保留扇区 `ANNFS_PANIC_OFFSET`（魔数 `'KLOG'`，头部与载荷双 CRC32 校验）；在 [`loader_return.c`](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 中实现 `loader_panic_sync_ufs()`，在硬件静默前将崩溃回溯与控制台上下文同步直写至 UFS；下次开机挂载时由 `ramfs_disk_restore_panic_log()` 还原至 `/private/var/db/panic.log` 并将头部标记为 `'DLOG'`。
 
 ### 1.11 隔空投送（AirDrop）与控制中心「屏幕镜像」主线程阻塞治理
 
