@@ -7,8 +7,8 @@
 UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表末尾的 `userdata`（`/dev/block/sda34`，经 `dm-default-key` 映射为 `/dev/block/dm-55` 挂载到 `/data`）一直延伸到磁盘末尾。双系统部署从 `userdata` 尾部无损缩容出一块空间，新增三个分区（`darwin` 与 `darwin_var` 的类型 GUID 为 APFS Container `7C3457EF-0000-11AA-AA11-00306543ECAC`）：
 
 - `darwin`（默认 `16 GiB`，Android 侧 `/dev/block/sda35`，XNU 侧 `/dev/ufs_darwin`）：存放原版未裁剪 iOS 26 系统镜像（`os.dmg` + `systemos.dmg` + `appos.dmg`，共 15.03 GB）或 `system26.apfs`，挂载为 iOS 26 只读系统盘。
-- `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，经 `annibale_ufshc` 原生 `WRITE(10)` 落盘。分区为 APFS 容器时挂载其中的 Data 卷；早期安装是内核直写块持久化层 `ANNFS001`，可按第 3 节原地转为 APFS。
-- `darwin_nvram`（32 MiB，划分区域的最后一段，Android 侧 `/dev/block/sda37`，XNU 侧 `/dev/ufs_darwin_nvram`）：开头是 NVRAM bank，16 MiB 处是 panic 日志，见[持久化 NVRAM](../analysis/2026-11-16-persistent-nvram.md)。早期安装没有这个分区，NVRAM 只在一次运行内有效。
+- `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，经 `annibale_ufshc` 原生 `WRITE(10)` 落盘。分区为 APFS 容器时挂载其中的 Data 卷；早期安装是内核直写块持久化层 `ANNFS001`，可按第 4 节原地转为 APFS。
+- `darwin_nvram`（32 MiB，划分区域的最后一段，Android 侧 `/dev/block/sda37`，XNU 侧 `/dev/ufs_darwin_nvram`）：开头是 NVRAM bank，16 MiB 处是 panic 日志，见[持久化 NVRAM](../analysis/2026-11-16-persistent-nvram.md)。`v0.1.4` 及更早版本划分的分区表没有这个分区，NVRAM 只在一次运行内有效，按第 4 节拆出。
 
 不同整机存储容量可按需传入 `--var-gib` 调整划分大小；下文以 **256 GB 机型划分 120 GiB（16 GiB `darwin` + 104 GiB `darwin_var` 与 `darwin_nvram`）** 为例，512 GB／1 TB 等机型或不同空间分配需求请按实际情况填写 `--var-gib`，并以 `userdata-dual-carve.py` 根据本机 GPT 计算出的块数与 LBA 为准：
 
@@ -67,15 +67,17 @@ adb -s "$ANDROID_SERIAL" push "$IPSW_DIR/appos.dmg" /data/local/tmp/appos.dmg
 adb -s "$ANDROID_SERIAL" shell "dd if=/data/local/tmp/appos.dmg of=/dev/block/sda bs=4096 seek=$((32584704 + 3666944)) conv=notrunc,fsync && rm -f /data/local/tmp/appos.dmg"
 ```
 
-`darwin_var` 的持久化格式（`ANNFS001` 超级块或节点记录）变化后，内核不读取旧数据：两个元数据槽位均无有效超级块且不全为零时，`/private/var` 挂载失败，开机停在 launchd 之前。这时在 LK 下把 `darwin_var` 前 64 MiB（两个 32 MiB 元数据槽位）写零，下次开机重建空的 `/private/var`，已安装的应用、Wi-Fi 网络和设置随之清空，需要保留的先备份：
+## 4. 建立数据卷
+
+`darwin_var` 是 APFS 容器，内核把其中的 Data 卷挂载为 `/private/var`。下面的脚本在 Android 下经 adb 执行，需要 root（`su`）。写入分区表后要先重启一次 Android，`/dev/block/by-name/darwin_var` 和 `darwin_nvram` 出现后再执行。
+
+新装时用 `--format` 建空的 APFS 数据卷。分区表里有 `darwin_nvram` 时容器覆盖整个 `darwin_var`。脚本先把分区前 512 MiB 保存到 `BACKUP_DIR`（默认 `out/annfs-to-apfs`），分区原有内容全部丢弃，这一步只用到 Python。
 
 ```sh
-head -c 67108864 /dev/zero > zero64m.img
-fastboot -s "$ANDROID_SERIAL" flash darwin_var zero64m.img
-fastboot -s "$ANDROID_SERIAL" reboot
+python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERIAL" --format
 ```
 
-`darwin_var` 转为 APFS 在 Android 下执行，需要 root（`su`）和 adb。脚本先把分区前 512 MiB 与末尾 32 MiB 保存到 `BACKUP_DIR`（默认 `out/annfs-to-apfs`），再在本机建 APFS 元数据，文件数据留在原处，只写回前 512 MiB。原理与校验见[可写 APFS §7](../analysis/2026-11-16-apfs-write-path.md#7-分区末尾与迁移)。
+`v0.1.2`～`v0.1.4` 建的数据盘是内核直写块持久化层 `ANNFS001`，不带参数执行同一个脚本原地转为 APFS。脚本把分区前 512 MiB 与末尾 32 MiB 保存到 `BACKUP_DIR`，在本机建 APFS 元数据，文件数据留在原处，只写回前 512 MiB。原理与校验见[可写 APFS §7](../analysis/2026-11-16-apfs-write-path.md#7-分区末尾与迁移)。
 
 ```sh
 python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERIAL"
@@ -83,7 +85,11 @@ python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERI
 python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERIAL" --rollback out/annfs-to-apfs/darwin_var-head-<时间>.img
 ```
 
-已有 `darwin_nvram` 时容器覆盖整个 `darwin_var`。没有时容器比分区小 32 MiB，转换后在同一个 Android root 会话里把这一段拆成 `darwin_nvram`：读出 LUN 0 的 GPT 和 `darwin_var` 块 0，生成新表，再按脚本打印的 `dd` 命令写回主备 GPT，重启 Android 后生效。工具检查块 0 的 APFS 容器止于新的分区末尾，`ANNFS001` 分区会被拒绝。测试机的执行记录见[持久化 NVRAM §7](../analysis/2026-11-16-persistent-nvram.md#7-改写测试机-gpt-与刷写-loader)。
+- 转换要用 `apfs-tool`。Release 包的 `hackios-xnu-userland/tools/apfs/prebuilt/` 里有 macOS 13 及以后版本（arm64、x86_64）和 Linux（x86_64、aarch64）的预编译版本。从源码仓库执行时脚本用 `tools/apfs/build-tool.sh` 现场编译，需要 C 编译器和 zlib，Linux 上还要 OpenSSL。
+- 本机能编译 apfsck（需要 git、make 和 C 编译器）时，脚本用它检查新容器，检查不通过时不写回；编译不了时跳过检查继续转换。
+- `v0.1.0`／`v0.1.1` 建的数据盘是 `RDWFS001`，脚本不能转换，用 `--format` 重建，数据盘里的应用和设置会清空。
+
+已有 `darwin_nvram` 时容器覆盖整个 `darwin_var`。没有时（`v0.1.4` 及更早版本划分的分区表）容器比分区小 32 MiB，转换或 `--format` 之后在同一个 Android root 会话里把这一段拆成 `darwin_nvram`：读出 LUN 0 的 GPT 和 `darwin_var` 块 0，生成新表，再按脚本打印的 `dd` 命令写回主备 GPT，重启 Android 后生效。工具检查块 0 的 APFS 容器止于新的分区末尾，`ANNFS001` 分区会被拒绝。测试机的执行记录见[持久化 NVRAM §7](../analysis/2026-11-16-persistent-nvram.md#7-改写测试机-gpt-与刷写-loader)。
 
 ```sh
 mkdir -p out/gpt-nvram
@@ -94,11 +100,9 @@ adb -s "$ANDROID_SERIAL" exec-out su -c "dd if=/dev/block/by-name/darwin_var bs=
 python3 hackios-xnu-kernel/tools/userdata-dual-carve.py out/gpt-nvram --split-nvram
 ```
 
-新装机或需要清空数据盘时，用 `--format` 直接建空的 APFS 数据卷，分区原有内容全部丢弃。转换需要 C 编译器、zlib 与 OpenSSL 来构建 `apfs-tool`，`--format` 只用到 Python。
-
 转换后只能启动支持 APFS 数据卷的内核。旧内核的 ramfs 拒绝挂载这个分区，init 停在 launchd 之前；需要换回旧内核时先执行 `--rollback`。回退只适合在转换后不久使用：APFS 下删除文件释放的块可能被之后的写入复用，回退后 ANNFS 中原来使用这些块的文件内容会损坏。
 
-## 4. 刷入双启动 loader 与切换系统
+## 5. 刷入双启动 loader 与切换系统
 
 REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。独立双系统引导镜像（[开发指南](../development.md) §8 的 `boot-a-ios.img`，或 Release 用户合成的 `boot-ios.img`，含已链接 `ath12k.o` 的内核、带 Wi-Fi 固件的 `root.apfs` 与 `loader-phone.efi`）应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：
 
@@ -118,19 +122,19 @@ fastboot -s "$ANDROID_SERIAL" reboot
 - **从开机菜单切回 Android 或调试模式**：在 5 秒倒计时内按音量上／下键移动光标，按电源键确认，可选「Boot iOS 26」、「Boot Android」（自动将活动槽位切换到另一侧的 `android_slot` 并重启）或「USB Fastboot Debug Mode」。
 - **从 Android 切回 iOS 26**：在 Android 的 root 终端 App 或 `adb shell` 中将活动槽位切到 `xnuloader` 所在槽位（`0` 对应 `a` 槽，`1` 对应 `b` 槽）并重启，例如 `su -c 'bootctl set-active-boot-slot 0 && reboot'`；或在 FASTBOOT 模式下执行 `fastboot -s "$ANDROID_SERIAL" set_active <loader槽位> && fastboot -s "$ANDROID_SERIAL" reboot`。
 
-## 5. Android 系统内更新（OTA）与槽位轮换
+## 6. Android 系统内更新（OTA）与槽位轮换
 
 Android 的 Virtual A/B 系统更新（`update_engine`）在后台将新版本系统写入当前的**闲置槽位**，并在重启后将活动槽位切换到新槽位。对双系统分区与引导的具体影响分以下四类。
 
-- **iOS 分区与用户数据完全保留**：系统内 OTA（`update_engine`）只更新 A/B 槽位固件分区（`boot_a/b`、`init_boot_a/b`、`vendor_boot_a/b`、`dtbo_a/b`、`vbmeta_a/b` 等）与 `super` 动态分区（快照 COW 文件暂存在 `/data/gsi/ota`），不会刷写 `gpt_both0.bin`。重启时 Android `fs_mgr` 的 `resize.f2fs` 仅按当前 GPT 表中 `userdata`（`sda34`）的起止块数对齐文件系统，因此 UFS LUN 0 上的 `darwin`（`sda35`）与 `darwin_var`（`sda36`）分区及 iOS 26 持久化数据不受影响。
+- **iOS 分区与用户数据完全保留**：系统内 OTA（`update_engine`）只更新 A/B 槽位固件分区（`boot_a/b`、`init_boot_a/b`、`vendor_boot_a/b`、`dtbo_a/b`、`vbmeta_a/b` 等）与 `super` 动态分区（快照 COW 文件暂存在 `/data/gsi/ota`），不会刷写 `gpt_both0.bin`。重启时 Android `fs_mgr` 的 `resize.f2fs` 仅按当前 GPT 表中 `userdata`（`sda34`）的起止块数对齐文件系统，因此 UFS LUN 0 上的 `darwin`（`sda35`）、`darwin_var`（`sda36`）与 `darwin_nvram`（`sda37`）分区及 iOS 26 持久化数据不受影响。
 - **增量 OTA 更新**：`update_engine` 会校验源槽位（当前 Android 槽位，若已刷入 Magisk／KernelSU 则 `boot` 或 `init_boot` 哈希已变）及部分目标槽位分区的原厂哈希，校验不通过会拒绝安装。若要安装增量 OTA，需先恢复原厂未修改的 `boot`／`init_boot` 镜像；日常升级建议直接在系统更新中下载并安装**完整包 OTA（Full ROM）**。
 - **完整包 OTA 更新与恢复双启动步骤**：
   1. `update_engine` 会直接把新版本 Android 的 `boot`、`init_boot`、`vendor_boot`、`super` 等写入原先存放 `xnuloader` 的闲置槽位（例如原 Android 在 B 槽、loader 在 A 槽，完整 OTA 会把新 Android 写进 A 槽，覆盖 `boot_a` 中的 `xnuloader`）。
   2. 若当前 Android 已 Root 且希望更新后保留 Root，在系统更新提示「立即重启」前，先打开 Magisk／KernelSU 选择「安装到未使用的槽位（OTA 后）」。
   3. 重启进入新版本 Android（此时活动槽位已轮换到新槽位，如 A 槽，原 B 槽退为闲置槽位），等待系统后台完成 Virtual A/B 快照合并（`update_engine` 状态回到 idle）。
   4. 将 `xnuloader` 镜像刷入退下来的新闲置槽位（如 `fastboot -s "$ANDROID_SERIAL" flash boot_b "$LOADER_IMG"`）并切槽（`fastboot -s "$ANDROID_SERIAL" set_active b`），即可恢复双启动。
-- **原厂 Fastboot 线刷包（`flash_all.sh`）**：原厂线刷脚本会刷写 `gpt_both0.bin` 重建 LUN 0 分区表并执行 `fastboot erase userdata`，这会抹除 `darwin` 与 `darwin_var` 分区。日常升级不要执行未裁剪 `gpt_both0.bin` 的 `flash_all.sh`。
+- **原厂 Fastboot 线刷包（`flash_all.sh`）**：原厂线刷脚本会刷写 `gpt_both0.bin` 重建 LUN 0 分区表并执行 `fastboot erase userdata`，这会抹除 `darwin`、`darwin_var` 与 `darwin_nvram` 分区。日常升级不要执行未裁剪 `gpt_both0.bin` 的 `flash_all.sh`。
 
-## 6. 恢复原厂分区表
+## 7. 恢复原厂分区表
 
-如需移除 `darwin` 与 `darwin_var` 并把空间归还给 Android `userdata`，在 Android root shell 下将第 2 节备份的 `out/gpt-carve/gpt-head.bin` 与 `out/gpt-carve/gpt-tail.bin` 按相同 `dd` 偏移写回 `/dev/block/sda`，随后重启 Android，系统 `fs_mgr` 的 `resize.f2fs` 会自动将 `/data` 扩回完整分区大小。
+如需移除 `darwin`、`darwin_var` 与 `darwin_nvram` 并把空间归还给 Android `userdata`，在 Android root shell 下将第 2 节备份的 `out/gpt-carve/gpt-head.bin` 与 `out/gpt-carve/gpt-tail.bin` 按相同 `dd` 偏移写回 `/dev/block/sda`，随后重启 Android，系统 `fs_mgr` 的 `resize.f2fs` 会自动将 `/data` 扩回完整分区大小。

@@ -19,7 +19,7 @@
 手机：
 
 - REDMI K90（代号 `annibale`），bootloader 已解锁，Android 已用 Magisk 或 KernelSU 获取 root。
-- `/data` 剩余空间要能让出 iOS 的两个分区：系统盘 16 GiB，数据盘大小自选。写系统盘时还要在 `/data/local/tmp` 暂存单个最大约 9.8 GB 的文件。
+- `/data` 剩余空间要能让出 iOS 的分区：系统盘 16 GiB，数据盘大小自选，其中末尾 32 MiB 划为 NVRAM 分区 `darwin_nvram`。写系统盘时还要在 `/data/local/tmp` 暂存单个最大约 9.8 GB 的文件。
 
 电脑（macOS 或 Linux；Windows 请用 WSL，未验证）：
 
@@ -40,7 +40,7 @@ tar xzf hackios-k90-vX.Y.Z.tar.gz
 cd hackios-k90-vX.Y.Z
 ```
 
-- 包里有内核、loader 与启动卷，本项目的根盘文件，以及合成脚本和安卓端分区工具；不含 iOS 文件和手机厂商固件。
+- 包里有内核、loader 与启动卷，本项目的根盘文件，合成脚本、安卓端分区工具和数据盘工具；不含 iOS 文件和手机厂商固件。
 - `manifest.json` 记录版本号、构建日期、对应的 iOS 版本（目前是 iOS 26.6.2，23G90）和三个仓库的源码提交。
 - 下文命令都在解包后的目录里执行。
 
@@ -111,9 +111,15 @@ fastboot -s "$ANDROID_SERIAL" boot payload/loader-shell.img
 - 手册第一步编译的 `f2fs-resize` 不用自己编译，改为推送 Release 包里的 `android/f2fs-resize`。
 - 手册里的 `sda34`、`dm-55`、LBA 等数值来自测试机，以本机实际读到的值和脚本打印的命令为准。
 
-## 9. 写入系统盘
+## 9. 写入系统盘与建立数据卷
 
 按部署手册[第 3 节](plan/dual-boot-setup.md#3-写入-ios-系统盘)把三个镜像写入 `darwin` 分区，命令里的 `IPSW_DIR` 改成第 4 步的 `ipsw`。`seek` 偏移以第 8 步脚本打印的 `darwin` 起始 LBA 为准。
+
+写完后重启 Android，按部署手册[第 4 节](plan/dual-boot-setup.md#4-建立数据卷)在 `darwin_var` 建空的 APFS 数据卷：
+
+```sh
+python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERIAL" --format
+```
 
 ## 10. 刷入引导镜像
 
@@ -127,7 +133,7 @@ fastboot -s "$ANDROID_SERIAL" set_active a
 fastboot -s "$ANDROID_SERIAL" reboot
 ```
 
-loader 开机时检查两个槽位的 `boot` 分区，装着 loader 镜像的是 iOS 这一侧，另一侧是 Android，不需要额外设置。
+`boot-ios.img` 填满 96 MiB 的 `boot` 分区，末尾带自己的 AVB 页脚，刷入后不依赖分区里原有的内容。loader 开机时检查两个槽位的 `boot` 分区，装着 loader 镜像的是 iOS 这一侧，另一侧是 Android，不需要额外设置。
 
 ## 11. 日常使用与切换
 
@@ -146,16 +152,17 @@ Release 的版本号是 `v主版本.次版本.修订号`，升级方式取决于
 
 - 只有修订号变化（例如 `v0.1.0` → `v0.1.1`）：按第 3、5、6 步合成新的 `boot-ios.img`，按第 10 步刷进 loader 所在的槽位即可，数据保留。第 4 步的 `ipsw/` 可以沿用。
 - 次版本号或主版本号变化：可能需要重写系统盘、调整分区或清空数据盘，按该版本的发布说明操作。
+- 数据盘还是 `ANNFS001` 的安装（`v0.1.2`～`v0.1.4` 装的）升级到 `v0.2.0` 及以后的版本前，先在 Android 下把数据盘转为 APFS 并拆出 `darwin_nvram`，步骤见部署手册[第 4 节](plan/dual-boot-setup.md#4-建立数据卷)。`v0.1.0`／`v0.1.1` 的数据盘不能转换，按同一节用 `--format` 重建。
 
 Android 系统更新对双系统的影响分三种情况。
 
-- 系统内 OTA 不改动 `darwin` 与 `darwin_var`，iOS 数据保留。
-- 完整包 OTA 会把新 Android 写进 loader 所在的槽位，覆盖引导镜像。更新完成后把 `boot-ios.img` 刷进新的闲置槽位并切换过去即可，细节见部署手册第 5 节。
-- 原厂线刷包的 `flash_all.sh` 会重建分区表并清空 `userdata`，`darwin` 与 `darwin_var` 也会被抹掉。
+- 系统内 OTA 不改动 `darwin`、`darwin_var` 与 `darwin_nvram`，iOS 数据保留。
+- 完整包 OTA 会把新 Android 写进 loader 所在的槽位，覆盖引导镜像。更新完成后把 `boot-ios.img` 刷进新的闲置槽位并切换过去即可，细节见部署手册第 6 节。
+- 原厂线刷包的 `flash_all.sh` 会重建分区表并清空 `userdata`，`darwin`、`darwin_var` 与 `darwin_nvram` 也会被抹掉。
 
 ## 13. 卸载
 
-1. 切回 Android，按部署手册[第 6 节](plan/dual-boot-setup.md#6-恢复原厂分区表)写回第 8 步备份的分区表，重启后 `/data` 自动扩回原来的大小。
+1. 切回 Android，按部署手册[第 7 节](plan/dual-boot-setup.md#7-恢复原厂分区表)写回第 8 步备份的分区表，重启后 `/data` 自动扩回原来的大小。
 2. 在 LK 的 fastboot 里把第 2 步备份的原厂 `boot` 刷回 loader 所在的槽位。
 
 ## 14. 已知问题

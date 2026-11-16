@@ -72,6 +72,5 @@ GPT 改写与 loader 刷写的步骤记录在第 7 节，下表是之后的四�
 
 ## 8. 未完成事项
 
-- 发布与安装：Release 和体验说明还按两分区布局编写。新装划分已会建出 `darwin_nvram`；已安装的用户需要先转为 APFS 数据卷，再用 `--split-nvram` 拆出分区，步骤见[双系统部署手册 §3](../plan/dual-boot-setup.md#3-写入-ios-系统盘)。`ANNFS001` 数据卷用到分区末尾，不能直接拆分。
-- `boot_a` 镜像大小变化时需要带 AVB 哈希页脚，目前靠手工执行 `avbtool`，没有进入构建脚本。
+- 发布与安装：Release 和体验说明还按两分区布局编写。新装划分已会建出 `darwin_nvram`；已安装的用户需要先转为 APFS 数据卷，再用 `--split-nvram` 拆出分区，步骤见[双系统部署手册 §4](../plan/dual-boot-setup.md#4-建立数据卷)。`ANNFS001` 数据卷用到分区末尾，不能直接拆分。
 - 内核在 `darwin_nvram` 上没有 `/dev` 以外的诊断接口；查看 bank 内容要在 Android 下读分区，或在 iOS 下用 `nvram -p`。

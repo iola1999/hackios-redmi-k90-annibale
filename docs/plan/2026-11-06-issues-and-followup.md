@@ -184,4 +184,4 @@
 
 - 历次反馈的逐项静态核对、真机实测状态与未完成项边界：[11-08 复核](../analysis/2026-11-08-issue-reassessment.md)。
 - 架构审查、三档优先级与用户决定：[方案架构审查](../analysis/2026-11-08-architecture-review.md)。
-- Android 系统内 OTA 对双系统分区的影响与恢复步骤：[双系统分区与持久化部署手册 §5](dual-boot-setup.md#5-android-系统内更新ota与槽位轮换)。
+- Android 系统内 OTA 对双系统分区的影响与恢复步骤：[双系统分区与持久化部署手册 §6](dual-boot-setup.md#6-android-系统内更新ota与槽位轮换)。

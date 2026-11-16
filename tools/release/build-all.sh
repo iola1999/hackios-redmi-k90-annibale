@@ -8,7 +8,7 @@
 # The kernel builds in the background while the userland and the AIR library do. Each phase writes
 # out/release-build/<phase>.log and prints its time.
 # usage: tools/release/build-all.sh [PHASE ...]
-#        phases: ios kernel userland mesa package loader android (default: all of them)
+#        phases: ios kernel userland mesa package loader android apfstool (default: all of them)
 set -e
 cd "$(dirname "$0")/../.."
 R=$PWD
@@ -72,6 +72,20 @@ loader() {
 
 android() { bash "$K/tools/android/build.sh"; }
 
+# apfs-tool for annfs-to-apfs.py on the user's computer: macOS 13 and later (arm64 and x86_64, SHA-256
+# from CommonCrypto) and Linux on x86_64 and aarch64, linked statically. It needs the kernel's tree
+# (bsd/vfs/vfs_unicode.c), so it runs after the kernel phase.
+apfstool() {
+	mkdir -p "$R/out/apfs-tool"
+	TOOL_CFLAGS="-mmacosx-version-min=13.0 -arch arm64 -arch x86_64" \
+		bash "$U/tools/apfs/build-tool.sh" "$R/out/apfs-tool/apfs-tool-Darwin"
+	for arch in x86_64:amd64 aarch64:arm64; do
+		docker run --rm --platform "linux/${arch#*:}" -v "$R":/work -w /work/hackios-xnu-userland ubuntu:24.04 bash -c \
+			"apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc libc6-dev zlib1g-dev libssl-dev > /dev/null &&
+			TOOL_LIBS='-static -lcrypto -lz' bash tools/apfs/build-tool.sh /work/out/apfs-tool/apfs-tool-Linux-${arch%%:*}"
+	done
+}
+
 if [ $# -gt 0 ]; then
 	for name in "$@"; do phase "$name"; done
 	exit 0
@@ -93,5 +107,6 @@ phase package
 wait $kernel_pid
 phase loader
 phase android
+phase apfstool
 echo "next: python3 tools/release/build-release.py vX.Y.Z --kernel hackios-xnu-kernel/out/xnu12377-local.bin" \
 	"--loader-image $LOADER_IMAGE --expect-boot hackios-xnu-kernel/out/boot-a-ios.img"

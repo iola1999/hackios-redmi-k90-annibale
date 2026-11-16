@@ -6,7 +6,7 @@
 
 ## 1. 环境
 
-- 电脑：构建 iOS 26 的内核和用户态程序需要 Mac 与 Xcode；构建 loader 里的 UEFI、给 Mesa 打补丁需要 Docker（见 [docker/README.md](../docker/README.md)）。另需 `adb`、`fastboot`、Git、Python 3。
+- 电脑：构建 iOS 26 的内核和用户态程序需要 Mac 与 Xcode；构建 loader 里的 UEFI、给 Mesa 打补丁、编译 Linux 版 `apfs-tool` 需要 Docker（见 [docker/README.md](../docker/README.md)）。另需 `adb`、`fastboot`、Git、Python 3。
 - 设备：已解锁 bootloader 且具备 root 权限的 REDMI K90、可传数据的 USB 线。备份方法见[分区备份与恢复](backup/README.md)，Wi-Fi 与蓝牙固件也从备份的分区里取。
 
 下表列出各步骤依赖 macOS 的原因。
@@ -138,7 +138,7 @@ python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
   -o hackios-xnu-kernel/out/boot-a-ios.img
 ```
 
-`reseal-loader-img.py` 原样保留参考镜像里的 BootShim、UEFI、设备树和 ramdisk，只替换载荷。
+`reseal-loader-img.py` 原样保留参考镜像里的 BootShim、UEFI、设备树和 ramdisk，只替换载荷。输出补到 96 MiB 的 `boot` 分区大小，末尾带镜像自己的 AVB 页脚（`prebuilt/avb/avbtool.py`），原因见[引导目标切换 SOP §4](plan/device-boot-target-sop.md#4-常见问题与注意事项均为实测) 第 7 条。
 
 ## 9. 部署与真机调试
 
@@ -166,7 +166,7 @@ cp -R "$W"/hackios-xnu-userland/{fw-gpu,fw-camera} hackios-xnu-userland/
 cp -R "$W"/hackios-xnu-kernel/out/{fw-wifi,fw-bt,fw-iris,handoff-loader-v19.img} hackios-xnu-kernel/out/
 ```
 
-3. 在新克隆根目录执行 `tools/release/build-all.sh`，按第 3～8 节构建全部产物：内核在后台构建，同时构建用户态、启动卷和 AIR 库，再打包根盘、封装 loader，最后编译安卓端分区工具。每一步的日志在 `out/release-build/`，失败时脚本停下并打印日志末尾。只重跑某几步时把步骤名作为参数，例如 `tools/release/build-all.sh package loader`。
+3. 在新克隆根目录执行 `tools/release/build-all.sh`，按第 3～8 节构建全部产物：内核在后台构建，同时构建用户态、启动卷和 AIR 库，再打包根盘、封装 loader，最后编译安卓端分区工具和数据盘迁移用的 `apfs-tool`。`apfs-tool` 的 macOS 版（arm64 与 x86_64，最低 macOS 13）在本机编译，Linux 版在 `ubuntu:24.04` 容器里静态链接，产物在 `out/apfs-tool/`。每一步的日志在 `out/release-build/`，失败时脚本停下并打印日志末尾。只重跑某几步时把步骤名作为参数，例如 `tools/release/build-all.sh package loader`。
 4. 在工作区根目录执行：
 
 ```sh

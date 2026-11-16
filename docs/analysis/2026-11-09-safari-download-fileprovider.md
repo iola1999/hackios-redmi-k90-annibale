@@ -26,7 +26,7 @@ revisiond 用 BSD flags 的比较交换给 LocalStorage 新建的每一项设置
 - 修复（内核 ramfs）：
   - `ramfs_track()` 在节点带 `UF_TRACKED` 且还没有文档 ID 时，从挂载的计数器分配一个。新建、克隆、`setattr` 改 flags 和 CAS 四处调用它。
   - `getattr` 返回 `va_document_id`，卷能力加上 `VOL_CAP_FMT_DOCUMENT_ID`。
-  - 文档 ID 写进 `darwin_var` 的节点记录，记录格式升到版本 3，恢复时重建计数器。内核不读取旧版本的记录，旧数据盘挂载失败，要先清空元数据槽位再开机重建 `/private/var`，步骤见[双系统部署手册 §3](../plan/dual-boot-setup.md#3-写入-ios-系统盘)。
+  - 文档 ID 写进 `darwin_var` 的节点记录，记录格式升到版本 3，恢复时重建计数器。内核不读取旧版本的记录，旧数据盘挂载失败，要先清空元数据槽位再开机重建 `/private/var`（在 LK 下把 `darwin_var` 前 64 MiB 写零）。数据盘之后改为 APFS，见[双系统部署手册 §4](../plan/dual-boot-setup.md#4-建立数据卷)。
 
 ## 5. `RENAME_EXCL`
 

@@ -6,8 +6,9 @@ usage: build-release.py VERSION --kernel FILE --loader-image FILE [-o DIR] [--ex
 
 The workspace has to be built first, as docs/development.md describes: the 12377 kernel, the
 userland and the AIR library, `tools/k90auto/package.py` (its root tree and root.apfs), the boot
-volume flashboot.apfs, xnuloader/loader-phone.efi, tools/android/build.sh, and ios26/fetch.sh's
-extraction of the IPSW. --loader-image is any loader image whose UEFI, device tree and ramdisk the
+volume flashboot.apfs, xnuloader/loader-phone.efi, tools/android/build.sh, apfs-tool for the
+data-partition migration (tools/release/build-all.sh apfstool), and ios26/fetch.sh's extraction of
+the IPSW. --loader-image is any loader image whose UEFI, device tree and ramdisk the
 release keeps (out/handoff-loader-vN.img, or a boot image made from one); --expect-boot is a boot
 image made from the same inputs, for a byte-for-byte comparison.
 
@@ -78,11 +79,16 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/tools/camsensor.py", "hackios-xnu-kernel/tools/camsensor_profile.py",
                  "hackios-xnu-kernel/tools/camsensor_v5.py",
                  "hackios-xnu-kernel/tools/userdata-dual-carve.py",
-                 "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py"]
+                 "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py",
+                 "hackios-xnu-kernel/prebuilt/avb/avbtool.py",
+                 "hackios-xnu-userland/tools/apfs/annfs-to-apfs.py", "hackios-xnu-userland/tools/apfs/build-apfsck.sh",
+                 "hackios-xnu-userland/tools/apfs/apfsprogs-host.patch"]
 LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
             "hackios-xnu-userland.LICENSE": REPO / "hackios-xnu-userland/LICENSE",
             "qualcomm-gpu-firmware.LICENSE.txt": REPO / "hackios-xnu-userland/firmware-gen8/LICENSE.qcom.txt"}
 ANDROID_TOOLS = ["f2fs-resize", "blkpg-tool"]
+# annfs-to-apfs.py runs these from tools/apfs/prebuilt/ (made by build-all.sh into out/apfs-tool/)
+APFS_TOOLS = ["apfs-tool-Darwin", "apfs-tool-Linux-x86_64", "apfs-tool-Linux-aarch64"]
 
 
 def git(directory, *args):
@@ -243,7 +249,9 @@ def main():
     root, root_image = PACKED / "root", PACKED / "root.apfs"
     flashboot, loader_efi = REPO / "hackios-xnu-userland/userland/flashboot.apfs", K / "xnuloader/loader-phone.efi"
     android = [K / "tools/android" / n for n in ANDROID_TOOLS]
-    for path in [root_image, args.kernel, args.loader_image, flashboot, loader_efi, IOS / "rootfs.slt", *android]:
+    apfs_tools = [REPO / "out/apfs-tool" / n for n in APFS_TOOLS]
+    for path in [root_image, args.kernel, args.loader_image, flashboot, loader_efi, IOS / "rootfs.slt", *android,
+                 *apfs_tools]:
         if not path.is_file():
             raise SystemExit(f"{path}: missing; build it first (docs/development.md)")
     volume = volume_name()
@@ -306,6 +314,11 @@ def main():
     for rel in BUNDLED_TOOLS:
         (bundle / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(REPO / rel, bundle / rel)
+    prebuilt = bundle / "hackios-xnu-userland/tools/apfs/prebuilt"
+    prebuilt.mkdir()
+    for path in apfs_tools:
+        shutil.copyfile(path, prebuilt / path.name)
+        os.chmod(prebuilt / path.name, 0o755)
     (bundle / "LICENSES").mkdir()
     for name, path in LICENSES.items():
         shutil.copyfile(path, bundle / "LICENSES" / name)

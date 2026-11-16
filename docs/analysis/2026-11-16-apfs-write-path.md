@@ -162,5 +162,5 @@ ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和
 - `fsync` 后立即断电再读回，还没有在真机上验证。
 - panic 日志没有回溯。XNU 停不住其他处理器（`halt not supported for this configuration`），调试器同步超时，没有生成完整的 panic 报告；panic 缓冲区里只有停核失败的几行，panic 原因来自 `loader_panic_log` 写进控制台日志的那一行。
 - 持久化 NVRAM 与 `darwin_nvram` 分区已完成并上机验证，见[持久化 NVRAM](2026-11-16-persistent-nvram.md)。
-- 已安装用户转为 APFS 并拆出 `darwin_nvram` 的步骤写进 Release 说明后，删除 `ramfs_disk*.inc`。
+- 删除 `ramfs_disk*.inc` 等 ANNFS 支持，排在 `v0.2.0` 之后的下一个版本（待办 S25）。
 - 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；不维护写入代数（`va_write_gencount`）。
