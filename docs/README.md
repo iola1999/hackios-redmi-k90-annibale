@@ -53,6 +53,7 @@
 - [跨开机保留数据的可行性与实测（2026-11-05）](analysis/2026-11-05-persistence-feasibility.md)。
 - [根文件系统：从 UFS 挂载系统卷](analysis/rootfs-strategy.md)。
 - [可写 APFS：事务引擎与 VFS 接入（2026-11-16）](analysis/2026-11-16-apfs-write-path.md)：提交时机、数据写入顺序、与 ramfs 对齐的接口、主机验证和切换 `/private/var` 前的剩余事项。
+- [持久化 NVRAM 与 `darwin_nvram` 分区（2026-11-16）](analysis/2026-11-16-persistent-nvram.md)：分区布局、loader 读 bank、`IONVRAMController` 写回、背光变量、改写 GPT 与 AVB 页脚的记录和真机验证。
 
 ## 5. 图形、显示与性能
 

@@ -8,7 +8,7 @@
 - 内核 VFS 已接到新引擎。文件内容走 UBC 与 cluster 层（`vnop_blockmap`、`vnop_strategy`），与 ramfs 对齐的接口均已实现，详见第 5 节。
 - 挂载时未带 `MNT_RDONLY` 且卷可写即为可写挂载，boot-arg `apfs_rw=0` 强制只读。系统卷、cryptex 与 `/annibale` 都以 `MNT_RDONLY` 挂载，行为不变。
 - APFS 挂载开启扩展安全：ACL 存在 `com.apple.system.Security` 扩展属性里，由 VFS 读写和检查，与 iOS 相同。容器目录的权限位是 000，访问靠 ACL。
-- `darwin_var` 块 0 是 APFS 容器超级块时，init 把 Data 卷挂到 `/private/var`，否则挂 ramfs。`tools/apfs/annfs-to-apfs.py` 把现有的 `ANNFS001` 分区原地转为 APFS，panic 日志和背光设置改存到容器之外的分区末尾 32 MiB（第 7 节）。真机验收见第 8 节。
+- `darwin_var` 块 0 是 APFS 容器超级块时，init 把 Data 卷挂到 `/private/var`，否则挂 ramfs。`tools/apfs/annfs-to-apfs.py` 把现有的 `ANNFS001` 分区原地转为 APFS，容器比分区小 32 MiB，末尾这一段之后拆为 `darwin_nvram`（第 7 节）。真机验收见第 8 节。
 
 ## 2. 事务模型
 
@@ -79,27 +79,20 @@
 
 ## 7. 分区末尾与迁移
 
-APFS 容器比 `darwin_var` 小 32 MiB。末尾这 32 MiB 不属于容器，由内核直接读写（[annibale_var_tail.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_var_tail.inc)），GPT 里还没有对应的分区，以后划为独立分区 `darwin_nvram` 时不影响容器。背光设置目前是这里的自定义记录；NVRAM 每次开机由 loader 新建空镜像，不跨重启保存。改为持久化 NVRAM 的计划见第 8.5 节。
+迁移时 APFS 容器比 `darwin_var` 小 32 MiB，末尾这 32 MiB 不属于容器。2026-11-16 起这一段拆成独立的 GPT 分区 `darwin_nvram`，存放 NVRAM bank 和 panic 日志（[annibale_nvram.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_nvram.inc)），布局、loader 与内核的读写见[持久化 NVRAM](2026-11-16-persistent-nvram.md)。
 
-| 相对末尾 32 MiB 起点的偏移 | 内容 |
-|---|---|
-| 0 | 预留给 NVRAM |
-| 1 MiB | 背光设置，一个 4 KiB 块（`BLS3` 记录，带 CRC32） |
-| 16 MiB | panic 日志，格式与 ANNFS 时相同（`KLOG` 头加文本） |
-
-- 内核启动时读一次 `darwin_var` 块 0：第 32 字节起是 `NXSB` 时按上表使用末尾，否则沿用 ANNFS 的位置（背光在超级块，panic 日志在 64 MiB）。块 0 读出之前不写 panic 日志。
-- 背光设置在亮度变化后约 1 秒写出一次，退回 loader 时补写尚未写出的一次。
+- panic 日志写在 `darwin_nvram` 的 16 MiB 处，格式与 ANNFS 时相同（`KLOG` 头加文本）。没有 `darwin_nvram` 时，内核启动后读一次 `darwin_var` 块 0：`ANNFS001` 的 panic 日志仍在 64 MiB 处，APFS 不写 panic 日志。
 - 退回 loader 时（`annibale_var_save_on_return`）先把 APFS 卷全部文件的脏页同步写到设备，再提交。
 - init 挂载后读 `kern.annibale.panic_log`，把上一次运行的 panic 日志存为 `/private/var/db/panic.log`，再写这个 sysctl 把它标记为已保存。`var_apfs=1` 启动参数已删除。
 - ramfs 在元数据槽无效且前 64 MiB 非零时拒绝挂载，不会格式化 APFS 分区。
 - panic 日志在 panic 开始时（`loader_panic_log`）写一次，退回 loader 前（`loader_return`）带上 panic 缓冲区和控制台日志末尾再写一次。没有发生 panic 的退回不写。v0.1.2 起的版本在这一步因中断关闭返回 `EBUSY`，ANNFS 的 64 MiB 处和 APFS 的末尾都从未写入过。
-- 这时中断已屏蔽，不能用 `hc_lock`，也不能休眠。`annibale_ufs_var_io` 改走 `ufshc_write_polled`：UTRL 的最后一个槽位只留给它，单独写门铃并轮询门铃位，上一次轮询写还没结束时先等它完成。
+- 这时中断已屏蔽，不能用 `hc_lock`，也不能休眠。`annibale_klog_write` 经 `ufs_part_io` 改走 `ufshc_write_polled`：UTRL 的最后一个槽位只留给它，单独写门铃并轮询门铃位，上一次轮询写还没结束时先等它完成。
 - `loader_panic_sync_ufs` 屏蔽 A、I、F 三位。只屏蔽 I、F 时，被调用代码里的 `ml_set_interrupts_enabled(FALSE)` 会因部分屏蔽断言失败。同一时刻只有一个处理器填写并写出日志缓冲区，其他处理器最多等 5 秒，超时放弃；同一处理器在写日志时再次 panic 则直接接手。
 
 迁移在 Android root 下经 adb 执行 [annfs-to-apfs.py](../../hackios-xnu-userland/tools/apfs/annfs-to-apfs.py)，数据块原地不动：
 
-1. 读出 `darwin_var` 前 512 MiB 和末尾 32 MiB 保存到本地，传输都用 SHA-256 校验。ANNFS 的两个元数据槽和 panic 日志在前 512 MiB，数据页从 512 MiB 开始。
-2. `mkapfs.py --blocks` 在主机上建一个与分区减 32 MiB 等大的空容器，卷角色为 Data。`apfs-tool annfs`（[cmd_annfs.c](../../hackios-xnu-userland/tools/apfs/cmd_annfs.c)）读较新的有效元数据槽，在容器里重建根目录可达的全部对象：inode 号（小于 16 的另行分配）、权限、属主、BSD 标志、四个时间、保护类、文档 ID、同步根标记、扩展属性和硬链接。普通文件的 extent 直接指向原数据页，ANNFS 第 n 页（16 KiB）对应 APFS 块 131072 + 4n 起的 4 块。
+1. 读出 `darwin_var` 前 512 MiB 和末尾 32 MiB 保存到本地，传输都用 SHA-256 校验；分区表已有 `darwin_nvram` 时容器覆盖整个分区，不读末尾。ANNFS 的两个元数据槽和 panic 日志在前 512 MiB，数据页从 512 MiB 开始。
+2. `mkapfs.py --blocks` 在主机上建一个与分区减 32 MiB（有 `darwin_nvram` 时为整个分区）等大的空容器，卷角色为 Data。`apfs-tool annfs`（[cmd_annfs.c](../../hackios-xnu-userland/tools/apfs/cmd_annfs.c)）读较新的有效元数据槽，在容器里重建根目录可达的全部对象：inode 号（小于 16 的另行分配）、权限、属主、BSD 标志、四个时间、保护类、文档 ID、同步根标记、扩展属性和硬链接。普通文件的 extent 直接指向原数据页，ANNFS 第 n 页（16 KiB）对应 APFS 块 131072 + 4n 起的 4 块。
 3. ANNFS 按 next-fit 在整个分区分配数据页，落在末尾 32 MiB 的页由转换器复制到 512 MiB 以内的新块。转换中的其他分配也都在 512 MiB 以内，所以写回手机的只有镜像的前 512 MiB，脚本在写回前检查镜像 512 MiB 之后没有内容。
 4. 写回前 512 MiB 并读回比对。`--rollback` 写回保存的前 512 MiB，分区恢复为 ANNFS，APFS 下的改动丢失。`--format` 不转换，直接建空的 APFS 数据卷。
 
@@ -124,7 +117,7 @@ ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和
 | 连续读取 | 两次全量读取 `/private/var`（约 8 GB），相隔约 3 分钟，差异只在上面这类目录；期间没有 UFS 错误，也没有 panic |
 | 写入后重启读回 | 重命名、硬链接、克隆后改写副本、扩展属性、删除、`mmap` 写、稀疏文件、截断共 10 项，写入后正常退回 loader，重启后全部读回正确 |
 | 提交统计 | `kern.apfs_wstats` 提交失败次数为 0 |
-| 背光设置、panic 日志 | 未验证：这几轮没有调节亮度；panic 日志当时写不出去，第二轮的结果见第 8.2 节 |
+| 背光设置、panic 日志 | 未验证：这几轮没有调节亮度；panic 日志当时写不出去，第二轮的结果见第 8.2 节，背光跨重启见[持久化 NVRAM §6](2026-11-16-persistent-nvram.md#6-真机验证) |
 
 ### 8.2 第二轮：提交次数、数据写等待与 panic 日志
 
@@ -166,12 +159,8 @@ ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和
 
 ### 8.5 未完成事项
 
-- 背光设置跨重启保留、`fsync` 后立即断电再读回，还没有在真机上验证。
+- `fsync` 后立即断电再读回，还没有在真机上验证。
 - panic 日志没有回溯。XNU 停不住其他处理器（`halt not supported for this configuration`），调试器同步超时，没有生成完整的 panic 报告；panic 缓冲区里只有停核失败的几行，panic 原因来自 `loader_panic_log` 写进控制台日志的那一行。
-- 持久化 NVRAM 与 `darwin_nvram` 分区（待办 S24）。iPhone 上 iBoot 把 NVRAM 的一份拷贝放进设备树（v57 设备树有 `nvram-proxy-data`、`nvram-bank-size`、`nvram-bank-count`、`nvram-current-bank`），内核的 `IONVRAMController` 按 bank 轮换写回；iOS 26 kernelcache 里有 `40A0DDD2-77F8-4392-B4A3-1E7304206516:backlight-nits` 和 `backlight-level`。本机的现状与计划：
-  - 存储：现在是 `darwin_var` 末尾 32 MiB，GPT 里没有这个分区。计划把 `darwin_var` 的 GPT 项缩短 32 MiB，新增 `darwin_nvram` 项覆盖这块区域；APFS 容器已经止于这里，数据不用搬。需要在 Android root 下改写 LUN 0 的主备 GPT。
-  - loader：现在每次开机新建空的 CHRP 镜像（`xnuloader/loader_04_fault_payload_nvram.inc`），只给 `nvram-bank-size`。计划从分区读出各 bank，取校验通过且代数最大的一份作 `nvram-proxy-data`，并补齐 bank 数与当前 bank。需要重新刷入 loader。
-  - 内核：注册一个写 `darwin_nvram` 的 `IONVRAMController`，对接 XNU `IONVRAMCHRPHandler` 的 `select`、`eraseBank`、`write`；背光驱动改为读写 `backlight-nits`，之后去掉 `BLS3` 记录。
-  - panic 日志仍放在这个分区的 16 MiB 处。iPhone 的 panic 日志不经过 NVRAM 分区，这一项与真机不同。
-- 上面几项完成后删除 `ramfs_disk*.inc`，并更新 Release 说明与升级步骤。
+- 持久化 NVRAM 与 `darwin_nvram` 分区已完成并上机验证，见[持久化 NVRAM](2026-11-16-persistent-nvram.md)。
+- 已安装用户转为 APFS 并拆出 `darwin_nvram` 的步骤写进 Release 说明后，删除 `ramfs_disk*.inc`。
 - 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；不维护写入代数（`va_write_gencount`）。

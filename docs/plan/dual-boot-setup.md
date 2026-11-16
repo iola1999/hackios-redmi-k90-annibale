@@ -4,18 +4,20 @@
 
 ## 1. 分区规划
 
-UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表末尾的 `userdata`（`/dev/block/sda34`，经 `dm-default-key` 映射为 `/dev/block/dm-55` 挂载到 `/data`）一直延伸到磁盘末尾。双系统部署从 `userdata` 尾部无损缩容出一块空间，新增两个分区（类型 GUID 均为 APFS Container `7C3457EF-0000-11AA-AA11-00306543ECAC`）：
+UFS LUN 0（`/dev/block/sda`）逻辑块大小为 4096 字节，原厂分区表末尾的 `userdata`（`/dev/block/sda34`，经 `dm-default-key` 映射为 `/dev/block/dm-55` 挂载到 `/data`）一直延伸到磁盘末尾。双系统部署从 `userdata` 尾部无损缩容出一块空间，新增三个分区（`darwin` 与 `darwin_var` 的类型 GUID 为 APFS Container `7C3457EF-0000-11AA-AA11-00306543ECAC`）：
 
 - `darwin`（默认 `16 GiB`，Android 侧 `/dev/block/sda35`，XNU 侧 `/dev/ufs_darwin`）：存放原版未裁剪 iOS 26 系统镜像（`os.dmg` + `systemos.dmg` + `appos.dmg`，共 15.03 GB）或 `system26.apfs`，挂载为 iOS 26 只读系统盘。
-- `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，经 `annibale_ufshc` 原生 `WRITE(10)` 落盘。分区为 APFS 容器时挂载其中的 Data 卷，容器之外的末尾 32 MiB 存放 panic 日志与背光设置；早期安装是内核直写块持久化层 `ANNFS001`，可按第 3 节原地转为 APFS。
+- `darwin_var`（自定义大小，Android 侧 `/dev/block/sda36`，XNU 侧 `/dev/ufs_darwin_var`）：挂载为 `/private/var` 可写数据盘，经 `annibale_ufshc` 原生 `WRITE(10)` 落盘。分区为 APFS 容器时挂载其中的 Data 卷；早期安装是内核直写块持久化层 `ANNFS001`，可按第 3 节原地转为 APFS。
+- `darwin_nvram`（32 MiB，划分区域的最后一段，Android 侧 `/dev/block/sda37`，XNU 侧 `/dev/ufs_darwin_nvram`）：开头是 NVRAM bank，16 MiB 处是 panic 日志，见[持久化 NVRAM](../analysis/2026-11-16-persistent-nvram.md)。早期安装没有这个分区，NVRAM 只在一次运行内有效。
 
-不同整机存储容量可按需传入 `--var-gib` 调整划分大小；下文以 **256 GB 机型划分 120 GiB（16 GiB `darwin` + 104 GiB `darwin_var`）** 为例，512 GB／1 TB 等机型或不同空间分配需求请按实际情况填写 `--var-gib`，并以 `userdata-dual-carve.py` 根据本机 GPT 计算出的块数与 LBA 为准：
+不同整机存储容量可按需传入 `--var-gib` 调整划分大小；下文以 **256 GB 机型划分 120 GiB（16 GiB `darwin` + 104 GiB `darwin_var` 与 `darwin_nvram`）** 为例，512 GB／1 TB 等机型或不同空间分配需求请按实际情况填写 `--var-gib`，并以 `userdata-dual-carve.py` 根据本机 GPT 计算出的块数与 LBA 为准：
 
 | 分区名 | Android 节点 | XNU 节点 | 256 GB 机型示例 LBA 范围 | 示例容量 | 用途 |
 |---|---|---|---|---|---|
 | `userdata` | `/dev/block/sda34` | `/dev/ufs_userdata` | `3518464..32584698` | 110.879 GiB | Android `/data` 分区（56,415 个 2 MB 主段） |
 | `darwin` | `/dev/block/sda35` | `/dev/ufs_darwin` | `32584704..36779007` | 16.000 GiB | iOS 26 只读系统盘（存放 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`） |
-| `darwin_var` | `/dev/block/sda36` | `/dev/ufs_darwin_var` | `36779008..64041978` | 104.000 GiB | iOS 26 `/private/var` 可写数据盘（APFS，早期安装为 `ANNFS001`） |
+| `darwin_var` | `/dev/block/sda36` | `/dev/ufs_darwin_var` | `36779008..64033786` | 103.969 GiB | iOS 26 `/private/var` 可写数据盘（APFS，早期安装为 `ANNFS001`） |
+| `darwin_nvram` | `/dev/block/sda37` | `/dev/ufs_darwin_nvram` | `64033787..64041978` | 32 MiB | NVRAM bank 与 panic 日志 |
 
 ## 2. 在线缩容与写入 GPT 分区表
 
@@ -79,6 +81,17 @@ fastboot -s "$ANDROID_SERIAL" reboot
 python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERIAL"
 # 回到转换前的 ANNFS001：用上一步打印的备份文件
 python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERIAL" --rollback out/annfs-to-apfs/darwin_var-head-<时间>.img
+```
+
+已有 `darwin_nvram` 时容器覆盖整个 `darwin_var`。没有时容器比分区小 32 MiB，转换后在同一个 Android root 会话里把这一段拆成 `darwin_nvram`：读出 LUN 0 的 GPT 和 `darwin_var` 块 0，生成新表，再按脚本打印的 `dd` 命令写回主备 GPT，重启 Android 后生效。工具检查块 0 的 APFS 容器止于新的分区末尾，`ANNFS001` 分区会被拒绝。测试机的执行记录见[持久化 NVRAM §7](../analysis/2026-11-16-persistent-nvram.md#7-改写测试机-gpt-与刷写-loader)。
+
+```sh
+mkdir -p out/gpt-nvram
+BLOCKS=$(($(adb -s "$ANDROID_SERIAL" shell su -c "blockdev --getsize64 /dev/block/sda" | tr -d '\r') / 4096))
+adb -s "$ANDROID_SERIAL" exec-out su -c "dd if=/dev/block/sda bs=4096 count=8 2>/dev/null" > out/gpt-nvram/gpt-head.bin
+adb -s "$ANDROID_SERIAL" exec-out su -c "dd if=/dev/block/sda bs=4096 skip=$((BLOCKS - 8)) count=8 2>/dev/null" > out/gpt-nvram/gpt-tail.bin
+adb -s "$ANDROID_SERIAL" exec-out su -c "dd if=/dev/block/by-name/darwin_var bs=4096 count=1 2>/dev/null" > out/gpt-nvram/darwin_var-block0.bin
+python3 hackios-xnu-kernel/tools/userdata-dual-carve.py out/gpt-nvram --split-nvram
 ```
 
 新装机或需要清空数据盘时，用 `--format` 直接建空的 APFS 数据卷，分区原有内容全部丢弃。转换需要 C 编译器、zlib 与 OpenSSL 来构建 `apfs-tool`，`--format` 只用到 Python。
