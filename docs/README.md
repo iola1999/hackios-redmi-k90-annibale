@@ -52,6 +52,7 @@
 - [无人值守收尾：从 oem stop 到 idle loader 的实测与人工边界](analysis/2026-10-28-unattended-teardown.md)。
 - [跨开机保留数据的可行性与实测（2026-11-05）](analysis/2026-11-05-persistence-feasibility.md)。
 - [根文件系统：从 UFS 挂载系统卷](analysis/rootfs-strategy.md)。
+- [可写 APFS：事务引擎与 VFS 接入（2026-11-16）](analysis/2026-11-16-apfs-write-path.md)：提交时机、数据写入顺序、与 ramfs 对齐的接口、主机验证和切换 `/private/var` 前的剩余事项。
 
 ## 5. 图形、显示与性能
 

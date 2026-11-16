@@ -53,7 +53,7 @@
 
 ### 2.4 P0-4 可写 APFS（`apfs_rw=1`）：绕过 UBC 聚合、目录契约缺口与每 `4 KiB` 检查点事务
 
-- **源码定位**：[apfs_vnops.c](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c)、[apfs_vnops_write.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops_write.inc)、[apfs_write.c](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_write.c)、[apfs_write_ops.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_write_ops.inc) 及 [apfs_txn.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_txn.inc)。
+- **源码定位**：[apfs_vnops.c](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops.c)、[apfs_vnops_write.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_vnops_write.inc)、[apfs_write.c](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_write.c)、`apfs_write_ops.inc` 及 `apfs_txn.inc`（两者已于 2026-11-16 随写入引擎重写删除，后续结果见[可写 APFS](2026-11-16-apfs-write-path.md)）。
 - **功能切换缺口**：`apfs_vnodeop_entries` 尚未实现 `vnop_mkdir`、`vnop_rmdir`、`vnop_symlink`、`vnop_rename`、`vnop_link`、`vnop_mknod`（`/private/var/run` 所需 `AF_UNIX` 套接字节点）、`vnop_setxattr`、`vnop_removexattr` 与 `vnop_pageout`（可写共享 `mmap`），现阶段尚不能直接接管 `/private/var`（`var_apfs=1`）。
 - **当前写路径开销**：`apfs_vnop_write` 全程持有 `am_lock`，绕过 XNU `cluster_write` 与 UBC 脏页聚合，按 `4096 B` 循环直写，每次写完 `4 KiB` 立即同步读回做 `memcmp`。追加写每 `4 KiB` 完整执行一轮 `txn_begin -> B-tree 重打包 -> txn_commit` 检查点事务；`txn_modify_btree_root` 每次修改节点都分配 `512 * sizeof(struct rec_slot) = 403,456 B` 解包整页记录。
 - **量化资源代价**：追加写每 `4 KiB` 在 3 棵树更新中分配释放 `1.18 MB` 内核堆内存，同步写出并读回数据块、位图、OMAP、B-tree、卷超级块与容器超级块共约 11～13 个块，写放大约 `12×`，同步块 I/O 达 `24～28 次`。顺序追加 `1 MB` 文件产生约 `295 MB` 堆分配释放与逾 `6,000 次` 同步块 I/O，期间整卷读写被 `am_lock` 串行阻塞。

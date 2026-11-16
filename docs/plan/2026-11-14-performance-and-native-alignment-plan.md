@@ -31,12 +31,12 @@
 
 ### 1.3 可写 APFS 正式接管 `/private/var`（下线 `ANNFS001`）的准入条件
 
-当前 [init_mount.inc](../../hackios-xnu-userland/userland/src/boot/init_mount.inc) 已将内核写能力开关 `apfs_rw=1` 与 `/private/var` 挂载切换开关 `var_apfs=1` 解耦。正式默认开启 `var_apfs=1` 并下线 [ramfs_disk.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 前必须同时满足四项硬条件。
+正式切换并删除 [ramfs_disk.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 前须满足以下条件，当前状态见[可写 APFS](../analysis/2026-11-16-apfs-write-path.md)。
 
-- 补齐目录、符号链接、硬链接、`rename`、`AF_UNIX` 套接字节点（`mknod`）、扩展属性写删及可写 `mmap`/`pageout` 全部 VNOP。
-- 写路径切入 XNU UBC `cluster_write`/`cluster_pageout` 与周期检查点合并，消除每 `4 KiB` 检查点写放大。
-- UFS 驱动放行 `SYNCHRONIZE CACHE (0x35)` 硬件刷盘屏障并接入 APFS `txn_commit` 超级块落盘序列。
-- 提供幂等迁移工具将 `/dev/ufs_darwin_var`（`disk1s2`）上的现存 `ANNFS001` 数据校验导出、格式化为 APFS Data 卷并回灌校验（操作前按 [分区备份与恢复](../backup/README.md) 留存备份）。
+- 补齐 `/private/var` 用到的全部 VNOP，写路径走 UBC 与 cluster 层，周期提交并在提交时刷盘：2026-11-16 已实现，主机测试通过，真机待验证。
+- `loader_return.c` 的 panic 日志移出 `darwin_var`（计划独立分区 `darwin_nvram`）。
+- 提供迁移工具，把 `darwin_var` 上现存的 `ANNFS001` 数据转为 APFS Data 卷并校验，操作前按[分区备份与恢复](../backup/README.md)留存备份。
+- init 按 `darwin_var` 块 0 是否为 APFS 容器选择挂载方式，取代 `var_apfs=1` 开关。
 
 ### 1.4 `xnuloader` 截图与 `loader_return` 硬件收尾契约
 
@@ -65,19 +65,12 @@ DPU 切入 `MiniIOSurface` 直扫后，运行期不再每帧向 `0xfc800000` 预
 
 ### 2.2 可写 APFS 完整功能补齐与 UBC 批量检查点（P0-4）
 
-目标文件：`hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/` 下新增 `apfs_vnops_dir.inc`、`apfs_vnops_xattr.inc`，重构 `apfs_vnops_write.inc`、`apfs_txn.inc` 与 `apfs_txn_btree.inc`。
+2026-11-16 已按本节目标重写写入引擎并接入 VFS，实现、验证与剩余事项见[可写 APFS](../analysis/2026-11-16-apfs-write-path.md)。以下决策与原方案不同。
 
-- **补齐 `/private/var` 所需全部 POSIX / Darwin VNOP**：
-  - `apfs_vnop_mkdir` / `apfs_vnop_rmdir`：分配 `vol->next_inum++`，写入 `APFS_TYPE_INODE`（`mode = S_IFDIR | perms`，`nchildren = 0`）与父目录 `APFS_TYPE_DIR_REC`（带 UTF-8 规范化 CRC32C 22 位目录哈希键 `j_drec_hashed_key_t`），维护父目录 `nchildren` 及时间戳并同步更新 VFS 名称缓存；`rmdir` 严格校验 `nchildren == 0`（非空返回 `ENOTEMPTY`）。
-  - `apfs_vnop_symlink` / `apfs_vnop_link` / `apfs_vnop_mknod`：符号链接目标写入内联扩展属性 `com.apple.fs.symlink`（`APFS_XATTR_DATA_EMBEDDED`）；硬链接递增目标 `nlink` 并插入新 `DIR_REC`；`mknod` 支持 `S_IFSOCK` 与 `S_IFIFO`，绑定 XNU 本地套接字/管道 `specops`，使 `/private/var/run/syslog`、`launchd` XPC 套接字等系统路径可用。
-  - `apfs_vnop_rename`：在单次容器事务内原子删除源 `DIR_REC`、处理目标覆盖（目录空检查或普通文件递减 `nlink`，`nlink == 0` 且仍有打开引用时挂入卷孤儿链表，在 `apfs_vnop_inactive` 归零时回收 extent）、插入新 `DIR_REC` 并更新被移动 inode 的 `parent_id` 与名称缓存。
-  - `apfs_vnop_setxattr` / `apfs_vnop_removexattr`：`<= 3804 B` 走内联 `APFS_XATTR_DATA_EMBEDDED`；更大属性分配独立 `dstream` 对象 ID（`APFS_XATTR_DATA_STREAM` + `APFS_TYPE_FILE_EXTENT` + `APFS_TYPE_DSTREAM_ID`），满足 `containermanagerd`、代码签名与沙盒元数据需求。
-- **接入 UBC `cluster_write` / `cluster_pageout` 与周期批量检查点**：
-  - 移除 `apfs_vnops_write.inc` 中持 `am_lock` 的 `4096 B` 同步直写循环，改为持每文件 `an_rwlock` 写锁调用 XNU `cluster_write`，将小粒度写入全部纳入 UBC 页缓存。
-  - 实现 `apfs_vnop_pageout`（调用 `cluster_pageout`，单次聚簇最高 `256 KiB`）并在 `apfs_vnop_mmap` 放开可写共享映射：回写时一次向 `spaceman` 申请一段连续物理块，下发单笔大块 `VNOP_STRATEGY` 写 I/O，将 `[logical_off, phys_bno, byte_len]` 记录进当前打开的容器批次事务 `am_open_txn`，旧块登记入延迟释放队列。
-  - **事务批次合并（Epoch Checkpointing）**：每个可写容器维持一个活跃内存事务，累积满 `50 ms`、脏元数据块达 `256` 块、收到 `apfs_vnop_fsync`（`MNT_WAIT`）/`apfs_vfs_sync` 或卸载时才统一执行一次 B-tree/OMAP/spaceman CoW 落盘 -> `DKIOCSYNCHRONIZECACHE` 刷盘屏障 -> 写入新 `nx_superblock_t` 检查点 -> 再次刷盘屏障。移除生产路径默认的写后同步读回 `memcmp`（收入诊断参数 `apfs_verify_write=1`）。
-- **原地 B-tree 槽位二分与紧凑重排（消除 `1.18 MB`/事务堆分配抖动）**：
-  - 重构 `apfs_txn_btree.inc`：删除 `struct rec_slot[512]`（`403,456 B`）整页解包数组，直接在原 `4 KiB` 节点的 8 字节 `kvloc_t` TOC 区做二分查找，将前缀段、新增或修改键值、后缀段按偏移连续拼入单个 `4 KiB` CoW 新块（仅在空闲区不足时再分配 1 个 `4 KiB` 兄弟块分裂），把每次节点修改的堆分配从 `411 KiB` 压至 `4 KiB`。
+- 定时提交间隔为 1 秒（原方案 50 ms），脏元数据块阈值为 4096 块（原方案 256 块）；`fsync`、`F_FULLFSYNC`、`sync(2)` 与卸载立即提交。
+- 数据块在 `vnop_blockmap` 写映射时分配，提交前等待已映射的数据写完成；数据块在移出文件的那次提交之后才释放。
+- `clonefile` 先做深拷贝，共享 extent 与写时复制留待引擎支持 extent 引用计数后再做。
+- 生产写路径不做写后读回比对；`apfs_write_in_place` 保留读回比对，只供 `apfs_check=7` 与 `apfs-tool write` 使用。
 
 ### 2.3 APFS 读写锁拆分与元数据线性扩展（P1-3）
 
