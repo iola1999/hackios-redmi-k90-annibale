@@ -34,7 +34,7 @@ phase() {
 	echo "== $name done in $(( $(date +%s) - t0 )) s"
 }
 
-ios() { bash "$U/ios26/fetch.sh"; }  # a check when the extraction is there already
+ios() { IPSW_DIR=$K/out/ipsw/v57/26 bash "$U/ios26/fetch.sh"; }  # a check when the extraction is there already
 
 kernel() (
 	cd "$K"
