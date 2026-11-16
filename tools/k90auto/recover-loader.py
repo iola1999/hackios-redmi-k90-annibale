@@ -2,6 +2,10 @@
 """Converge to idle loader from its runtime, identified LK, or B-slot Android."""
 import json, os, re, subprocess, sys, time
 from pathlib import Path
+# The only argument is a new directory, and every run sends device commands: an option is refused here
+# before it becomes a directory name and a running kernel gets `oem stop'.
+if len(sys.argv)!=2 or sys.argv[1].startswith("-"):
+    sys.exit("usage: recover-loader.py NEW_DIR   (records commands and saved logs in NEW_DIR)\n"+__doc__)
 base=Path(sys.argv[1]);base.mkdir()
 records=[]
 # Bound enumeration, empty-serial polling, and Android boot-completion waits.

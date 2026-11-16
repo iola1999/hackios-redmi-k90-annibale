@@ -13,7 +13,7 @@
 | 蜂窝数据、电话与短信 | 基带在 SoC 内部；固件从未加载，MPSS 没有启动过 | 路线已定，第一步待实现 | [P13](../backlog/platform.md) |
 | 开发工具链 | USB 带宽够用，慢在主机轮询节奏与取文件通道 | outbox 快速取文件已真机验证；改进清单第 1～3 项已实现：`air0018-r2` 的 7 条巡检命令都读到结束行，直连模式往返 379 ms；`fetch.py` 经 outbox 取 1.33 MB 用时 0.64 s；每轮结束截图自动转 PNG；其余待实现 | [ENG-21](../backlog/engineering.md)、[S8](../backlog/platform.md) |
 | 待办目录整理 | 若干条目可关闭、合并或需更新状态，有编号冲突 | 建议已出，待应用 | 见 §6 |
-| 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失；后摄另缺格式发布 | 后摄预览已出图，偏暗偏绿，约 8.7 帧/秒；前摄与拍照未通过 | [M2](../backlog/multimedia.md) |
+| 相机 | 三处缺陷叠加：会话没有相机输入、前摄只输出黑电平、RAW 半块丢失（CAMNOC 地址译码错误）；后摄另缺格式发布 | 后摄预览已出图，偏暗偏绿，约 8.7 帧/秒；前摄与拍照未通过 | [M2](../backlog/multimedia.md) |
 | 硬件解码与流媒体音频 | 无尺寸 IOSurface 的分配大小自 `2fac3a50` 起为 0，创建 AAC AudioQueue 时 audiomxd 退出；1080p H.264 被拒且占住槽位 | IOSurface 修复 `media-r1` 真机通过：AAC 本地播放与 HLS 正常，audiomxd 不再退出；Iris 裁剪与拒绝后关闭 `iris-r1` 真机通过：1080p 本地播放 300 帧，被拒会话释放槽位；首包 Finish 待实现 | [M1、M3、M4](../backlog/multimedia.md) |
 | 真机性能 | 首次使用路径（专化等待、AIR 翻译与进程级锁）最重，其次是调频与 4 核、CPU 面板拷贝 | 待 3 轮基线采集 | [G9、G15](../backlog/graphics.md)、[S9](../backlog/system.md)、[P11](../backlog/platform.md) |
 | TrollStore 安装大 IPA 报 181 | ramfs 克隆目录时跳过已换出到磁盘的页，复制进容器的文件读回全 0，`Info.plist` 读不出，LaunchServices 登记失败；装好后启动被结束，是因为 MiniAMFI 把安装的应用当成平台二进制 | 克隆读盘修复 `clone-r1` 真机通过：微博安装成功，容器内没有被破坏的文件；平台判定修复 `amfi-r1` 真机通过：微博启动到首次运行的用户协议对话框 | 见 §12 |
@@ -257,7 +257,7 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 
 - 会话没有相机输入：已在 11-16 的 `cam-v57-r1`～`r6` 六轮里逐层处理，结果见下方「会话建图」。
 - 前摄只输出黑电平：三轮 6 帧均值 63.97～64.04，σ≈1.05；曝光从 256 行加到 2000 行并加 4 倍增益，均值只涨 0.03～0.06 DN，比预期低约三个数量级。之前看到的条纹来自未写入的半块。
-- RAW 半块丢失：保留下来的半块地址与 RAW10 相位正确，缺失的一半没有写到相邻半块。推测丢失发生在 WM 之后的总线上（设备树 `cam_hf_qtb` 有两个端口，内核没有配置 CAMNOC）。查清丢失的半块是否写到别的物理地址之前，不开长时间连续预览。
+- RAW 半块丢失：后摄同样只写进一半。丢失的写入在 CAMNOC RT 收到地址译码错误，没有到达 SMMU，结果见下方「RAW 半块丢失」。
 - 前摄 VANA 对应 PM8010M L3M（SPMI SID `0xC`，基址 `0x4200`），内核只看投票命令返回值，从没读回使能或过流状态。
 - 后摄：曝光辅助函数只认 4096×3072（`annibale_camera_exposure.inc:47-51`），实际 profile 为 2560×1920；91.x 时期内核不发布 `BACK_MODE24`，后摄只建了手电筒 stream，formats 为空；HEAD 上后摄没有观测记录，后摄采集从没在真机上跑过。
 
@@ -273,6 +273,20 @@ MiniSandbox 与原生 Sandbox.kext 签发行为的剩余差异（23G90 kernelcac
 - 这路 sensor raw 输出供照片链路的软件 ISP 使用。设备级 `AVCaptureDeviceCommonSettings/softISPSupported` 经源属性 `SoftISP` 打开它；格式级 `ConfigureForSoftISPSupport` 只在前者为假时才起作用。`r10` 只改格式级，建图仍失败；`r11` 两项都改为 false 后建图通过。
 - 会话启动随后在 `BWMultiStreamCameraSourceNode.m:13971` 以 -12780 失败。源节点建缓冲池前读流属性 `VideoOutputsColorInfo`，静止图输出的颜色附件要与会话请求的色彩空间一致；CMCapture 不写这个属性，原实现只回传写入值，读到的是空字典。该属性改为只读，按流给缓冲加的标签（BT.709 原色与传递函数、BT.601 矩阵）报告四路画面输出。
 - 现状（`r12`）：会话启动，相机应用显示后摄预览，PrimaryScaler 输出 2216×1584 `420f`，约 8.7 帧/秒。画面偏暗偏绿，首帧绿通道高出黑电平 39。照片处理链有多组 Metal 管线编译失败（affineGPUMetalV2、GDC、DeepZoom、Demosaic 等），拍照未验证。
+
+RAW 半块丢失（11-16，内核 `12377-cam4g`～`12377-camtfe` 共 9 轮，基线为内核仓库 `6e4c41fa`，只改相机文件，单帧采集 `camera_test native-back`）：
+
+- 现象：后摄 mode 24（2560×1920，行距 3200 字节）一帧 24000 个 256 字节块，物理地址 bit 8 为 1 的 12000 块有数据，bit 8 为 0 的 12000 块全零。行距不是 512 的倍数，每行错位 128 字节，传感器方向上形成 4 行周期的细纹和约 204 像素宽的列带。预览旋转后，就是屏幕上的竖细纹和约 130 像素的横带。
+- 错误位置：CAMNOC RT 错误记录器（`cam_camnoc_rt`，0xad90000，偏移取自 Qualcomm `cpastop_v980_100.h`）在每帧采集期间持续记录同一条错误：`ERRLOG0_LOW=0x114`（错误码 1，地址译码错误），`ERRLOG1_LOW=0x11`（路由），地址字段为 0。等帧循环中轮询清除，一帧计到 38～402 次，计数受轮询间隔影响。
+- SMMU 一侧没有记录：全局 GFSR/GFSYNR 和本驱动 context bank 的 FSR 采集前后都是 0，相机 SID 范围（0x1c00～0x1fff）内只有本驱动的一条 SMR。
+- 已排除，每项单独一轮，丢失相位都不变：
+  - 4 GiB 以上地址：loader 交给 XNU 的内存窗口整体在 4 GiB 以上，低地址分配失败。改用一级页表把 IOVA 0x200000 映射到原缓冲，数据经平移写入正确的物理页，仍丢一半，也没有平移故障。
+  - WM 行模式：按上游 `camss-vfe-gen3.c` 改为帧模式（`WM_CFG` bit 16，宽度与行距写 0xFFFF），无变化。
+  - MMNOC 开关：投 BCM `MM1`（包含 `qnm_camnoc_hf`）开启票，发送成功，无变化。
+  - TZ 静态 QoS：按原厂 `cam_cpastop_poweron` 调用 `qcom_scm_camera_update_camnoc_qos(0)`（SiP 0x4200180a），返回 0，无变化。
+  - TFE0/1/2 GDSC：三个都上电，CAMNOC SBM 状态保持 0x111100，无变化。
+- Android 对照（B 槽，原厂相机预览使用 TFE2，没有使用 IFE-lite）：TITAN_TOP GDSC 给 `qnm_camnoc_hf` 投票，CAMNOC RT 与 NRT AXI 时钟均为 300 MHz（本驱动 RT 为 200 MHz）。没有找到能解释译码错误的配置差异。
+- 未确认：错误记录器的地址字段为 0，可能是第二个端口发出的写地址本身为 0，也可能是该记录器不保存地址。IFE-lite 总线状态寄存器（溢出 0x1268、越界 0x1270、WM 调试与地址状态 0x1780～0x179c）还没有读过。
 
 下一步：校正后摄预览的亮度、颜色与帧率；拍照链路的 Metal 编译失败归 AIR 着色器翻译排查。前摄取帧超时、黑电平与半块问题按原顺序排在后摄预览之后。
 
@@ -350,6 +364,7 @@ Iris 修复（`annibale_iris_hfi.c`，内核提交 `c9b9828a`）：
 |---|---|---|---|
 | 2026-11-16 00:20 | `share-r1` 首次，`12377-media1` | `oem run` 后约 1 s 设备从 USB 消失，重新枚举后 loader 自动启动 `boot_a` 常驻镜像（日志头 `== XNULOADER v3 ==`，内核 `0x1398ce0`）；`run-auto.py` 判为 `RESET_FALLBACK_DETECTED`。同一内核在 `media-r1` 正常启动，复位发生在用户态之前，与本轮打开的日志输出无关；复位前的内核日志没有保存 | 原始记录改名为 `kernel-12377-media1-share-r1-fallback`，同配置重跑 |
 | 2026-11-16 01:49、01:51 | `clone-r1` 启动前的运行态收敛（第一次从 `12377-iris1`，第二次从默认镜像） | `recover-loader.py` 两次在复位后约 24 s 才看到 loader 枚举，`oem recovery` 返回 `kernel resources are unavailable for recovery`，loader 自动启动 `boot_a` 默认镜像。默认镜像的 Metal 驱动 `1978de94…`、AIR `a1e7f4d6…` 与 `share-r2`（`ff8552f2…`、`df405d7c…`）不同，用户看到桌面图标透明、只有文字，与 [G5、G7](../backlog/graphics.md) 的冷缓存现象一致，本轮没有单独验证 | 第三次由用户在启动菜单按音量键停住倒计时后收敛成功；见 [ENG-23](../backlog/engineering.md) |
+| 2026-11-16 相机排查期间，共 4 次 | 相机轮次之间的运行态收敛 3 次；从 B 槽 Android 经 `recover-loader.py` 回 loader 1 次 | 复位后 `oem recovery` 返回 `kernel resources are unavailable for recovery`，loader 自动启动常驻镜像 | 等约 60 s 镜像启动完成，再运行一次 `recover-loader.py`，4 次都收敛到空闲 loader，没有用到按键 |
 
 ## 12. TrollStore 安装大 IPA 报 181
 
