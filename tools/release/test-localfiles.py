@@ -41,6 +41,16 @@ class TestEdits(unittest.TestCase):
         # an array changed in place is still replaced as a whole
         self.assertEqual(localfiles.plist_edits({"a": [1, 2]}, {"a": [3, 2, 1]}), [["set", ["a"], [3, 2, 1]]])
 
+    def test_array_changed_in_place_carries_only_the_changed_values(self):
+        base = {"Devices": [{"name": "Back", "Formats": [{"Smart": True, "W": 4032}, {"Smart": False}]},
+                            {"name": "Microphone"}]}
+        wanted = {"Devices": [{"name": "Back", "Formats": [{"Smart": False, "W": 4032}, {"Smart": False}]},
+                              {"name": "Microphone"}]}
+        edits = localfiles.plist_edits(base, wanted)
+        self.assertEqual(edits, [["set", ["Devices", 0, "Formats", 0, "Smart"], False]])
+        made = localfiles.apply_edits(plistlib.loads(localfiles.dump_plist(base)), edits)
+        self.assertEqual(localfiles.dump_plist(made), localfiles.dump_plist(wanted))
+
     def test_whole_value_replaced(self):
         self.assertEqual(localfiles.apply_edits({"a": 1}, localfiles.plist_edits({"a": 1}, [1, 2])), [1, 2])
 

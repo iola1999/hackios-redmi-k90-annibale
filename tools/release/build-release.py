@@ -61,9 +61,9 @@ VENDOR_FIRMWARE = {"gen80000_zap.mbn": "zap", "vpu35_4v.mbn": "iris",
 # the phone, in the mode userland/build.sh makes them with
 CAMERA_PROFILES = {"camera-ov20b-front-mode4.tab": ("com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin", 4),
                    "camera-ovx8000-wide-mode24.tab": ("com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin", 24)}
-# property lists of the root image made from an iOS one other than the jobs (userland/mkcameraresources.py)
-PLIST_SOURCES = {"lib/CMCaptureResources/V57/AVCaptureSession.plist":
-                 "os:System/Library/PrivateFrameworks/CMCapture.framework/V57/AVCaptureSession.plist"}
+# directories of the root image holding iOS property lists with the project's edits, other than the
+# jobs: root directory -> the iOS directory (userland/mkcameraresources.py)
+PLIST_SOURCES = {"lib/CMCaptureResources/V57/": "os:System/Library/PrivateFrameworks/CMCapture.framework/V57/"}
 # fw/ files a release may carry: the GPU firmware of firmware-gen8/ (Qualcomm's redistribution
 # licence beside it) and package.py's own InterfaceNamer preference
 RELEASE_FIRMWARE = {"gen80000_aqe.fw", "gen80000_gmu.bin", "gen80000_sqe.fw", "LICENSE.qcom.txt", "NOTICE.qcom.txt",
@@ -151,8 +151,9 @@ def split(root):
             recipes[rel] = {"kind": "cache", "from": "os:System/Library/xpc/launchd.plist"}
         elif rel == "etc/var.skel":
             recipes[rel] = {"kind": "skeleton"}
-        elif rel in PLIST_SOURCES:
-            recipes[rel] = {"kind": "plist", "from": PLIST_SOURCES[rel]}
+        elif any(rel.startswith(d) for d in PLIST_SOURCES):
+            d = next(d for d in PLIST_SOURCES if rel.startswith(d))
+            recipes[rel] = {"kind": "plist", "from": PLIST_SOURCES[d] + rel[len(d):]}
         elif rel.startswith("LaunchDaemons/"):
             for kind in ("LaunchDaemons", "LaunchAngels"):
                 if (IOS_VOLUMES["os"] / "System/Library" / kind / name).is_file():

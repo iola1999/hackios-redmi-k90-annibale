@@ -13,7 +13,7 @@ IPSW and phone, and is described here as recipes (local-files.plist in the relea
 
 An edit list holds only the project's changes: ["del", keys], ["set", keys, value] and
 ["insert", keys, index, value] (an element added to the array at keys), keys being the path of
-dictionary keys from the top. Every recipe records the SHA-256 of the file it has to
+dictionary keys and array indexes from the top. Every recipe records the SHA-256 of the file it has to
 produce, and make() checks it, so a different IPSW or a changed recipe stops the build.
 """
 import difflib
@@ -51,6 +51,9 @@ def plist_edits(base, wanted, keys=()):
             else:
                 edits.append(["set", [*keys, k], wanted[k]])
         return edits
+    if isinstance(base, list) and isinstance(wanted, list) and len(wanted) == len(base):
+        # an array the project changed in place: each element's changes, under its index
+        return [e for i, (b, w) in enumerate(zip(base, wanted)) for e in plist_edits(b, w, (*keys, i))]
     if isinstance(base, list) and isinstance(wanted, list) and len(wanted) > len(base):
         # an array the project only added to: the added elements, in order, when the rest is base's
         edits, i = [], 0

@@ -202,7 +202,7 @@ gh release create vX.Y.Z out/release/hackios-k90-vX.Y.Z.tar.gz out/release/hacki
 - Mesa 构建树不是当前补丁打出来的，`build-air.py` 拒绝构建，处理见第 7 节。
 - 根盘 `fw/` 里有 `build-release.py` 不认识的文件。手机来源的文件加进 `VENDOR_FIRMWARE`，需要额外生成参数的同时加进 `CAMERA_PROFILES` 这类表，再给 `assemble.py` 加对应输入，并更新体验说明第 5、6 步。
 
-由 iOS 文件改出来的 plist 只能人工确认。这类文件不在 `LaunchDaemons/`、文件名也不以 `com.apple.` 开头时，会被当作本项目文件整份放进发布包，相机的 `AVCaptureSession.plist` 曾是这种情况。新增这类文件时把它和 iOS 原文件加进 `PLIST_SOURCES`；发布前对照上一版，检查输出末尾「property list edits carry N bytes」有没有明显增大。
+由 iOS 文件改出来的 plist 只能人工确认。这类文件不在 `LaunchDaemons/`、文件名也不以 `com.apple.` 开头时，会被当作本项目文件整份放进发布包，相机的 `AVCaptureSession.plist` 曾是这种情况。新增这类文件时把它在根盘的目录和 iOS 原目录加进 `PLIST_SOURCES`（目前是 `lib/CMCaptureResources/V57/`）；发布前对照上一版，检查输出末尾「property list edits carry N bytes」有没有明显增大。
 
 ### 发布后的本地清理
 
