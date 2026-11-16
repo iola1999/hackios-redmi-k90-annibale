@@ -35,6 +35,8 @@ class RecoveryTests(unittest.TestCase):
                     state["gap_seen"] = True
                 elif android and state.get("bootloader"):
                     out = "test-android\tfastboot\n"
+                elif isinstance(devices, list):
+                    out = devices.pop(0) if len(devices) > 1 else devices[0]
                 else:
                     out = devices
             elif argv == ["adb", "devices"]:
@@ -125,6 +127,13 @@ class RecoveryTests(unittest.TestCase):
             else:
                 outcome = 0
         return outcome, sent
+
+    def test_loader_that_enumerates_late_is_converged_from_its_runtime(self):
+        rc, sent = self.invoke(["", "", "xnuloader\tfastboot\n"], runtime=True, result="running 1 2",
+                               stop_result="returned 100 0", android_devices="List of devices attached\n")
+        self.assertEqual(rc, 0)
+        self.assertIn(["fastboot", "-s", "xnuloader", "oem", "stop"], sent)
+        self.assertNotIn(["adb", "-s", "test-android", "reboot", "bootloader"], sent)
 
     def test_idle_clears_staged_ram_and_verifies_it(self):
         rc, sent = self.invoke("xnuloader\tfastboot\n", ramdisk="ready 400000 400000 300000000")

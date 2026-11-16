@@ -53,7 +53,7 @@ def idle():
         ramdisk=value(call(pre+["getvar","ramdisk-state"]),"ramdisk-state")
     assert re.fullmatch(r"idle 0 0 [0-9a-fA-F]+",ramdisk),"loader RAM disk is not empty"
     return build_id
-def native_to_loader():
+def native_to_loader(from_start=False):
     deadline=time.monotonic()+60
     while True:
         found=fastboots()
@@ -62,6 +62,9 @@ def native_to_loader():
             assert found.count(configured)==1 and "xnuloader" not in found,"ambiguous native Fastboot enumeration"
             serial=configured
             break
+        if found==["xnuloader"] and from_start:
+            # Nothing was on USB at the start (a reset under way) and the loader came up: converge from it.
+            return converge_runtime()
         assert not found or found==["xnuloader"],"native Fastboot requires the identified ANDROID_SERIAL"
         android=adb_devices() if not found else []
         if android:
@@ -110,7 +113,8 @@ def native_to_loader():
             break
         assert not found or found==[serial],"unexpected Fastboot identity after native boot"
         assert time.monotonic()<deadline,"the loader did not re-enumerate"
-        time.sleep(0.5)
+        # As after a runtime reset: the host sees the loader near the end of its boot-menu window.
+        time.sleep(0.05)
     call(["fastboot","-s","xnuloader","oem","recovery"])
     return idle()
 def converge_runtime():
@@ -168,4 +172,4 @@ assert found.count("xnuloader")<=1,"duplicate loader enumeration"
 if "xnuloader" in found:
     assert found==["xnuloader"],"ambiguous loader enumeration"
     print("loader Fastboot idle and empty RAM verified (%s)"%converge_runtime());sys.exit(0)
-print("identified native boot to idle loader; %s"%native_to_loader())
+print("identified native boot to idle loader; %s"%native_to_loader(True))
