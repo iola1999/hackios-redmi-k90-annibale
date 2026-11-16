@@ -1,12 +1,13 @@
 # 可写 APFS：事务引擎与 VFS 接入（2026-11-16）
 
-适用范围：`hackios-xnu-kernel`（`k90-port`）的 [bsd/miscfs/apfs](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/) 与 `hackios-xnu-userland`（`k90-port`）的 [tools/apfs](../../hackios-xnu-userland/tools/apfs/)，随本文同批提交。验证范围只有主机测试和内核编译，真机未验证。init 按 `darwin_var` 的格式选择挂载方式，分区转为 APFS 之前 `/private/var` 仍是 `ANNFS001`（ramfs）。
+适用范围：`hackios-xnu-kernel`（`k90-port`）的 [bsd/miscfs/apfs](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/) 与 `hackios-xnu-userland`（`k90-port`）的 [tools/apfs](../../hackios-xnu-userland/tools/apfs/)，随本文同批提交。主机测试见第 6 节；2026-11-16 测试机已迁移到 APFS 并上机验证，结果见第 8 节。init 按 `darwin_var` 的格式选择挂载方式，分区转为 APFS 之前 `/private/var` 仍是 `ANNFS001`（ramfs）。
 
 ## 1. 结论
 
 - 写入引擎已重写为单个打开事务加检查点提交。B-tree 支持多层分裂与合并，空间管理器支持多个 chunk，卷与容器两级对象映射和检查点环都随提交推进。旧的 `apfs_txn.inc`、`apfs_txn_btree.inc`、`apfs_write_ops*.inc` 已删除。
 - 内核 VFS 已接到新引擎。文件内容走 UBC 与 cluster 层（`vnop_blockmap`、`vnop_strategy`），与 ramfs 对齐的接口均已实现，详见第 5 节。
 - 挂载时未带 `MNT_RDONLY` 且卷可写即为可写挂载，boot-arg `apfs_rw=0` 强制只读。系统卷、cryptex 与 `/annibale` 都以 `MNT_RDONLY` 挂载，行为不变。
+- APFS 挂载开启扩展安全：ACL 存在 `com.apple.system.Security` 扩展属性里，由 VFS 读写和检查，与 iOS 相同。容器目录的权限位是 000，访问靠 ACL。
 - `darwin_var` 块 0 是 APFS 容器超级块时，init 把 Data 卷挂到 `/private/var`，否则挂 ramfs。`tools/apfs/annfs-to-apfs.py` 把现有的 `ANNFS001` 分区原地转为 APFS，panic 日志和背光设置改存到容器之外的分区末尾 32 MiB（第 7 节）。真机验收见第 8 节。
 
 ## 2. 事务模型
@@ -65,12 +66,14 @@
 | `tools/apfs/test_annfs.py`：随机 `ANNFS001` 分区转换，含硬链接、稀疏页、超长扩展属性、文档 ID 和落在末尾 32 MiB 的数据页 | 20 轮 × 140 个对象通过；每轮写回前 512 MiB 后 `apfsck -cw` 无错误，`apfs.py` 读出的每个对象与模型一致 |
 | `test_annfs.py --objects 20000`（文件系统树多层，转换中途多次提交） | 2 轮通过 |
 | ASan 与 UBSan 构建下的 `test_annfs.py` | 通过 |
+| 真机 `darwin_var` 备份（70,784 个对象、358 个硬链接、13,374 个扩展属性）在主机上转换 | 1.4 秒完成，`apfsck -cw` 无错误；与迁移前在 iOS 下记录的文件清单比对元数据，45,941 个文件中 45,621 个一致，其余是记录清单之后仍在变化的日志和数据库文件 |
 | `annfs-to-apfs.py` 在模拟的 adb 上执行转换、重复执行、`--rollback` 与 `--format` | 转换后逐项比对一致，`apfsck -cw` 无错误；重复执行不改动分区；回退后分区与原分区逐字节相同 |
 
-随机测试按模型逐项比对目录树、内容、扩展属性、链接数与设备号，并对每轮结果运行 `apfsck`。本轮测试查出并修复了下面两个问题。
+随机测试按模型逐项比对目录树、内容、扩展属性、链接数与设备号，并对每轮结果运行 `apfsck`。主机上的 apfsck 由 [build-apfsck.sh](../../hackios-xnu-userland/tools/apfs/build-apfsck.sh) 构建：固定 apfsprogs 版本，应用 `apfsprogs-host.patch`（macOS 上用 `pread` 代替 `mmap`，接受 iOS 使用的保护类 7）。测试和真机备份的转换查出并修复了下面三个问题。
 
 1. `wr_next` 读取下一条记录时按 4096 字节容量往调用方的 64 字节缓冲区拷值，记录值较长时越界写栈（ASan 报 `stack-buffer-overflow`）。改为由调用方传入缓冲区容量。
 2. 提交后释放的元数据块在下一个事务里被分配为数据块（如扩展属性数据流），元数据缓存中仍有旧内容，经 `apfs_read_stream` 读到旧数据。改为分配时清掉这些块的缓存条目。
+3. B 树节点分裂时按顺序装满前面的节点，乱序插入时反复分裂会留下大量半空节点。转换真机备份时文件系统树长到 8 层，第 16 个事务返回 `EFBIG`。改为分裂时把记录按大小平均分到同样数量的节点（`wn_even`），同一份备份转换后文件系统树 3 层，每个节点约 30 条记录（原来 4～5 条）。
 
 ## 7. 分区末尾与迁移
 
@@ -87,6 +90,7 @@ APFS 容器比 `darwin_var` 小 32 MiB。末尾这 32 MiB 不属于容器，由�
 - 退回 loader 时（`annibale_var_save_on_return`）先把 APFS 卷全部文件的脏页同步写到设备，再提交。
 - init 挂载后读 `kern.annibale.panic_log`，把上一次运行的 panic 日志存为 `/private/var/db/panic.log`，再写这个 sysctl 把它标记为已保存。`var_apfs=1` 启动参数已删除。
 - ramfs 在元数据槽无效且前 64 MiB 非零时拒绝挂载，不会格式化 APFS 分区。
+- panic 日志目前写不出去。`loader_panic_sync_ufs` 先屏蔽 IRQ 与 FIQ 再调用 `annibale_ufs_var_io`，后者在中断关闭时直接返回 `EBUSY`。v0.1.2 起的 ANNFS 版本也是这样，64 MiB 处从未写入过。2026-11-16 在 Android 下读取末尾 32 MiB，全部为零。
 
 迁移在 Android root 下经 adb 执行 [annfs-to-apfs.py](../../hackios-xnu-userland/tools/apfs/annfs-to-apfs.py)，数据块原地不动：
 
@@ -95,12 +99,41 @@ APFS 容器比 `darwin_var` 小 32 MiB。末尾这 32 MiB 不属于容器，由�
 3. ANNFS 按 next-fit 在整个分区分配数据页，落在末尾 32 MiB 的页由转换器复制到 512 MiB 以内的新块。转换中的其他分配也都在 512 MiB 以内，所以写回手机的只有镜像的前 512 MiB，脚本在写回前检查镜像 512 MiB 之后没有内容。
 4. 写回前 512 MiB 并读回比对。`--rollback` 写回保存的前 512 MiB，分区恢复为 ANNFS，APFS 下的改动丢失。`--format` 不转换，直接建空的 APFS 数据卷。
 
+ANNFS 中有两类 APFS 不允许的状态，转换器按 APFS 的规则处理：
+
+- 文档 ID 小于 3 的对象（APFS 保留这一范围）改用新的文档 ID。
+- 带 `UF_COMPRESSED` 标志但没有 `com.apple.decmpfs` 扩展属性的文件去掉这个标志。真机备份中有 12,562 个这样的文件，抽查到的都在微博应用的安装包和应用目录里。内核 `setattr` 也按 XNU `decmpfs_update_attributes` 的规则处理：只有文件已有 decmpfs 头、且同一次调用不改大小时，才允许设置 `UF_COMPRESSED`。
+
 ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和没有目录项指向的对象不迁移。
 
 ## 8. 未完成事项与真机验收
 
-- 真机迁移：在测试机上执行 `annfs-to-apfs.py`，迁移前在 iOS 下记录 `/private/var` 全部普通文件的大小与 SHA-256，迁移后逐一比对；应用、Wi-Fi 网络与设置保留。
-- 真机验收：创建、删除、重命名、硬链接、克隆、扩展属性、`mmap` 写入后重启读回；fsync 后立即断电再读回；`kern.apfs_wstats` 无提交失败；背光设置与 panic 日志跨重启保留；主机 `apfsck` 检查拉回的 `darwin_var` 镜像。
+### 8.1 真机验收结果
+
+2026-11-16 在测试机上执行。内核为 `hackios-xnu-kernel` 的 `7cb8a4df`，含第 8.2 节的全部修复。
+
+| 项目 | 结果 |
+|---|---|
+| 迁移 | B 槽 Android 下执行 `annfs-to-apfs.py`，约 24 秒。70,784 个对象、358 个硬链接、13,374 个扩展属性；1,908,217 个块原地接管，没有复制；1 个文档 ID 改号，12,562 个文件去掉 `UF_COMPRESSED`；`apfsck -cw` 无错误 |
+| 挂载 | 内核打印 `apfs: volume "Data" is writable`，init 打印 `mounted the APFS data volume on /private/var`；桌面、壁纸、小组件、应用布局与 Wi-Fi 网络保留 |
+| 文件比对 | 迁移前在 iOS 下记录 `/private/var` 的文件清单（45,941 项，含权限、属主、链接数、大小与 SHA-256），约 2 小时、7 次 iOS 启动后再记录一次：44,497 项相同，内容变化 373 项，元数据变化 168 项，新增 1,728 项，删除 903 项。变化都在偏好设置、Spotlight、Biome、缓存和数据库这类运行中会改写的目录，应用包、照片与 MobileAsset 下没有内容变化 |
+| 连续读取 | 两次全量读取 `/private/var`（约 8 GB），相隔约 3 分钟，差异只在上面这类目录；期间没有 UFS 错误，也没有 panic |
+| 写入后重启读回 | 重命名、硬链接、克隆后改写副本、扩展属性、删除、`mmap` 写、稀疏文件、截断共 10 项，写入后正常退回 loader，重启后全部读回正确 |
+| 提交统计 | `kern.apfs_wstats` 提交失败次数为 0 |
+| 背光设置、panic 日志 | 未验证：这几轮没有调节亮度；panic 日志写不出去，见第 7 节 |
+
+### 8.2 上机发现并修复的问题
+
+1. `vfs_conf.c` 里 apfs 类型带 `MNT_RDONLY`，`mount_common()` 把它加到每次挂载上，`/private/var` 挂成只读。`tzinit` 写入失败后退出，内核随即 panic。已从类型表删除这个标志（`xnu26/patches/20-bsd%vfs%vfs_conf.c.patch`），其他 APFS 挂载都自己带 `MNT_RDONLY`。
+2. APFS 挂载没有开启扩展安全，VFS 忽略 ACL，只按权限位检查。iOS 的容器目录是 000、属主 -2，访问全靠 ACL，迁移前的备份里有 136 个这样的目录。SpringBoard（`BSUIMappedImageCache`）和 installcoordinationd 建目录失败后反复崩溃；在同一个容器目录下以 uid 501 建目录可以复现 `EACCES`。ramfs 挂载时调用 `vfs_setextendedsecurity()`，所以以前没有出现。APFS 挂载现在同样调用，并上报 `VOL_CAP_INT_EXTENDED_SECURITY`。
+3. 上机后 `apfsck` 报 `Compressed file: missing decmpfs xattr`，对应 `dirs_cleaner` 下一个新建的 `.mlmodel` 文件：带 `UF_COMPRESSED`，没有 decmpfs 扩展属性，数据全是空洞。`FSIOC_CAS_BSDFLAGS` 由 VFS 直接交给文件系统，不经过 `vnode_setattr`，`setattr` 里的 decmpfs 规则对它不生效，现在 CAS 处理按同一规则去掉这个标志。设置标志的具体调用没有抓到。
+4. UFS 异步完成判断有竞争。`hc_ring()` 在 `hc_lock` 内先把槽位标为活动，再写门铃；完成线程不加锁比较活动位和门铃寄存器，会把已标记但还没写门铃的槽位当成已完成：读到初始的 `OCS f`，返回 `EIO` 并归还槽位，控制器随后把数据 DMA 到已释放的页里，内核以 `pmap_assert_free` panic。当天的日志里只有 APFS 数据卷的轮次出现过 `OCS f`，APFS 读写大量走异步路径。完成线程现在在 `hc_lock` 内确认门铃位已清除后再清除活动位。修复后两次全量读取都没有 `OCS f`。
+
+### 8.3 未完成事项
+
+- panic 日志写入：`loader_panic_sync_ufs` 在屏蔽中断后写盘，`annibale_ufs_var_io` 此时返回 `EBUSY`。需要不依赖中断的 UFS 写路径，或在屏蔽中断前写出。
+- 背光设置跨重启保留、`fsync` 后立即断电再读回，还没有在真机上验证。
+- 提交次数偏多：一次开机进入桌面时，`kern.apfs_wstats` 已记 1,931 次提交；日志里有 `apfs: commit: 1 mappings and 0 data writes still out after 2000 ms`，原因待查。
 - 背光设置目前是自定义记录。计划改为 NVRAM：loader 从末尾的 NVRAM 区读入 `nvram-proxy-data`，内核注册 NVRAM 控制器写回，背光走 `backlight-nits` 变量。
-- 真机验收通过后删除 `ramfs_disk*.inc`，并更新 Release 说明与升级步骤。
+- 上面几项完成后删除 `ramfs_disk*.inc`，并更新 Release 说明与升级步骤。
 - 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；不维护写入代数（`va_write_gencount`）。

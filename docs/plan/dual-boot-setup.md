@@ -83,6 +83,8 @@ python3 hackios-xnu-userland/tools/apfs/annfs-to-apfs.py --serial "$ANDROID_SERI
 
 新装机或需要清空数据盘时，用 `--format` 直接建空的 APFS 数据卷，分区原有内容全部丢弃。转换需要 C 编译器、zlib 与 OpenSSL 来构建 `apfs-tool`，`--format` 只用到 Python。
 
+转换后只能启动支持 APFS 数据卷的内核。旧内核的 ramfs 拒绝挂载这个分区，init 停在 launchd 之前；需要换回旧内核时先执行 `--rollback`。回退只适合在转换后不久使用：APFS 下删除文件释放的块可能被之后的写入复用，回退后 ANNFS 中原来使用这些块的文件内容会损坏。
+
 ## 4. 刷入双启动 loader 与切换系统
 
 REDMI K90 采用 A/B 双槽位设计，当前正在运行的 Android 可能位于 `a` 槽或 `b` 槽。独立双系统引导镜像（[开发指南](../development.md) §8 的 `boot-a-ios.img`，或 Release 用户合成的 `boot-ios.img`，含已链接 `ath12k.o` 的内核、带 Wi-Fi 固件的 `root.apfs` 与 `loader-phone.efi`）应刷入与当前 Android 相对的**闲置槽位**（若 Android 在 `b` 槽则刷入 `boot_a`；若 Android 在 `a` 槽则刷入 `boot_b`）：

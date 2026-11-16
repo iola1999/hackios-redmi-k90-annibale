@@ -33,9 +33,9 @@
 
 正式切换并删除 [ramfs_disk.inc](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/ramfs/ramfs_disk.inc) 前须满足以下条件，当前状态见[可写 APFS](../analysis/2026-11-16-apfs-write-path.md)。
 
-- 补齐 `/private/var` 用到的全部 VNOP，写路径走 UBC 与 cluster 层，周期提交并在提交时刷盘：2026-11-16 已实现，主机测试通过，真机待验证。
-- `loader_return.c` 的 panic 日志移出 APFS 容器：2026-11-16 改存到容器之外的分区末尾 32 MiB，该区域以后划为独立分区 `darwin_nvram`。
-- 提供迁移工具，把 `darwin_var` 上现存的 `ANNFS001` 数据转为 APFS Data 卷并校验，操作前留存备份：2026-11-16 已实现，迁移前自动保存前 512 MiB 和末尾 32 MiB，主机测试通过，真机待验证。
+- 补齐 `/private/var` 用到的全部 VNOP，写路径走 UBC 与 cluster 层，周期提交并在提交时刷盘：2026-11-16 已实现，测试机上机验证通过。
+- `loader_return.c` 的 panic 日志移出 APFS 容器：2026-11-16 改存到容器之外的分区末尾 32 MiB，该区域以后划为独立分区 `darwin_nvram`。写入路径在屏蔽中断后不可用，待修。
+- 提供迁移工具，把 `darwin_var` 上现存的 `ANNFS001` 数据转为 APFS Data 卷并校验，操作前留存备份：2026-11-16 已实现，迁移前自动保存前 512 MiB 和末尾 32 MiB，测试机已迁移并上机验证。
 - init 按 `darwin_var` 块 0 是否为 APFS 容器选择挂载方式，取代 `var_apfs=1` 开关：2026-11-16 已实现。
 
 ### 1.4 `xnuloader` 截图与 `loader_return` 硬件收尾契约
