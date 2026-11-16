@@ -23,15 +23,17 @@
 ## 3. 提交时机
 
 - 第一次改动后约 1 秒（`APFS_WCOMMIT_MS`）。定时提交先把上次提交后写过的文件的脏页推到设备（`apfs_wpush`），再提交。
-- 事务中脏元数据块超过 4096 块时，在当前操作末尾立即提交。
-- `fsync(2)`（该文件有未提交改动时）、`F_FULLFSYNC`、`F_BARRIERFSYNC`、`IO_SYNC` 写、`sync(2)` 和卸载时提交。`F_FULLFSYNC` 在没有未提交改动时只刷盘。
+- 事务中脏元数据块超过 4096 块时，在当前操作末尾立即提交。在 `vnop_blockmap` 里超过时改由定时提交线程立即执行，因为这次映射要等 blockmap 返回后才会发出。
+- `fsync(2)`（该文件有未提交改动时）、`F_FULLFSYNC`、`F_BARRIERFSYNC`、`IO_SYNC` 写、`sync(2)` 和卸载时提交。`F_FULLFSYNC` 在没有未提交改动时只刷盘。`fsync` 和 `IO_SYNC` 写拿到卷写锁时，如果等锁期间别的提交已经包含了这个文件的改动，就不再提交。
 - 断电时可能丢失的范围：最后约 1 秒内未经 fsync 的改动。已有数据块的原地覆盖不经过检查点，断电时这些块可能是新旧混合内容；元数据始终停在某个完整的检查点。
 
 ## 4. 数据路径与写入顺序
 
 - 可写挂载上未压缩的普通文件用 `cluster_read`、`cluster_write`、`cluster_pagein`、`cluster_pageout`。压缩文件保留原读路径，写入和截断返回 `EPERM`。
 - `vnop_blockmap` 在写映射时给空洞分配新块，已有块原地写。每个写映射都登记到 `wm_map`，`vnop_strategy` 发出对应缓冲区时扣除，并给缓冲区装上完成回调计入 `wm_io`。
-- 提交在持有卷写锁的情况下等 `wm_map` 清空且 `wm_io` 归零，最多等 2 秒（`APFS_WDRAIN_MS`），超时打印一行日志后继续。持锁期间不会产生新的写映射，所以检查点不会指向内容还没写到设备的块。
+- 提交先等 `wm_map` 清空，再等 `wm_io` 归零。`cluster_io` 可能只发出一个映射的一部分（例如截到页边界），剩余部分要等它下一次调用 `vnop_blockmap` 才发出，所以映射在 20 ms（`APFS_WDRAIN_HELD_MS`）内没有全部发出时，提交放开卷写锁继续等。已发出的写不需要锁就能完成，等 `wm_io` 时持锁。检查点在持锁、映射全部发出且写全部完成后写出，不会指向内容还没写到设备的块。
+- 等待上限 2 秒（`APFS_WDRAIN_MS`）。超时说明有映射被 cluster 层放弃，这些页仍是脏页，之后会重新映射；内核打印未发出的映射（文件号、文件内偏移、块数，最多 4 个）后继续提交。
+- `vnop_blockmap` 先登记映射，再标记事务有改动，事务满时也不在 blockmap 里提交。
 - 写入扩展文件时先在元数据中把长度设好（新增部分为空洞），数据页在推出时才分配块，提交早于数据推出时，崩溃后新增部分读作零。
 - 用新文件替换旧文件的 `rename` 先推出源文件的脏页，提交在这些写完成后才进行。
 - 延迟分配的空间检查：可用块少于本次写入块数加 16384 块（64 MiB，`APFS_WSPARE_BLOCKS`）时 `write(2)` 返回 `ENOSPC`。
@@ -90,7 +92,9 @@ APFS 容器比 `darwin_var` 小 32 MiB。末尾这 32 MiB 不属于容器，由�
 - 退回 loader 时（`annibale_var_save_on_return`）先把 APFS 卷全部文件的脏页同步写到设备，再提交。
 - init 挂载后读 `kern.annibale.panic_log`，把上一次运行的 panic 日志存为 `/private/var/db/panic.log`，再写这个 sysctl 把它标记为已保存。`var_apfs=1` 启动参数已删除。
 - ramfs 在元数据槽无效且前 64 MiB 非零时拒绝挂载，不会格式化 APFS 分区。
-- panic 日志目前写不出去。`loader_panic_sync_ufs` 先屏蔽 IRQ 与 FIQ 再调用 `annibale_ufs_var_io`，后者在中断关闭时直接返回 `EBUSY`。v0.1.2 起的 ANNFS 版本也是这样，64 MiB 处从未写入过。2026-11-16 在 Android 下读取末尾 32 MiB，全部为零。
+- panic 日志在 panic 开始时（`loader_panic_log`）写一次，退回 loader 前（`loader_return`）带上 panic 缓冲区和控制台日志末尾再写一次。没有发生 panic 的退回不写。v0.1.2 起的版本在这一步因中断关闭返回 `EBUSY`，ANNFS 的 64 MiB 处和 APFS 的末尾都从未写入过。
+- 这时中断已屏蔽，不能用 `hc_lock`，也不能休眠。`annibale_ufs_var_io` 改走 `ufshc_write_polled`：UTRL 的最后一个槽位只留给它，单独写门铃并轮询门铃位，上一次轮询写还没结束时先等它完成。
+- `loader_panic_sync_ufs` 屏蔽 A、I、F 三位。只屏蔽 I、F 时，被调用代码里的 `ml_set_interrupts_enabled(FALSE)` 会因部分屏蔽断言失败。同一时刻只有一个处理器填写并写出日志缓冲区，其他处理器最多等 5 秒，超时放弃；同一处理器在写日志时再次 panic 则直接接手。
 
 迁移在 Android root 下经 adb 执行 [annfs-to-apfs.py](../../hackios-xnu-userland/tools/apfs/annfs-to-apfs.py)，数据块原地不动：
 
@@ -110,7 +114,7 @@ ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和
 
 ### 8.1 真机验收结果
 
-2026-11-16 在测试机上执行。内核为 `hackios-xnu-kernel` 的 `7cb8a4df`，含第 8.2 节的全部修复。
+2026-11-16 在测试机上执行。内核为 `hackios-xnu-kernel` 的 `7cb8a4df`，含第 8.3 节第 1～4 项修复。
 
 | 项目 | 结果 |
 |---|---|
@@ -120,20 +124,36 @@ ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和
 | 连续读取 | 两次全量读取 `/private/var`（约 8 GB），相隔约 3 分钟，差异只在上面这类目录；期间没有 UFS 错误，也没有 panic |
 | 写入后重启读回 | 重命名、硬链接、克隆后改写副本、扩展属性、删除、`mmap` 写、稀疏文件、截断共 10 项，写入后正常退回 loader，重启后全部读回正确 |
 | 提交统计 | `kern.apfs_wstats` 提交失败次数为 0 |
-| 背光设置、panic 日志 | 未验证：这几轮没有调节亮度；panic 日志写不出去，见第 7 节 |
+| 背光设置、panic 日志 | 未验证：这几轮没有调节亮度；panic 日志当时写不出去，第二轮的结果见第 8.2 节 |
 
-### 8.2 上机发现并修复的问题
+### 8.2 第二轮：提交次数、数据写等待与 panic 日志
+
+2026-11-16 下午在同一台测试机上执行，内核依次换了几版，最终版本为 `hackios-xnu-kernel` 的 `67a07ebd`，含第 8.3 节第 5～7 项修复。panic 测试用的版本与最终版本只差提交等待的调整，panic 路径相同。`kern.apfs_wstats` 增加了按原因统计的提交次数、等数据写的累计与最长时间（分持锁和放开锁两部分）和最长单次提交时间。
+
+| 项目 | 结果 |
+|---|---|
+| 提交次数 | 修复前内核解锁后约 1.5 分钟：2,461 次提交，其中 `fsync` 1,801 次，`F_FULLFSYNC`／`F_BARRIERFSYNC` 594 次，定时提交 38 次，`IO_SYNC` 23 次，`sync` 4 次。提交本身累计 6,385 ms，平均约 2.6 ms，最长 16 ms。提交次数基本都由应用的同步请求触发 |
+| 等数据写超时 | 同一时段等数据写累计 14,227 ms，其中 7 次到了 2 秒上限，每次都是 1 个映射只发出一部分、在途写为 0（例如文件 1075659 偏移 7647232 处 12 块里 3 块未发出），即第 8.3 节第 5 项。修复后解锁 7 分钟内 3,570 次提交，0 次超时 |
+| 开机时的等待 | 第一版修复只要有映射未发出就放开写锁：解锁后约 10 秒内等数据写累计 22,250 ms（各提交线程相加），单次最长 1,047 ms；panic 后的那次开机单次最长 3,232 ms。最终版本先持锁等 20 ms，并合并 `fsync` 提交：解锁后约 10 秒内累计 9,670 ms，其中 8,685 ms 是放开锁的等待；单次最长 1,238 ms，持锁部分最长 55 ms。等待集中在开机后大量进程同时 `fsync` 的几秒，其他文件操作最多阻塞 55 ms，调用 `fsync` 的进程最多等约 1.2 秒 |
+| panic 日志 | 用 `sysctl debug.panic_test=4`（两个处理器同时 panic）触发。修复前，日志头有效但正文 CRC 不符，init 没有保存，见第 8.3 节第 7 项。修复后，下次开机 init 保存 `/private/var/db/panic.log`（262,057 字节），含两个处理器的 `PANIC caller ... xnu_vs_xnu panic test` 与 `haltRestart`，`kern.annibale.panic_log` 随后返回 0 字节 |
+| panic 后读回 | 两次 panic 前都用 `apfsw write` 写入并 `fsync`，下次开机数据卷正常挂载，`apfsw check` 10 项全部正确 |
+
+### 8.3 上机发现并修复的问题
 
 1. `vfs_conf.c` 里 apfs 类型带 `MNT_RDONLY`，`mount_common()` 把它加到每次挂载上，`/private/var` 挂成只读。`tzinit` 写入失败后退出，内核随即 panic。已从类型表删除这个标志（`xnu26/patches/20-bsd%vfs%vfs_conf.c.patch`），其他 APFS 挂载都自己带 `MNT_RDONLY`。
 2. APFS 挂载没有开启扩展安全，VFS 忽略 ACL，只按权限位检查。iOS 的容器目录是 000、属主 -2，访问全靠 ACL，迁移前的备份里有 136 个这样的目录。SpringBoard（`BSUIMappedImageCache`）和 installcoordinationd 建目录失败后反复崩溃；在同一个容器目录下以 uid 501 建目录可以复现 `EACCES`。ramfs 挂载时调用 `vfs_setextendedsecurity()`，所以以前没有出现。APFS 挂载现在同样调用，并上报 `VOL_CAP_INT_EXTENDED_SECURITY`。
 3. 上机后 `apfsck` 报 `Compressed file: missing decmpfs xattr`，对应 `dirs_cleaner` 下一个新建的 `.mlmodel` 文件：带 `UF_COMPRESSED`，没有 decmpfs 扩展属性，数据全是空洞。`FSIOC_CAS_BSDFLAGS` 由 VFS 直接交给文件系统，不经过 `vnode_setattr`，`setattr` 里的 decmpfs 规则对它不生效，现在 CAS 处理按同一规则去掉这个标志。设置标志的具体调用没有抓到。
 4. UFS 异步完成判断有竞争。`hc_ring()` 在 `hc_lock` 内先把槽位标为活动，再写门铃；完成线程不加锁比较活动位和门铃寄存器，会把已标记但还没写门铃的槽位当成已完成：读到初始的 `OCS f`，返回 `EIO` 并归还槽位，控制器随后把数据 DMA 到已释放的页里，内核以 `pmap_assert_free` panic。当天的日志里只有 APFS 数据卷的轮次出现过 `OCS f`，APFS 读写大量走异步路径。完成线程现在在 `hc_lock` 内确认门铃位已清除后再清除活动位。修复后两次全量读取都没有 `OCS f`。
 
-### 8.3 未完成事项
+5. 提交等数据写时与 `vnop_blockmap` 互相等待。`cluster_io` 可能只发出一个映射的前一部分（例如一次事务的缓冲区数到了 `max_trans_count` 时截到页边界），剩下的块要等下一轮 `vnop_blockmap` 后才发出；提交此时持有卷写锁等这个映射，blockmap 等这把锁，直到 2 秒超时。超时后提交丢掉这条映射照常写检查点，检查点可能指向还没写入的块，等待期间卷上其他文件操作也都阻塞。现在映射 20 ms 内没有发完时，提交放开写锁继续等（第 4 节）。`vnop_blockmap` 原先在分配新块后、登记映射前就可能因事务满而提交，现在先登记映射，事务满时交给定时提交线程。
+6. panic 日志写不出去：`loader_panic_sync_ufs` 屏蔽中断后调用 `annibale_ufs_var_io`，后者在中断关闭时返回 `EBUSY`。现在改走 `ufshc_write_polled`，并且只在发生 panic 后写（第 7 节）。原先每次退回 loader 和 `hv_wdt_pet` 都会调用这条路径，有了可用的写路径后，不加这个条件会在每次退回时覆盖上一次的 panic 日志。
+7. 两个处理器同时 panic 时日志正文损坏。原先的锁等 100 万次失败后照样写，两个处理器会同时改写同一个缓冲区。这次 panic 中还出现了一次 `ml_set_interrupts_enabled` 的部分屏蔽断言（DAIF 为 `0xc0`），引起第二次 panic，没有回溯，调用点不确定。现在锁等不到就放弃，屏蔽 A、I、F 三位，轮询写先等上一次写完成，详见第 7 节；修复后的一次测试没有再出现这个断言。
 
-- panic 日志写入：`loader_panic_sync_ufs` 在屏蔽中断后写盘，`annibale_ufs_var_io` 此时返回 `EBUSY`。需要不依赖中断的 UFS 写路径，或在屏蔽中断前写出。
+### 8.4 未完成事项
+
 - 背光设置跨重启保留、`fsync` 后立即断电再读回，还没有在真机上验证。
-- 提交次数偏多：一次开机进入桌面时，`kern.apfs_wstats` 已记 1,931 次提交；日志里有 `apfs: commit: 1 mappings and 0 data writes still out after 2000 ms`，原因待查。
+- 开机后几秒内 `fsync` 的等待：单次最长约 1.2 秒，几乎都在放开写锁的阶段（第 8.2 节）。这期间其他线程会登记新的映射，提交要等到某一刻全部发出；映射为什么长时间未发出还没有定位。可以改为等待期间持共享锁：只允许不分配新块的 `vnop_blockmap` 进入，提交只等开始前登记的映射和它们的写。
+- panic 日志没有回溯。XNU 停不住其他处理器（`halt not supported for this configuration`），调试器同步超时，没有生成完整的 panic 报告；panic 缓冲区里只有停核失败的几行，panic 原因来自 `loader_panic_log` 写进控制台日志的那一行。
 - 背光设置目前是自定义记录。计划改为 NVRAM：loader 从末尾的 NVRAM 区读入 `nvram-proxy-data`，内核注册 NVRAM 控制器写回，背光走 `backlight-nits` 变量。
 - 上面几项完成后删除 `ramfs_disk*.inc`，并更新 Release 说明与升级步骤。
 - 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；不维护写入代数（`va_write_gencount`）。
