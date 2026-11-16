@@ -63,7 +63,7 @@ def discover():
     for repo, patterns in (
         (KERNEL, ["tools/tests/test[-_]*.py", "xnuloader/test_*.py", "tools/tests/guard-test.sh",
                   "tools/tests/guard-volume-test.sh", "tools/qmi-test/run.sh", "tools/wpa-test/run.sh"]),
-        (USERLAND, ["tools/tests/test-*.py", "userland/test_*.py", "tools/apfs/test_wfs_random.py",
+        (USERLAND, ["tools/tests/test-*.py", "userland/test_*.py", "tools/apfs/test_wfs_random.py", "tools/apfs/test_annfs.py",
                     "tools/apfs/run-tests.sh", "tools/mesa/tests/test-*.py"]),
     ):
         for pattern in patterns:

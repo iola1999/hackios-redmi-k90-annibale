@@ -1,13 +1,13 @@
 # 可写 APFS：事务引擎与 VFS 接入（2026-11-16）
 
-适用范围：`hackios-xnu-kernel`（`k90-port`）的 [bsd/miscfs/apfs](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/) 与 `hackios-xnu-userland`（`k90-port`）的 [tools/apfs](../../hackios-xnu-userland/tools/apfs/)，随本文同批提交。验证范围只有主机测试和内核编译，真机未验证；`/private/var` 仍挂 `ANNFS001`（ramfs），init 尚未切换。
+适用范围：`hackios-xnu-kernel`（`k90-port`）的 [bsd/miscfs/apfs](../../hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/) 与 `hackios-xnu-userland`（`k90-port`）的 [tools/apfs](../../hackios-xnu-userland/tools/apfs/)，随本文同批提交。验证范围只有主机测试和内核编译，真机未验证。init 按 `darwin_var` 的格式选择挂载方式，分区转为 APFS 之前 `/private/var` 仍是 `ANNFS001`（ramfs）。
 
 ## 1. 结论
 
 - 写入引擎已重写为单个打开事务加检查点提交。B-tree 支持多层分裂与合并，空间管理器支持多个 chunk，卷与容器两级对象映射和检查点环都随提交推进。旧的 `apfs_txn.inc`、`apfs_txn_btree.inc`、`apfs_write_ops*.inc` 已删除。
 - 内核 VFS 已接到新引擎。文件内容走 UBC 与 cluster 层（`vnop_blockmap`、`vnop_strategy`），与 ramfs 对齐的接口均已实现，详见第 5 节。
 - 挂载时未带 `MNT_RDONLY` 且卷可写即为可写挂载，boot-arg `apfs_rw=0` 强制只读。系统卷、cryptex 与 `/annibale` 都以 `MNT_RDONLY` 挂载，行为不变。
-- 切换 `/private/var` 之前还要把 panic 日志移出 `darwin_var`，完成 ANNFS 到 APFS 的迁移工具和 init 自动识别，并做真机验收（第 7 节）。
+- `darwin_var` 块 0 是 APFS 容器超级块时，init 把 Data 卷挂到 `/private/var`，否则挂 ramfs。`tools/apfs/annfs-to-apfs.py` 把现有的 `ANNFS001` 分区原地转为 APFS，panic 日志和背光设置改存到容器之外的分区末尾 32 MiB（第 7 节）。真机验收见第 8 节。
 
 ## 2. 事务模型
 
@@ -62,15 +62,45 @@
 | `test_wfs_random.py --big --ops 2500`（文件系统树多层、对象映射多层） | 通过 |
 | ASan 与 UBSan 构建下的随机测试和写入测试 | 通过 |
 | 内核 `xnu26/build-macos.sh` | 编译通过，APFS 目录下无新增错误 |
+| `tools/apfs/test_annfs.py`：随机 `ANNFS001` 分区转换，含硬链接、稀疏页、超长扩展属性、文档 ID 和落在末尾 32 MiB 的数据页 | 20 轮 × 140 个对象通过；每轮写回前 512 MiB 后 `apfsck -cw` 无错误，`apfs.py` 读出的每个对象与模型一致 |
+| `test_annfs.py --objects 20000`（文件系统树多层，转换中途多次提交） | 2 轮通过 |
+| ASan 与 UBSan 构建下的 `test_annfs.py` | 通过 |
+| `annfs-to-apfs.py` 在模拟的 adb 上执行转换、重复执行、`--rollback` 与 `--format` | 转换后逐项比对一致，`apfsck -cw` 无错误；重复执行不改动分区；回退后分区与原分区逐字节相同 |
 
 随机测试按模型逐项比对目录树、内容、扩展属性、链接数与设备号，并对每轮结果运行 `apfsck`。本轮测试查出并修复了下面两个问题。
 
 1. `wr_next` 读取下一条记录时按 4096 字节容量往调用方的 64 字节缓冲区拷值，记录值较长时越界写栈（ASan 报 `stack-buffer-overflow`）。改为由调用方传入缓冲区容量。
 2. 提交后释放的元数据块在下一个事务里被分配为数据块（如扩展属性数据流），元数据缓存中仍有旧内容，经 `apfs_read_stream` 读到旧数据。改为分配时清掉这些块的缓存条目。
 
-## 7. 未完成事项与真机验收
+## 7. 分区末尾与迁移
 
-- panic 日志：`loader_return.c` 把 panic 日志直接写到 `darwin_var` 的 64 MiB 偏移处。`darwin_var` 换成 APFS 后这片区域属于容器，必须先移走，计划放到从 `darwin_var` 尾部划出的独立分区 `darwin_nvram`。
-- 迁移：在 Android 侧读取 ANNFS 元数据，生成指向现有数据块的 APFS 元数据，操作前备份前 512 MiB 以便回退；init 根据 `darwin_var` 块 0 是否为 `NXSB` 选择挂载 APFS 或 ramfs。ramfs 在元数据区非零时拒绝挂载，不会格式化已有 APFS 分区。
-- 真机验收：创建、删除、重命名、硬链接、克隆、扩展属性、`mmap` 写入后重启读回；fsync 后立即断电再读回；`kern.apfs_wstats` 无提交失败；主机 `apfsck` 检查拉回的 `darwin_var` 镜像。
+APFS 容器比 `darwin_var` 小 32 MiB。末尾这 32 MiB 不属于容器，由内核直接读写（[annibale_var_tail.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_var_tail.inc)），以后划为独立分区 `darwin_nvram` 时不影响容器。
+
+| 相对末尾 32 MiB 起点的偏移 | 内容 |
+|---|---|
+| 0 | 预留给 NVRAM |
+| 1 MiB | 背光设置，一个 4 KiB 块（`BLS3` 记录，带 CRC32） |
+| 16 MiB | panic 日志，格式与 ANNFS 时相同（`KLOG` 头加文本） |
+
+- 内核启动时读一次 `darwin_var` 块 0：第 32 字节起是 `NXSB` 时按上表使用末尾，否则沿用 ANNFS 的位置（背光在超级块，panic 日志在 64 MiB）。块 0 读出之前不写 panic 日志。
+- 背光设置在亮度变化后约 1 秒写出一次，退回 loader 时补写尚未写出的一次。
+- 退回 loader 时（`annibale_var_save_on_return`）先把 APFS 卷全部文件的脏页同步写到设备，再提交。
+- init 挂载后读 `kern.annibale.panic_log`，把上一次运行的 panic 日志存为 `/private/var/db/panic.log`，再写这个 sysctl 把它标记为已保存。`var_apfs=1` 启动参数已删除。
+- ramfs 在元数据槽无效且前 64 MiB 非零时拒绝挂载，不会格式化 APFS 分区。
+
+迁移在 Android root 下经 adb 执行 [annfs-to-apfs.py](../../hackios-xnu-userland/tools/apfs/annfs-to-apfs.py)，数据块原地不动：
+
+1. 读出 `darwin_var` 前 512 MiB 和末尾 32 MiB 保存到本地，传输都用 SHA-256 校验。ANNFS 的两个元数据槽和 panic 日志在前 512 MiB，数据页从 512 MiB 开始。
+2. `mkapfs.py --blocks` 在主机上建一个与分区减 32 MiB 等大的空容器，卷角色为 Data。`apfs-tool annfs`（[cmd_annfs.c](../../hackios-xnu-userland/tools/apfs/cmd_annfs.c)）读较新的有效元数据槽，在容器里重建根目录可达的全部对象：inode 号（小于 16 的另行分配）、权限、属主、BSD 标志、四个时间、保护类、文档 ID、同步根标记、扩展属性和硬链接。普通文件的 extent 直接指向原数据页，ANNFS 第 n 页（16 KiB）对应 APFS 块 131072 + 4n 起的 4 块。
+3. ANNFS 按 next-fit 在整个分区分配数据页，落在末尾 32 MiB 的页由转换器复制到 512 MiB 以内的新块。转换中的其他分配也都在 512 MiB 以内，所以写回手机的只有镜像的前 512 MiB，脚本在写回前检查镜像 512 MiB 之后没有内容。
+4. 写回前 512 MiB 并读回比对。`--rollback` 写回保存的前 512 MiB，分区恢复为 ANNFS，APFS 下的改动丢失。`--format` 不转换，直接建空的 APFS 数据卷。
+
+ANNFS 不记录设备号，迁移后字符设备的设备号为 0；套接字和没有目录项指向的对象不迁移。
+
+## 8. 未完成事项与真机验收
+
+- 真机迁移：在测试机上执行 `annfs-to-apfs.py`，迁移前在 iOS 下记录 `/private/var` 全部普通文件的大小与 SHA-256，迁移后逐一比对；应用、Wi-Fi 网络与设置保留。
+- 真机验收：创建、删除、重命名、硬链接、克隆、扩展属性、`mmap` 写入后重启读回；fsync 后立即断电再读回；`kern.apfs_wstats` 无提交失败；背光设置与 panic 日志跨重启保留；主机 `apfsck` 检查拉回的 `darwin_var` 镜像。
+- 背光设置目前是自定义记录。计划改为 NVRAM：loader 从末尾的 NVRAM 区读入 `nvram-proxy-data`，内核注册 NVRAM 控制器写回，背光走 `backlight-nits` 变量。
+- 真机验收通过后删除 `ramfs_disk*.inc`，并更新 Release 说明与升级步骤。
 - 已知限制：`readdir` 按条目位置续读，目录在两次续读之间变化时可能重复或跳过条目；打开中的孤儿文件 `fstat` 报 `nlink` 为 1；不维护写入代数（`va_write_gencount`）。
