@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 
 HERE = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("summary", HERE / "summary.py")
@@ -247,15 +248,136 @@ class ToolsTests(unittest.TestCase):
 
 
 class CommandBoundsTests(unittest.TestCase):
-    def test_rsh_rejects_oversized_utf8_before_creating_request(self):
-        for command in ("x" * 120, "你" * 40, "echo\rhi", "echo\nhi"):
-            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+    def test_rsh_rejects_cr_or_oversized_inbox_before_creating_request(self):
+        spec = importlib.util.spec_from_file_location("rsh_mod", HERE / "rsh.py")
+        rsh_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rsh_mod)
+        for command in ("echo\rhi", "   ", "x" * ((1 << 20) + 1)):
+            with self.subTest(len=len(command)), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 (root / "run").mkdir()
-                result = subprocess.run([sys.executable, str(HERE / "rsh.py"), str(root), command],
-                                        capture_output=True, text=True, timeout=5)
-                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                with unittest.mock.patch.object(sys, "argv", [str(HERE / "rsh.py"), str(root), command]):
+                    rc = rsh_mod.main()
+                self.assertEqual(rc, 2)
                 self.assertEqual(list((root / "run").iterdir()), [])
+
+    def test_annsh_inbox_and_4096_env_buffer_on_host(self):
+        annsh_src = (HERE.parents[1] / "hackios-xnu-userland/userland/src/apps/annsh.c").read_text()
+        body = annsh_src.split("int\nmain(void)\n{")[0]
+        harness = (
+            "#define sysctlbyname test_sysctlbyname\n"
+            "#include <errno.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n"
+            "static char fake_env[4096];\n"
+            "static char last_emitted[8192];\n"
+            "static unsigned char fake_inbox[8192];\n"
+            "static size_t fake_inbox_len;\n"
+            "static int test_sysctlbyname(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) {\n"
+            "    if (strcmp(name, \"kern.annibale.env\") == 0) {\n"
+            "        if (oldp && oldlenp) { size_t n = strlen(fake_env); if (n > *oldlenp) return -1; memcpy(oldp, fake_env, n); *oldlenp = n; }\n"
+            "        if (newp) { if (newlen > sizeof(fake_env)) { errno = ENOMEM; return -1; } memcpy(fake_env, newp, newlen); }\n"
+            "        return 0;\n"
+            "    }\n"
+            "    if (strcmp(name, \"kern.annibale.inbox\") == 0) {\n"
+            "        if (oldlenp && !oldp) { *oldlenp = fake_inbox_len; return 0; }\n"
+            "        if (oldp && oldlenp) { memcpy(oldp, fake_inbox, fake_inbox_len); *oldlenp = fake_inbox_len; return 0; }\n"
+            "    }\n"
+            "    errno = ENOENT; return -1;\n"
+            "}\n"
+            "#undef sysctlbyname\n"
+            + body.replace("sysctlbyname(", "test_sysctlbyname(").replace(
+                "write(2, line, (size_t)n + 1);",
+                "do { memcpy(last_emitted, line, (size_t)n); last_emitted[n] = 0; } while (0);")
+            + "\nint main(void) {\n"
+            "    uint64_t seq = 1;\n"
+            "    char script[3000];\n"
+            "    size_t off = (size_t)snprintf(script, sizeof(script), \"# comment\\nsetenv \");\n"
+            "    for (int i = 0; i < 60; i++) off += (size_t)snprintf(script + off, sizeof(script) - off, \"SpringBoard:K%d=%d \", i, i);\n"
+            "    off += (size_t)snprintf(script + off, sizeof(script) - off, \"\\naddenv backboardd:EXTRA=1\\n\");\n"
+            "    memcpy(fake_inbox, &seq, 8);\n"
+            "    memcpy(fake_inbox + 8, script, off);\n"
+            "    fake_inbox_len = 8 + off;\n"
+            "    char cmd1[] = \"inbox\";\n"
+            "    if (run(cmd1) != 0) return 10;\n"
+            "    if (strlen(fake_env) < 1100 || strstr(fake_env, \"backboardd:EXTRA=1\") == NULL) return 11;\n"
+            "    if (strlen(last_emitted) < 1100 || strstr(last_emitted, \"backboardd:EXTRA=1\") == NULL) return 14;\n"
+            "    char cmd2[] = \"inbox\";\n"
+            "    if (run(cmd2) == 0) return 12; /* duplicate seq must fail */\n"
+            "    seq = 2;\n"
+            "    memcpy(fake_inbox, &seq, 8);\n"
+            "    fake_inbox[8] = 'p'; fake_inbox[9] = 's'; fake_inbox[10] = 0; fake_inbox_len = 11;\n"
+            "    char cmd3[] = \"inbox\";\n"
+            "    if (run(cmd3) == 0) return 13; /* binary NUL payload must be refused */\n"
+            "    return 0;\n"
+            "}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "test_annsh.c").write_text(harness)
+            subprocess.run(["cc", "-O1", "-Wall", "-Wno-unused-function", "-o", str(tmp / "test_annsh"),
+                            str(tmp / "test_annsh.c")], check=True)
+            res = subprocess.run([str(tmp / "test_annsh")], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+
+    def test_rsh_routes_long_or_multiline_commands_via_inbox_push(self):
+        for command in ("setenv " + "SpringBoard:FOO=1 " * 20, "ps\nls /annibale/bin"):
+            with self.subTest(command=command[:24]), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                run = base / "run"
+                run.mkdir()
+                (run / "cmd-7.log").write_text("annsh 7 start inbox\nannsh 7| inbox-ok\nannsh 7 exit 0 4 ms\n")
+                captured = {}
+
+                def worker_fn():
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        pushes = list(run.glob("push-request-*.txt"))
+                        if pushes and "pushed" not in captured:
+                            staged_path = Path(pushes[0].read_text().strip())
+                            captured["pushed"] = staged_path.read_text()
+                            reply = pushes[0].name.replace("push-request-", "push-reply-").replace(".txt", ".json")
+                            pushes[0].unlink()
+                            (run / reply).write_text(json.dumps({"ok": True, "output": "OKAY"}))
+                        cmds = list(run.glob("cmd-request-*.txt"))
+                        if cmds:
+                            captured["wire"] = cmds[0].read_text().strip()
+                            reply = cmds[0].name.replace("cmd-request-", "cmd-reply-").replace(".txt", ".json")
+                            cmds[0].unlink()
+                            (run / reply).write_text(json.dumps({"seq": 7, "rc": 0, "output": "(bootloader) 7"}))
+                            return
+                        time.sleep(0.01)
+
+                worker = threading.Thread(target=worker_fn)
+                worker.start()
+                try:
+                    result = subprocess.run([sys.executable, str(HERE / "rsh.py"), str(base), command],
+                                            env=dict(os.environ, RSH_OUTPUT_TIMEOUT="2"),
+                                            capture_output=True, text=True, timeout=8)
+                finally:
+                    worker.join(timeout=6)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("inbox-ok", result.stdout)
+                self.assertEqual(captured.get("wire"), "inbox")
+                self.assertEqual(captured.get("pushed"), command.strip() + "\n")
+
+    def test_verify_userland_equiv_catches_stripped_root_entitlements(self):
+        spec = importlib.util.spec_from_file_location("verify_equiv", HERE / "verify-userland-equiv.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        macho = {"magic": "0xfeedfacf", "cputype": "0x0100000c", "cpusubtype": "0x80000002", "filetype": 2}
+        baseline = {
+            "targets": {"helper": {"macho": macho, "symbols": [], "dylibs": [], "entitlements_sha256": "abcd1234" * 8}},
+            "root_files": {"bin/helper": {"macho": macho, "entitlements_sha256": "abcd1234" * 8, "sha256": "11" * 32}},
+            "images": {},
+        }
+        stripped = {
+            "targets": {"helper": {"macho": macho, "symbols": [], "dylibs": [], "entitlements_sha256": "abcd1234" * 8}},
+            "root_files": {"bin/helper": {"macho": macho, "entitlements_sha256": "", "sha256": "22" * 32}},
+            "images": {},
+        }
+        ok, diffs = mod.compare_baselines(baseline, stripped)
+        self.assertFalse(ok)
+        self.assertTrue(any("root/bin/helper: entitlements digest mismatch" in d for d in diffs), diffs)
+        self.assertTrue(any("staged entitlements mismatch vs obj/helper" in d for d in diffs), diffs)
 
     def test_runner_checks_raw_request_utf8_length_before_usb(self):
         tree = ast.parse((HERE / "run-auto.py").read_text())

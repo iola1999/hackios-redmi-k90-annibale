@@ -167,7 +167,7 @@ INJECT = (
     (" iconservicesagent" if os.environ.get("ICON_METAL", "1") == "1" else "") +
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n" +
     ("/annibale/lib/libannibale.dylib backboardd\n" if TOUCH_LAT else "") +
-    "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension Preferences lsd wifid\n"
+    "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension WidgetRenderer_Default SharingUIService Preferences lsd wifid\n"
     "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd\n"
     "/annibale/lib/libannibale-vt.dylib videocodecd mediaserverd com.apple.WebKit.GPU video_decode_test video_player_test\n"
     "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
@@ -929,6 +929,8 @@ def main():
     for program in EXTRA_PROGRAMS:
         assert program.is_file(), f"{program} is named in PAYLOAD_PROGRAMS and is not a file"
         shutil.copy2(program, dest / "bin" / program.name)
+    for required_bin in ("bin/annsh", "bin/trollstorehelper"):
+        assert (dest / required_bin).is_file(), f"missing /{required_bin} in packed root; run userland/build.sh"
     # /annibale programs must be present in the helper image before its jobs are packaged.
     for plist_path in sorted((dest / "LaunchDaemons").glob("*.plist")):
         plist_data = plistlib.loads(plist_path.read_bytes())

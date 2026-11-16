@@ -152,7 +152,9 @@ def converge_runtime():
         else:
             call(pre+["oem","android"])
         return native_to_loader()
-    call(pre+["reboot"],10,False)
+    fast_reset=call(pre+["oem","reboot-fastboot"],10,False)
+    if fast_reset.startswith("FAILED") or "FAILED" in fast_reset or records[-1]["rc"]!=0:
+        call(pre+["reboot"],10,False)
     deadline=time.monotonic()+60
     while time.monotonic()<deadline:
         found=fastboots()

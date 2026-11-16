@@ -40,9 +40,9 @@ UNLOCK_WAIT = 420           # boot to the home screen
 SETTINGS_ICON = (0.385, 0.70)   # second column, fifth row; 0.616 is the empty space beside it
 # Kernel record used unless --kernel selects another build.
 KERNEL = "12377-st5"
-# Programs rc.jobs.interactive starts at boot, packed when they have been built (build commands in
-# tools/k90auto/README.md): trollstorehelper watches the staging folder for .ipa files.
-BOOT_PROGRAMS = ["hackios-xnu-kernel/out/ios26-resume/trollstore/trollstorehelper"]
+# Additional host-built programs to copy into /annibale/bin; trollstorehelper and annsh are already built into
+# userland/root/bin by userland/build.sh and verified by package.py.
+BOOT_PROGRAMS = []
 # The boot-args every round has (CYCLE_FIXED_ARGS replaces all of them, for a round whose variable is
 # one of them: the kernel takes the first of two). Diagnostics stay out of here and go in --boot-args.
 FIXED_ARGS = " ".join([
@@ -68,7 +68,7 @@ TOUR = [
     "wallpaper-layers=notify com.annibale.layers.Wallpaper@4*0",
     "statusbar-layers=notify com.annibale.layers.StatusBar@4*0",
     "full-layers=notify com.annibale.layers.full@4*0",
-    f"settings=/annibale/bin/anntouch tap {SETTINGS_ICON[0]} {SETTINGS_ICON[1]}@4*2",
+    "settings=/annibale/bin/trollstorehelper open com.apple.Preferences@4*2",
     "settings-scrolled=/annibale/bin/anntouch swipe 0.5 0.7 0.5 0.35 300@3*2",
     "home-again=/annibale/bin/anntouch swipe 0.5 0.995 0.5 0.55 200@4*1",
     "control-center=/annibale/bin/anntouch swipe 0.9 0.005 0.9 0.6 300@3*2",
@@ -259,13 +259,15 @@ def main():
                                 "0,0,5"], cwd=WORKSPACE, stdout=out, stderr=subprocess.STDOUT,
                                env=dict(os.environ, K90_FREEZE_OFF="1"))
     begun = time.monotonic()
-    while rounder.poll() is None and UNLOCK_LINE not in newest_log(round_dir / "run"):
+    while (rounder.poll() is None and not (round_dir / "run" / "boot-unlocked").exists()
+           and UNLOCK_LINE not in newest_log(round_dir / "run")):
         if time.monotonic() - begun > UNLOCK_WAIT:
             print("no boot unlock seen; the tour is skipped")
             (round_dir / "run" / "stop-request").write_text("")
             break
-        time.sleep(5)
-    if rounder.poll() is None and UNLOCK_LINE in newest_log(round_dir / "run"):
+        time.sleep(0.5)
+    if rounder.poll() is None and ((round_dir / "run" / "boot-unlocked").exists()
+                                   or UNLOCK_LINE in newest_log(round_dir / "run")):
         gpu_stopped = GPU_STOP in newest_log(round_dir / "run")
         if gpu_stopped:
             print("the GPU stopped before the tour; only the home screen is taken")

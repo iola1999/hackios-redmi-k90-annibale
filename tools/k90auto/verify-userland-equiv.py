@@ -155,7 +155,7 @@ def scan_obj_directory(obj_dir: Path) -> dict:
 
 
 def scan_directory_tree(root_dir: Path) -> dict:
-    """Scan directory structure (relative path -> size, mode, sha256)."""
+    """Scan directory structure (relative path -> size, mode, sha256, plus Mach-O and entitlements)."""
     tree = {}
     if not root_dir.is_dir():
         return tree
@@ -165,11 +165,18 @@ def scan_directory_tree(root_dir: Path) -> dict:
             rel = str(path.relative_to(root_dir))
             try:
                 st = path.stat()
-                tree[rel] = {
+                with open(path, "rb") as f:
+                    head = f.read(64)
+                macho_info = parse_macho_header(head)
+                entry = {
                     "size": st.st_size,
                     "mode": oct(st.st_mode)[-3:],
                     "sha256": sha256_file(path),
+                    "macho": macho_info if macho_info else None,
                 }
+                if macho_info:
+                    entry["entitlements_sha256"] = extract_entitlements_digest(path)
+                tree[rel] = entry
             except OSError:
                 pass
         elif path.is_symlink():
@@ -179,6 +186,27 @@ def scan_directory_tree(root_dir: Path) -> dict:
                 "target": str(os.readlink(path)),
             }
     return tree
+
+
+def check_staged_entitlements(targets: dict, root_tree: dict) -> list[str]:
+    """Ensure every Mach-O target in obj/ with entitlements keeps identical entitlements when staged in root/."""
+    diffs = []
+    staged_by_name = {}
+    for rel, entry in root_tree.items():
+        if entry.get("macho"):
+            staged_by_name.setdefault(Path(rel).name, []).append((rel, entry))
+    for name, target in sorted(targets.items()):
+        obj_ent = target.get("entitlements_sha256", "")
+        if not target.get("macho") or not obj_ent:
+            continue
+        for rel, entry in staged_by_name.get(name, ()):
+            root_ent = entry.get("entitlements_sha256", "")
+            if root_ent != obj_ent:
+                diffs.append(
+                    f"root/{rel}: staged entitlements mismatch vs obj/{name} "
+                    f"(expected {obj_ent[:8]}, got {root_ent[:8] or 'empty'})"
+                )
+    return diffs
 
 
 def generate_baseline(userland_dir: Path) -> dict:
@@ -199,12 +227,13 @@ def generate_baseline(userland_dir: Path) -> dict:
     root_tree = scan_directory_tree(root_dir)
 
     return {
-        "version": 1,
+        "version": 2,
         "format": "userland-equivalence-baseline",
         "target_count": len(targets),
         "targets": targets,
         "images": images,
         "root_file_count": len(root_tree),
+        "root_files": root_tree,
     }
 
 
@@ -269,6 +298,44 @@ def compare_baselines(expected: dict, actual: dict, verbose: bool = False) -> tu
         if e.get("size") != a.get("size"):
             if verbose or not (e_m and a_m):
                 diffs.append(f"{name}: size mismatch (expected {e.get('size')}, got {a.get('size')})")
+
+    # Compare staged root/ files and Mach-O entitlements
+    exp_root = expected.get("root_files", {})
+    act_root = actual.get("root_files", {})
+    if exp_root:
+        missing_root = set(exp_root) - set(act_root)
+        if missing_root:
+            diffs.append(f"Missing root/ files ({len(missing_root)}): {', '.join(sorted(missing_root)[:10])}")
+        extra_root = set(act_root) - set(exp_root)
+        if extra_root and verbose:
+            diffs.append(f"Extra root/ files ({len(extra_root)}): {', '.join(sorted(extra_root)[:10])}")
+        for rel in sorted(set(exp_root) & set(act_root)):
+            er = exp_root[rel]
+            ar = act_root[rel]
+            if er.get("type") == "symlink" or ar.get("type") == "symlink":
+                if er != ar:
+                    diffs.append(f"root/{rel}: symlink target mismatch (expected {er.get('target')}, got {ar.get('target')})")
+                continue
+            em = er.get("macho")
+            am = ar.get("macho")
+            if (em is None) != (am is None):
+                diffs.append(f"root/{rel}: Mach-O status mismatch (expected {em is not None}, got {am is not None})")
+                continue
+            if em and am:
+                for k in ("magic", "cputype", "cpusubtype", "filetype"):
+                    if em.get(k) != am.get(k):
+                        diffs.append(f"root/{rel}: Mach-O header '{k}' mismatch (expected {em.get(k)}, got {am.get(k)})")
+                e_ent = er.get("entitlements_sha256", "")
+                a_ent = ar.get("entitlements_sha256", "")
+                if e_ent != a_ent:
+                    diffs.append(
+                        f"root/{rel}: entitlements digest mismatch "
+                        f"(expected {e_ent[:8] or 'empty'}, got {a_ent[:8] or 'empty'})"
+                    )
+            if verbose and er.get("sha256") != ar.get("sha256"):
+                diffs.append(f"root/{rel}: SHA-256 mismatch (expected {er.get('sha256')[:8]}, got {ar.get('sha256')[:8]})")
+
+    diffs.extend(check_staged_entitlements(act_targets, act_root))
 
     # Compare images if present in both
     exp_images = expected.get("images", {})

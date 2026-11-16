@@ -421,6 +421,8 @@ progress = None          # the newest snapshot's frame reading
 progress_wall = None    # host time that reading was taken at
 last_frame_id = -1
 frozen = None
+boot_unlocked = False
+next_log_due = 0.0
 while duration <= 0 or time.monotonic() - start < duration:
     elapsed = time.monotonic() - start
     # RUN_DIR/run/stop-request ends a long interactive round early, through the normal teardown.
@@ -441,12 +443,17 @@ while duration <= 0 or time.monotonic() - start < duration:
             failed = {"state": name, "elapsed_seconds": elapsed}
             print("NOT_RUNNING", name, flush=True)
             break
-    if elapsed >= log_every * index:
+    if elapsed >= next_log_due:
         if call(["oem", "log"], 8, False)["rc"] == 0:
             call(["get_staged", run / f"s{index:03d}.log"], 20, False)
         snap_path = run / f"s{index:03d}.log"
         index += 1
         check_boot_header(snap_path, expected_kernel_bytes)
+        if not boot_unlocked and snap_path.is_file() and "sb26: boot unlock done" in snap_path.read_text(errors="replace"):
+            boot_unlocked = True
+            (run / "boot-unlocked").write_text(f"{elapsed:.2f}\n")
+        step = min(log_every, 1) if (not boot_unlocked and elapsed < 60 and log_every > 0) else log_every
+        next_log_due = elapsed + max(step, 1)
         if freeze_watch:
             reading = frame_progress(snap_path)
             if reading is not None:

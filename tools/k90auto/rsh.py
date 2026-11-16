@@ -16,9 +16,13 @@ run/reboot.json says "left": "running-held") has no run-auto.py to relay command
 "-" in place of ROUND_DIR, this sends the command itself with fastboot oem sh and reads the
 loader's log until the command ends. Use that only while no other process talks to the device.
 
-The command is one line of at most 119 UTF-8 bytes, words split on blanks with no quoting; the
-built-ins are listed in hackios-xnu-userland/userland/src/apps/annsh.c. annsh applies its own
-command deadline, and a slow native call can also finish after the default output wait. Set
+The command is either one line of up to 119 UTF-8 bytes sent directly with `oem sh`, or a longer /
+multi-line script (up to 1 MiB, without CR or NUL) staged into `kern.annibale.inbox` and run with
+`annsh`'s `inbox` built-in (note: staging a script into the inbox replaces any binary file pushed
+earlier with `oem push`, so run `pull` as its own single-line command first). Words on each line
+are split on blanks with no quoting; the built-ins are listed in
+hackios-xnu-userland/userland/src/apps/annsh.c. annsh applies its own command
+deadline, and a slow native call can also finish after the default output wait. Set
 RSH_OUTPUT_TIMEOUT for callers that need a longer observation window.
 
 Exit status: the command's own, 2 when it could not be sent, 3 when no end of its output arrived.
@@ -60,9 +64,61 @@ def finish(seq, text_seen, where):
     return int(done.group(1)) & 0xff
 
 
+def stage_inbox_direct(payload_bytes):
+    """Push PAYLOAD_BYTES into the running kernel's inbox directly over fastboot."""
+    staged_file = Path(f"/tmp/rsh-inbox-{time.time_ns()}-{os.getpid()}.txt")
+    try:
+        staged_file.write_bytes(payload_bytes)
+        pushed = subprocess.run(["fastboot", "-s", "xnuloader", "oem", "push"], capture_output=True, text=True)
+        if pushed.returncode != 0 or "FAILED" in pushed.stdout + pushed.stderr:
+            print(f"rsh: oem push failed:\n{pushed.stdout}{pushed.stderr}", file=sys.stderr)
+            return False
+        staged = subprocess.run(["fastboot", "-s", "xnuloader", "stage", str(staged_file)],
+                                capture_output=True, text=True)
+        if staged.returncode != 0 or "FAILED" in staged.stdout + staged.stderr:
+            print(f"rsh: inbox stage failed:\n{staged.stdout}{staged.stderr}", file=sys.stderr)
+            return False
+        return True
+    finally:
+        staged_file.unlink(missing_ok=True)
+
+
+def stage_inbox_via_round(run, payload_bytes):
+    """Ask run-auto.py to push PAYLOAD_BYTES into the running kernel's inbox."""
+    tag = f"{time.time_ns()}-{os.getpid()}"
+    payload_file = run / f".rsh-inbox-{tag}.txt"
+    partial = run / f".push-request-{tag}.tmp"
+    reply = run / f"push-reply-{tag}.json"
+    try:
+        payload_file.write_bytes(payload_bytes)
+        partial.write_text(str(payload_file.resolve()) + "\n")
+        partial.rename(run / f"push-request-{tag}.txt")
+        deadline = time.monotonic() + SEND_TIMEOUT
+        while not reply.exists():
+            if time.monotonic() > deadline:
+                print("rsh: run-auto.py did not pick up the inbox push; is the round still running?", file=sys.stderr)
+                return False
+            time.sleep(0.2)
+        answer = json.loads(reply.read_text())
+        if not answer.get("ok"):
+            print(f"rsh: inbox push failed:\n{answer.get('output', '').strip()}", file=sys.stderr)
+            return False
+        return True
+    finally:
+        partial.unlink(missing_ok=True)
+        (run / f"push-request-{tag}.txt").unlink(missing_ok=True)
+        payload_file.unlink(missing_ok=True)
+
+
 def direct(text):
-    """Send TEXT with fastboot oem sh and read the loader's log until the command ends."""
-    sent = subprocess.run(["fastboot", "-s", "xnuloader", "oem", f"sh {text}"], capture_output=True, text=True)
+    """Send TEXT with fastboot oem sh (or inbox + 'inbox' when >119 bytes/multi-line) and read output."""
+    raw = text.encode("utf-8")
+    wire = text
+    if len(raw) > 119 or "\n" in text:
+        if not stage_inbox_direct(raw + b"\n"):
+            return 2
+        wire = "inbox"
+    sent = subprocess.run(["fastboot", "-s", "xnuloader", "oem", f"sh {wire}"], capture_output=True, text=True)
     match = re.search(r"^\(bootloader\) (\d+)\s*$", sent.stdout + sent.stderr, re.M)
     if sent.returncode != 0 or match is None:
         print(f"rsh: the loader did not take the command:\n{sent.stdout}{sent.stderr}", file=sys.stderr)
@@ -88,9 +144,15 @@ def direct(text):
 
 def via_round(run, text):
     """Hand TEXT to the run-auto.py of RUN and read its cmd-SEQ.log and snapshots."""
+    raw = text.encode("utf-8")
+    wire = text
+    if len(raw) > 119 or "\n" in text:
+        if not stage_inbox_via_round(run, raw + b"\n"):
+            return 2
+        wire = "inbox"
     name = f"cmd-request-{time.time_ns()}-{os.getpid()}"
     partial = run / f".{name}.tmp"
-    partial.write_text(text + "\n")
+    partial.write_text(wire + "\n")
     partial.rename(run / f"{name}.txt")
 
     reply = run / f"cmd-reply-{name[len('cmd-request-'):]}.json"
@@ -140,8 +202,9 @@ def main():
         print(__doc__.strip())
         return 2
     target, text = sys.argv[1], " ".join(sys.argv[2:]).strip()
-    if not text or len(text.encode("utf-8")) > 119 or "\n" in text or "\r" in text:
-        print("rsh: the command must be one line of 1 to 119 UTF-8 bytes", file=sys.stderr)
+    raw = text.encode("utf-8")
+    if not text or len(raw) > (1 << 20) or "\r" in text or "\x00" in text:
+        print("rsh: the command must be 1 to 1048576 UTF-8 bytes without CR or NUL", file=sys.stderr)
         return 2
     if target == "-":
         return direct(text)

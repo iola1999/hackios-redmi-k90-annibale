@@ -19,6 +19,7 @@
 | G18 | 打开设置时的半屏黑色窗口 | 2026-11-15 用户在 `wave1-r4b` 反馈：从主屏打开设置的过程中出现约 1 秒的半屏黑色窗口，随后设置正常显示；542 修复后用户 11-16 反馈已无法复现，暂不处理 | 用 `tour.py` 同一步连拍覆盖打开动画，确认黑色区域的位置、持续帧数与所属图层，再关联同时段的 `annibalemetal` 拒绝行与纹理导入失败 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
 | G19 | MapKit 快照服务的渲染目标与重叠拷贝 | `wave1-r4`、`wave1-r4b` 的渲染报告中 `com.apple.MapKit.SnapshotService` 命令缓冲失败：`BGRA8Unorm_sRGB` 颜色附件创建时没有 `MTLTextureUsageRenderTarget`，以及驱动不支持源与目标区域重叠的纹理拷贝；`wave1-r4c`～`wave1-r4f` 未再出现 | 先确认触发快照的界面与纹理来源，核对原生 Metal 对缺少渲染目标用途和重叠拷贝的行为，再决定驱动侧的实现 | [11-15 交接 §4](../progress/2026-11-15-handoff.md#4-遗留问题) |
 | G20 | 「钱包」打开后黑屏 | 2026-11-16 `air0018-r2` 与刷入 `v0.1.4` 后的测试机上，点开「钱包」约 10 s 内屏幕为黑色或变暗的主屏，`com.apple.Passbook-default` 场景已在前台；「设置」正常；`rebase-26/0018` 前没有对照记录 | 先用不含 0018 的 AIR 库跑同一步，确认是否与 0018 有关；再查 Passbook 进程的提交、渲染失败与依赖服务（passd 等）的日志 | [v0.1.4 发布记录 §3](../progress/2026-11-16-release.md#3-构建与发布校验) |
+| G22 | 「相机」与 App Store 桌面图标异常 | 2026-11-16 `stage1-r1` 与真机桌面观察到「相机」图标镜头区发黑、App Store 图标浅蓝泛白且笔画发虚，疑似当天上午改动（如 `rebase-26/0018` 或 `iconservicesagent` 持久化的图标缓存）引起 | 用不含 `rebase-26/0018` 的 `libannibaleair.dylib` 清空 `systemgroup.com.apple.lsd.iconscache` 对照重建图标，结合 `iconservicesagent` 着色器编译／执行输出定位根因并修复 | [后续执行批次 §6](../plan/2026-11-16-followup.md#6-多媒体系统契约蜂窝与工程清理遗留) |
 
 ## 2. 显示完成与性能
 

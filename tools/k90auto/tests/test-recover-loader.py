@@ -19,7 +19,8 @@ class RecoveryTests(unittest.TestCase):
                lk_b_successful="yes", lk_b_unbootable="no", android_boot_completed="1",
                 loader_image="", android_transition_refused=False, legacy_terminal_recovery=False,
                  after_boot_devices=None, reboot_lk_refused=False, reboot_lk_stays_loader=False,
-                 boot_result="idle", boot_ramdisk="idle 0 0 0", boot_product="xnuloader"):
+                 boot_result="idle", boot_ramdisk="idle 0 0 0", boot_product="xnuloader",
+                 reboot_fastboot_unsupported=False):
         sent = []
         state = {"ramdisk": ramdisk, "result": result, "reset": False}
 
@@ -99,6 +100,12 @@ class RecoveryTests(unittest.TestCase):
             elif argv[:4] == ["fastboot", "-s", "xnuloader", "get_staged"]:
                 Path(argv[-1]).write_text("saved log\n")
                 out = "FAILED (remote: snapshot unavailable)\n" if capture_failed else "OKAY\n"
+            elif argv == ["fastboot", "-s", "xnuloader", "oem", "reboot-fastboot"]:
+                if reboot_fastboot_unsupported:
+                    out = "FAILED (remote: unknown command)\n"
+                else:
+                    state.update(reset=True, result="idle", ramdisk="idle 0 0 0")
+                    out = "OKAY\n"
             elif argv == ["fastboot", "-s", "xnuloader", "reboot"]:
                 state.update(reset=True, result="idle", ramdisk="idle 0 0 0")
                 out = "OKAY\n"
@@ -182,12 +189,19 @@ class RecoveryTests(unittest.TestCase):
                                result="running 0 0", ramdisk="ready 400000 400000 300000000")
         self.assertEqual(rc, 0)
         stop = sent.index(["fastboot", "-s", "xnuloader", "oem", "stop"])
-        reset = sent.index(["fastboot", "-s", "xnuloader", "reboot"])
+        reset = sent.index(["fastboot", "-s", "xnuloader", "oem", "reboot-fastboot"])
         snapshots = [i for i, argv in enumerate(sent) if "get_staged" in argv]
         self.assertEqual(len(snapshots), 2)
         self.assertTrue(all(stop < i < reset for i in snapshots))
         self.assertEqual(sent[reset + 1], ["fastboot", "devices"])
         self.assertEqual(sent[reset + 2], ["fastboot", "-s", "xnuloader", "oem", "recovery"])
+
+    def test_runtime_falls_back_to_reboot_when_oem_reboot_fastboot_unsupported(self):
+        rc, sent = self.invoke("xnuloader\tfastboot\n", runtime=True,
+                               result="returned 100 0", reboot_fastboot_unsupported=True)
+        self.assertEqual(rc, 0)
+        self.assertIn(["fastboot", "-s", "xnuloader", "oem", "reboot-fastboot"], sent)
+        self.assertIn(["fastboot", "-s", "xnuloader", "reboot"], sent)
 
     def test_runtime_without_quiescence_preserves_state(self):
         for terminal in ("running 0 0", "hung-held 100 1", "unknown", "idle 0 0"):
@@ -195,19 +209,19 @@ class RecoveryTests(unittest.TestCase):
                 rc, sent = self.invoke("xnuloader\tfastboot\n", runtime=True,
                                        result="running 0 0", stop_result=terminal)
                 self.assertEqual(rc, 1)
-                self.assertFalse(any("reboot" in argv for argv in sent))
+                self.assertFalse(any("reboot" in argv or "reboot-fastboot" in argv for argv in sent))
                 self.assertTrue(any("get_staged" in argv for argv in sent))
 
     def test_failed_terminal_capture_prevents_reset(self):
         rc, sent = self.invoke("xnuloader\tfastboot\n", runtime=True,
                                result="returned 100 0", capture_failed=True)
         self.assertEqual(rc, 1)
-        self.assertFalse(any("reboot" in argv for argv in sent))
+        self.assertFalse(any("reboot" in argv or "reboot-fastboot" in argv for argv in sent))
 
     def test_hexadecimal_terminal_address_can_be_recovered(self):
         rc, sent = self.invoke("xnuloader\tfastboot\n", runtime=True, result="returned 10ab 0")
         self.assertEqual(rc, 0)
-        self.assertIn(["fastboot", "-s", "xnuloader", "reboot"], sent)
+        self.assertIn(["fastboot", "-s", "xnuloader", "oem", "reboot-fastboot"], sent)
 
     def test_android_b_recovery_checks_a_retry_readback(self):
         rc, sent = self.invoke("", android=True)

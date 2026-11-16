@@ -123,7 +123,7 @@ fastboot -s xnuloader get_staged /tmp/hackios-screen.raw
 - 采样：由唯一 device 成员通过现有队列串行采集动作前、转场期间可取得的画面、动作结束及短暂稳定观察的截图。记录动作标识、请求和实际采集时刻、截图间隔、失败与缺样；缩略拼图用于定位，异常帧与相邻帧按原尺寸审阅。
 - 短暂异常：截图未覆盖的转场阶段继续记为待验。未拍到既往报告的异常，记录「本次未捕获」及实际覆盖范围；随后调整触发动作、采样相位或有界采样密度，仍遵守每批最多 3 轮和单变量约束。
 - 采集边界：先核对截图来源、尺寸、行距与颜色格式。帧缓冲读取覆盖到的显示阶段需按实现确认；物理面板扫描结果单独验收。出现画面与日志不一致，先确认截图的新旧、动作时序及读取位置。
-- 截图一致性：当前 [`oem screenshot`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 直接指向 `SCREEN.base`，随后分块上传，未创建冻结副本。动态更新期间可能跨帧读取，是否发生需另行核对；记录实际传输耗时，不能从请求频率推定有效帧率。
+- 截图一致性：[`oem screenshot`](../../hackios-xnu-kernel/xnuloader/loader_06_usb_entry.inc) 在 `fb_flip=2` 运行期间通过 `running_live->scanout_pa` 读取当前在屏扫描缓冲并刷回缓存，退回或未开双缓冲时读取 `SCREEN.base`，随后分块上传，未创建冻结副本。动态更新期间仍可能跨刷新周期读取，需结合实际传输耗时核对，不能从请求频率推定有效帧率。
 - 录屏：短暂异常可由 device 成员使用有界 `rec_secs`／`rec_start`／`rec_mb` 配置采集，并用 [`recording.py --frames`](../../hackios-xnu-kernel/tools/recording.py) 导出原始采样帧。30 fps 转码可能遗漏短帧；当前[录屏实现](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp) 读取提交的 layer 0 surface，按 `rec_step` 降采样，需结合帧缓冲截图审阅，并记录内存占用与复制开销。
 - 性能影响：采集截图与传输可能改变时序，视觉验证记录采样配置；性能对照保持同样的采样安排，耗时测量窗口中的额外采集截图单独说明。
 - 结果：每项记录轮次与产物、实际场景、截图文件及异常区域、发生阶段和下一项定位步骤。无崩溃、探针通过或单张截图正常，只支持各自检查覆盖的范围；已有可见故障继续保留在待办中。
