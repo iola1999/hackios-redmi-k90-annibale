@@ -28,11 +28,13 @@ def call(argv,limit=8,check=True):
 def device_serials(command,mode):
     deadline=time.monotonic()+ADB_WAIT
     while True:
-        rows=[line.split() for line in call(command,3).splitlines()]
-        if [mode] not in rows:
-            return [parts[0] for parts in rows if len(parts)==2 and parts[1]==mode]
-        assert time.monotonic()<deadline,"empty device serial persisted; only enumeration was performed"
-        time.sleep(0.5)
+        out=call(command,1.5,False)
+        if records[-1]["rc"]==0 and "FAILED" not in out:
+            rows=[line.split() for line in out.splitlines()]
+            if [mode] not in rows:
+                return [parts[0] for parts in rows if len(parts)==2 and parts[1]==mode]
+        assert time.monotonic()<deadline,"empty or timed-out device enumeration persisted; only enumeration was performed"
+        time.sleep(0.05)
 def fastboots():
     return device_serials(["fastboot","devices"],"fastboot")
 def adb_devices():

@@ -70,6 +70,7 @@
 - [状态栏时间与电池的横向位置](analysis/2026-11-02-status-bar-layout.md)。
 - [ir3 磁盘缓存跨开机实测与根因修复](analysis/2026-11-09-ir3-disk-cache.md)。
 - [性能日志核查：持久化、缓存、显示计时与调频（2026-11-13）](analysis/2026-11-13-performance-log-review.md)。
+- [瞬态渲染回归、桌面图标与服务阻塞定位修复（2026-11-17）](analysis/2026-11-17-transient-render-and-icon-fixes.md)。
 
 相关轮次记录：
 

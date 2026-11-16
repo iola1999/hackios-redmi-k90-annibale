@@ -192,3 +192,18 @@ python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL
 - `tour.py` 的每一步是 `标签=命令@等待秒数*截图张数`，命令经 `rsh.py` 发给 annsh；同一步拍两张以上时比较前后两张，状态栏以下的变化写进 `run/tour.json`，用于发现闪烁。全部截图缩成 `run/tour-sheet.png`，编号与 `tour.json` 一致。
 - GPU 挂起后，12377-cmd4 起的内核打印 RBBM 与 CP 状态和各级 IB 在 CP 位置前后的命令字；`python3 tools/k90auto/cp-words.py ROUND_DIR` 把它们按 type 7／type 4 包头解成包名并标出 CP 位置。CP 会预取，停住的包可能在标记之前一两个。
 - SpringBoard 的图层树用 annsh 的 `notify com.annibale.layers.<过滤词>` 打到日志里（`all`、`Icon`、`Wallpaper`、`Poster`、`StatusBar`、`Battery`、`Widget`）。过滤词在任意层级匹配图层类或所属视图类，向下再列 3 层；每行是层级、图层类、视图类、尺寸、位置、隐藏与透明度、内容类型和尺寸，用来区分「图层没有内容」和「有内容但没有画出来」。
+
+## 9. 内核逐帧录屏与拼接检测
+
+`fb_filmstrip.py` 控制内核 `MiniIOMobileFramebuffer` 的 96 MiB 连续录制缓冲（`RWREC003`，`402×874` RGB24，最多连续保存 104 帧），把持续 1～3 帧的转场黑闪、多任务横带和隔帧闪烁录下来，与同源微秒级 `tl: rec`／`tl: s`／GPU 日志关联并拼接成序列帧长图 `filmstrip.png` 与 `report.json`。
+
+```sh
+python3 tools/k90auto/fb_filmstrip.py --arm 5 --scanout \
+  --cmd "/annibale/bin/anntouch hold 0.618 0.700 1500 wait 0.6 tap 0.1 0.15 wait 0.4" \
+  --out-dir out/rec-home-longpress
+python3 tools/k90auto/fb_filmstrip.py --recording out/rec-home-longpress/recording.bin \
+  --log out/rec-home-longpress/loader.log --out-dir out/rec-home-longpress
+```
+
+- `--arm N` 经 `rsh.py` 写 `sysctl kern.annibale.rec_arm=N`，执行 `--cmd`（省略时静置等待 `N` 秒），再置 `0` 停止录制，经 `fastboot oem stage` 拉回 `recording.bin` 与 `loader.log`；加 `--scanout` 时写 `-N`，直接采样 DPU 当前在屏物理扫描缓冲。
+- 自动异常检测覆盖四类规则：整屏瞬态黑闪 `BLACK_FLASH`、中部横向黑带 `HORIZ_BAND`、相邻帧大幅往复跳变 `FLICKER_ALT` 与非全屏边缘暗带 `DARK_FRINGE`，同时收集录制时间窗内的 `annibalemetal` 与 `adreno8` 分配／提交错误。离线单测见 `python3 tools/k90auto/tests/test-fb-filmstrip.py`。
