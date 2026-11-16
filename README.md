@@ -23,7 +23,7 @@
 - [11-08 手势测试](docs/progress/2026-11-08-performance-regression.md#2-五轮结果)：固定翻页约 92.5 帧／秒，按拷贝完成间隔计算。
 - [11-09 静置测试](docs/progress/2026-11-09-thermal-and-pipeline-optimization.md#3-分项实施与验证记录)：桌面静置 14 分钟后，CPU 38.4～39.1 °C、GPU 40.5 °C。
 
-[v0.1.3](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.1.3) 人工体验反馈性能较好、渲染错误减少，当前版本的持续交互帧率仍待复测。最新版是 [v0.1.4](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.1.4)（11-16），变化见发布说明。
+[v0.1.3](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.1.3) 人工体验反馈性能较好、渲染错误减少，当前版本的持续交互帧率仍待复测。最新版是 [v0.2.0](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.2.0)（11-16），数据盘改用 APFS 并新增 NVRAM 分区，已安装的用户要先迁移数据盘，步骤见发布说明。
 
 最新状态和实测数据以[进度表](docs/plan/2026-10-23-tracking.md)为准，未完成事项与候选方向见[待办目录](docs/backlog/README.md)，架构分层见[架构总览](docs/plan/architecture.md)，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
 

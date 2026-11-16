@@ -38,6 +38,8 @@
 
 在新克隆根目录执行开发指南第 10 节第 4 步的 `build-release.py`，带上 `--expect-boot hackios-xnu-kernel/out/boot-a-ios.img`。
 
+- 报「firmware this script does not know」时，根盘 `fw/` 里多了手机来源的文件，按开发指南第 10 节「发布配方的维护」补生成配方、`assemble.py` 的输入和体验说明第 5 步。改动先在日常工作区提交推送，克隆里 `git pull` 和 `git submodule update` 后再生成；改之前可以把改过的脚本复制进克隆，用 `--allow-dirty -o out/release-trial` 试跑，试跑后还原。
+
 - 解包核对文件清单：新增的脚本和程序都在包里（v0.2.0 起包括 `annfs-to-apfs.py`、`build-apfsck.sh`、`apfsprogs-host.patch`、`avbtool.py` 和三个 `apfs-tool`），`manifest.json` 的三个提交与已推送的提交一致。
 - 末尾的 review 行逐个确认来源，「property list edits carry N bytes」与上一版对照没有明显增大。
 - `assemble.py` 或 `localfiles.py` 有改动时，按开发指南第 10 节第 5 步在 Linux 容器里解包合成一次。
@@ -48,7 +50,8 @@
 
 - 经 `tools/k90auto/reboot-lk.py` 从驻留 loader 进入 LK，记录 `fastboot getvar max-download-size`。loader 外壳有变化时，按体验说明第 7 步用 `fastboot boot payload/loader-shell.img` 临时启动一次，看到开机菜单后再回到 LK。
 - `fastboot flash boot_a`、`set_active a`、`reboot`，确认 loader 的 `build-id`、内核版本与第 4 节一致，默认镜像自动启动到锁屏和主屏。
-- 按本版的进展逐项抽查，至少覆盖需要用户操作的部分（v0.2.0 为 APFS 数据卷、NVRAM 与背光跨重启、panic 日志保存）。
+- 体验说明里新增或改动的命令，在测试机的 Android 下原样执行一遍，再用读出的文件合成刷机用的镜像。
+- 按本版的进展逐项抽查，至少覆盖需要用户操作的部分（v0.2.0 为 APFS 数据卷、NVRAM 与背光、panic 日志保存）。功能结论看用户最终看到的状态：背光要看开机完成后的亮度，不能只看驱动启动时的值。
 - 验证结束后设备留在 iOS 桌面。
 
 ## 7. 发布说明
@@ -79,4 +82,7 @@
 | v0.2.0 | 新克隆的 ios 步骤找不到 IPSW | `build-all.sh` 显式传入 `IPSW_DIR`（第 3 节） |
 | v0.2.0 | 把已合入的硬件 CRC32 误判为只在本地构建树里 | 按文件历史和内容判断（第 2 节）；第 4 节比对内核字节 |
 | v0.2.0 | 测试机刷入 24,373,248 字节的 loader 镜像后，A 槽被 LK 标为不可启动：`boot_a` 末尾残留的 AVB 页脚指向 23,699,456 字节处的 vbmeta，被新镜像覆盖 | `reseal-loader-img.py` 输出 96 MiB 并带镜像自己的页脚（内核 `db943b83`）；第 4 节检查 `info_image` |
+| v0.2.0 | 根盘新增由手机 Chromatix 调校文件生成的 `fw/camera-*.isp`，`build-release.py` 报未知固件 | `build-release.py` 加 `CAMERA_TUNINGS`，`assemble.py` 从 `--camera` 目录读取调校文件，体验说明第 5 步增加读取命令（第 5 节） |
+| v0.2.0 | `camtuning.py` 说明把调校文件的手机路径写成 `/vendor/lib64/camera/`，实际在 `/odm/lib64/camera/` | 体验说明新增的命令在测试机上原样执行（第 6 节） |
+| v0.2.0 | 发布说明草稿按驱动启动值写了「亮度跨重启保留」，发布镜像上 CoreBrightness 随后把亮度设为 140 nits | 功能结论按开机完成后用户看到的状态核对（第 6 节） |
 | v0.2.0 | 本机编出的 `apfs-tool` 的 `minos` 是本机系统版本（27.0），并依赖 Homebrew 的 OpenSSL 动态库；Linux 上新写入引擎用到的 `ENOATTR`、`__unused` 和 `os/base.h` 在 glibc 里没有 | macOS 版用 CommonCrypto 并指定最低 macOS 13，Linux 版补兼容头并静态链接（用户态 `c86af29`）；第 4 节检查依赖并逐个跑转换测试 |
