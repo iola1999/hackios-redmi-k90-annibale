@@ -11,7 +11,8 @@ usage: assemble.py ipsw DIR
 Run it from the unpacked release (hackios-k90-vX.Y.Z/tools/release/assemble.py). --modem and
 --bluetooth are images of the phone's modem_a and bluetooth_a partitions (.img or .img.gz),
 --zap is the phone's /odm/firmware/gen80000_zap.mbn, --camera a directory with the phone's camera
-sensor modules (/odm/lib64/camera/com.qti.sensormodule.annibale_*.bin); docs/user-guide.md says
+sensor modules (/odm/lib64/camera/com.qti.sensormodule.annibale_*.bin) and colour tuning files
+(com.qti.tuned.annibale_*.bin, in the same directory); docs/user-guide.md says
 how to read them.
 
 Needs Python 3.10 or newer and 7-Zip 23 or newer (7zz or 7z) on PATH; `ipsw` also needs the
@@ -142,6 +143,13 @@ def firmware(args, recipes, work):
             out = work / r["name"]
             run([sys.executable, K / "tools/camsensor.py", "--profile", module, r["mode"], out], stdout=subprocess.DEVNULL)
             files[r["name"]] = out.read_bytes()
+        if r["kind"] == "firmware" and r["source"] == "camera-tuning":
+            tuned = (args.camera or Path()) / r["tuned"]
+            if args.camera is None or not tuned.is_file():
+                raise SystemExit(f"this release requires --camera DIR with the phone's {r['tuned']}")
+            out = work / r["name"]
+            run([sys.executable, K / "tools/camtuning.py", tuned, out], stdout=subprocess.DEVNULL)
+            files[r["name"]] = out.read_bytes()
     return files
 
 
@@ -231,8 +239,8 @@ def main():
     p.add_argument("--bluetooth", type=Path, required=True)
     p.add_argument("--zap", type=Path, required=True)
     p.add_argument("--iris", type=Path, help="the phone's signed vpu35_4v.mbn, required by releases with Iris")
-    p.add_argument("--camera", type=Path, help="directory with the phone's camera sensor modules, "
-                                                "required by releases with the camera")
+    p.add_argument("--camera", type=Path, help="directory with the phone's camera sensor modules and tuning "
+                                                "files, required by releases with the camera")
     p.add_argument("-o", "--output", type=Path, default=Path("out"))
     args = ap.parse_args()
     if sys.version_info < (3, 10):

@@ -77,7 +77,7 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - 未完成事项集中写[待办目录](docs/backlog/README.md)，已选批次的安排与常设手册写 `docs/plan/`，调研／实测数据写 `docs/analysis/`，过程记录写 `docs/progress/`（按日期命名）。原分析与实测保留，来源文档链接到对应待办主题。
 - `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
 - 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 中的常见问题与注意事项。
-- 从源码构建与生成 Release 见[开发指南](docs/development.md)；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
+- 从源码构建与生成 Release 见[开发指南](docs/development.md)，每次发版按 [Release 执行清单](docs/plan/release-checklist.md) 执行，发版中遇到的新问题写回该清单；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
 - 双系统分区规划、在线缩容、写入系统盘、刷入双启动 `xnuloader`、Android／iOS 切换及 Android 系统内 OTA 影响见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。引导目标切换细节见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。
   - `xnuloader` 启动时按 `boot_a`／`boot_b` 镜像识别自身槽位（`loader_slot`）和另一侧 Android 槽位（`android_slot`），判据见 `hackios-xnu-kernel/xnuloader/slot_choice.h`。
   - 只有一侧是 loader 镜像时才维护或切换槽位；切槽同步交换 LUN 4 与 LUN 0 上 `_a`／`_b` 分区的 `PartitionTypeGUID`。

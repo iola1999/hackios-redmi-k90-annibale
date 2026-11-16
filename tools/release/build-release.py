@@ -57,11 +57,15 @@ IPSW_SOURCE = {"url": "https://updates.cdn-apple.com/2026SummerFCS/c2f9fa07-0acc
 VENDOR_FIRMWARE = {"gen80000_zap.mbn": "zap", "vpu35_4v.mbn": "iris",
                    "amss20.bin": "modem", "regdb.bin": "modem", "bd_p11.elf": "modem", "phy_ucode20.elf": "modem",
                    "hmtbtfw20.tlv": "bluetooth", "hmtbtfw20.ver": "bluetooth", "hmtnv20.bin": "bluetooth",
-                   "camera-ov20b-front-mode4.tab": "camera", "camera-ovx8000-wide-mode24.tab": "camera"}
+                   "camera-ov20b-front-mode4.tab": "camera", "camera-ovx8000-wide-mode24.tab": "camera",
+                   "camera-ov20b40.isp": "camera-tuning", "camera-ovx8000.isp": "camera-tuning"}
 # the camera's register tables: camsensor.py --profile of a sensor module in /odm/lib64/camera/ of
 # the phone, in the mode userland/build.sh makes them with
 CAMERA_PROFILES = {"camera-ov20b-front-mode4.tab": ("com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin", 4),
                    "camera-ovx8000-wide-mode24.tab": ("com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin", 24)}
+# the camera's colour tuning: camtuning.py of a Chromatix tuning file of the phone, as userland/build.sh makes it
+CAMERA_TUNINGS = {"camera-ov20b40.isp": "com.qti.tuned.annibale_sunny_ov20b40_front_i.bin",
+                  "camera-ovx8000.isp": "com.qti.tuned.annibale_aac_ovx8000_wide_i.bin"}
 # directories of the root image holding iOS property lists with the project's edits, other than the
 # jobs: root directory -> the iOS directory (userland/mkcameraresources.py)
 PLIST_SOURCES = {"lib/CMCaptureResources/V57/": "os:System/Library/PrivateFrameworks/CMCapture.framework/V57/"}
@@ -77,7 +81,7 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/tools/reseal-loader-img.py", "hackios-xnu-kernel/prebuilt/uefi/mkbootimg.py",
                  "hackios-xnu-kernel/tools/mk-fw-wifi.py", "hackios-xnu-kernel/tools/mk-fw-bt.py",
                  "hackios-xnu-kernel/tools/camsensor.py", "hackios-xnu-kernel/tools/camsensor_profile.py",
-                 "hackios-xnu-kernel/tools/camsensor_v5.py",
+                 "hackios-xnu-kernel/tools/camsensor_v5.py", "hackios-xnu-kernel/tools/camtuning.py",
                  "hackios-xnu-kernel/tools/userdata-dual-carve.py",
                  "hackios-xnu-userland/tools/apfs/mkapfs.py", "hackios-xnu-userland/ios26/full-system.py",
                  "hackios-xnu-kernel/prebuilt/avb/avbtool.py",
@@ -149,6 +153,8 @@ def split(root):
             recipes[rel] = {"kind": "firmware", "name": name, "source": VENDOR_FIRMWARE[name]}
             if name in CAMERA_PROFILES:
                 recipes[rel]["module"], recipes[rel]["mode"] = CAMERA_PROFILES[name]
+            if name in CAMERA_TUNINGS:
+                recipes[rel]["tuned"] = CAMERA_TUNINGS[name]
             continue
         same = [ref for ref in index.get(len(data), []) if read_ios(":".join(ref)) == data] if len(data) > 8 else []
         if same:

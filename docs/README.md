@@ -17,6 +17,7 @@
 
 - [体验说明](user-guide.md)：Release 合成、安装与日常使用。
 - [开发指南](development.md)：源码构建、打包与发布。
+- [Release 执行清单](plan/release-checklist.md)：每次发版的步骤、检查点和历次发版遇到的问题。
 - [容器环境](../docker/README.md)：容器承担的构建步骤和环境要求。
 - [k90auto 工具说明](../tools/k90auto/README.md)：主机工具的参数、产物与运行方法。
 - [分区备份与恢复](backup/README.md)。

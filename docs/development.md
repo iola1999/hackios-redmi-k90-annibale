@@ -149,6 +149,8 @@ python3 hackios-xnu-kernel/tools/reseal-loader-img.py \
 
 ## 10. 生成 Release
 
+每次发版按 [Release 执行清单](plan/release-checklist.md) 逐项执行，本节说明命令与脚本行为。
+
 Release 只放本项目的文件。根盘里来自 IPSW 的文件（launchd 任务与缓存、`/private/var` 模板和少量原样复制的系统文件）和手机厂商固件不进 Release，改为记录生成方法，由用户在本地用 `tools/release/assemble.py` 从自己的 IPSW 和手机重新生成。
 
 1. 三个仓库的改动都已提交并推送，然后在本机重新克隆一份，目录不限。`xnu26/build-macos.sh` 与 `tools/mk-ath12k.sh` 用 `-ffile-prefix-map` 把内核里 `__FILE__` 的路径改成相对源码目录的路径，产物里不再有本机目录；`build-release.py` 仍会检查，发现本机用户目录时拒绝生成 Release 包。已有构建树里旧的目标文件不会因为参数变化自动重新编译，所以要用新克隆。
@@ -163,7 +165,7 @@ for f in rootfs cryptex cryptex-app '23G90__iPhone18,3' cryptex-app.dmg rootfs.s
 done
 touch hackios-xnu-userland/ios26/rootfs/.file && chmod 000 hackios-xnu-userland/ios26/rootfs/.file   # 权限 000，cp 读不了
 cp -R "$W"/hackios-xnu-userland/{fw-gpu,fw-camera} hackios-xnu-userland/
-cp -R "$W"/hackios-xnu-kernel/out/{fw-wifi,fw-bt,fw-iris,handoff-loader-v19.img} hackios-xnu-kernel/out/
+cp -R "$W"/hackios-xnu-kernel/out/{fw-wifi,fw-bt,fw-iris,fw-camera,handoff-loader-v19.img} hackios-xnu-kernel/out/   # fw-camera：用户态仓库里同名的是指向这里的链接
 ```
 
 3. 在新克隆根目录执行 `tools/release/build-all.sh`，按第 3～8 节构建全部产物：内核在后台构建，同时构建用户态、启动卷和 AIR 库，再打包根盘、封装 loader，最后编译安卓端分区工具和数据盘迁移用的 `apfs-tool`。`apfs-tool` 的 macOS 版（arm64 与 x86_64，最低 macOS 13）在本机编译，Linux 版在 `ubuntu:24.04` 容器里静态链接，产物在 `out/apfs-tool/`。每一步的日志在 `out/release-build/`，失败时脚本停下并打印日志末尾。只重跑某几步时把步骤名作为参数，例如 `tools/release/build-all.sh package loader`。

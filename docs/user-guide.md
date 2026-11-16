@@ -56,13 +56,15 @@ python3 tools/release/assemble.py ipsw ipsw
 
 ## 5. 读取手机固件
 
-GPU、Wi-Fi、蓝牙、Iris 视频固件与相机传感器模块从你自己的手机读出，Android 开机并连接电脑后执行：
+GPU、Wi-Fi、蓝牙、Iris 视频固件、相机传感器模块与相机调校文件从你自己的手机读出，Android 开机并连接电脑后执行：
 
 ```sh
 mkdir -p fw/camera
 adb -s "$ANDROID_SERIAL" pull /odm/firmware/gen80000_zap.mbn fw/
 adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin fw/camera/
 adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin fw/camera/
+adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.tuned.annibale_sunny_ov20b40_front_i.bin fw/camera/
+adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.tuned.annibale_aac_ovx8000_wide_i.bin fw/camera/
 adb -s "$ANDROID_SERIAL" shell su -c "dd if=/dev/block/by-name/modem_a bs=4096 2>/dev/null" | gzip -1 > fw/modem_a.img.gz
 adb -s "$ANDROID_SERIAL" shell su -c "dd if=/dev/block/by-name/bluetooth_a bs=4096 2>/dev/null" | gzip -1 > fw/bluetooth_a.img.gz
 adb -s "$ANDROID_SERIAL" shell 'find /odm/firmware /vendor/firmware -name vpu35_4v.mbn 2>/dev/null'
