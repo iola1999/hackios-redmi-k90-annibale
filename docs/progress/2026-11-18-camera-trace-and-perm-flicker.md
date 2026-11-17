@@ -1,6 +1,6 @@
 # 相机编码链观测与定位授权弹窗整屏闪烁（2026-11-18）
 
-本文记录 2026-11-18 三轮相机观测（`cam3-trace`、`cam3-trace2`、`cam3-ane`，内核 `12377-stage4-k7`）与两轮复测（`cam3d`、`mapk1`，内核 `12377-bt1`）得到的拍照落盘线索，`cam3-trace2` 轮 GPU 停转后整屏亮暗闪烁的经过与处理，以及地图快照服务崩溃的修复。待办见[多媒体待办 M6](../backlog/multimedia.md)与[系统待办 S21](../backlog/system.md)。轮次目录为 `docs/progress/evidence/k90auto/kernel-12377-stage4-k7-cam3-*` 与 `kernel-12377-bt1-{cam3d,mapk1}`，闪烁现场在 `out/cam-perm-flicker-2026-11-18/`，均为 Git 忽略目录。
+本文记录 2026-11-18 三轮相机观测（`cam3-trace`、`cam3-trace2`、`cam3-ane`，内核 `12377-stage4-k7`）与三轮复测（`cam3d`、`mapk1`、`mapk2`，内核 `12377-bt1`）得到的拍照落盘线索，`cam3-trace2` 轮 GPU 停转后整屏亮暗闪烁的经过与处理，以及地图快照服务崩溃的修复。待办见[多媒体待办 M6](../backlog/multimedia.md)与[系统待办 S21](../backlog/system.md)。轮次目录为 `docs/progress/evidence/k90auto/kernel-12377-stage4-k7-cam3-*` 与 `kernel-12377-bt1-{cam3d,mapk1,mapk2}`，闪烁现场在 `out/cam-perm-flicker-2026-11-18/`，均为 Git 忽略目录。
 
 ## 1. Espresso 上下文观测
 
@@ -48,7 +48,10 @@
 - `rwa_depth_stencil_create()` 对任何 `MTLDepthStencilState` 都打开深度测试，绘制时照原样绑定。Metal 在渲染通道没有深度／模板附件时不做这两项测试，Gallium 要求前端自行关闭。用户态仓库 `tools/mesa/air/air_metal.c` 改为：没有深度／模板附件的绘制绑定全零的深度模板状态。
 - `mapk1` 轮用新的 AIR 库打开相机、按快门，再打开「地图」。快照服务提交了 28 个带追踪的命令缓冲，没有崩溃。
 - 「地图」启动后立即弹出定位授权，弹窗里的地图预览为黑色。随后 GPU 以同样的 `SMMU fault 0x2 at 0:0` 停转，停转前最后的提交仍来自 `CoreLocationVanillaWhenInUseAuthPromptPlugin`（每次 131 个缓冲、415 字），与 `cam3-trace2` 相同。弹窗插件进程内用 VectorKit 渲染地图（`DaVinci::ground`、`SolidRibbon`、`GlyphWithNormalHalo` 等管线）。
-- `cycle.py` 判定「the GPU stopped」后没有留机，`oem recovery` 因内核保留资源被拒，随后经 `recover-loader.py` 退回 loader 空闲态，没有按键。两次停转都发生在定位授权弹窗显示期间，打开「地图」触发弹窗可以作为复现步骤，复现率还没有统计。
+- `cycle.py` 判定「the GPU stopped」后没有留机，`oem recovery` 因内核保留资源被拒，随后经 `recover-loader.py` 退回 loader 空闲态，没有按键。
+- `mapk2` 轮只打开「地图」。AIR 临时加了诊断：绘制时可空且未绑定的纹理或缓冲槽位，按着色器与槽位各打印一次（未入库）。弹窗插件的绘制没有这类槽位，只有 MercuryPosterExtension 的 `space::rasterizeCylinderFragment`、`space::rasterizeBackgroundFragment` 留空纹理 3，可空槽位的全零纹理描述符这一候选排除。
+- `mapk2` 轮结束时 GPU 还在运行，`cycle.py` 照常留机；约 20 秒后 GPU 以同样的 `SMMU fault 0x2 at 0:0` 停转，未完成的仍是弹窗插件的命令缓冲，「nearest live above」这次是 pid 30（SpringBoard）。取一张截图后经 `recover-loader.py` 退回 loader，没有按键。
+- `cam3-trace2`、`mapk1` 与上面的 `mapk2` 三次停转都发生在定位授权弹窗显示期间（3 次中 3 次），打开「地图」后让弹窗保持显示即可复现，从弹窗出现到停转的时长没有逐次测量。
 
 ## 6. 处理
 
