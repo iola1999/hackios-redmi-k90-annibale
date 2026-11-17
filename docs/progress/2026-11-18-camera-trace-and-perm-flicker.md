@@ -22,7 +22,7 @@
 
 - `cam3-trace2` 轮打开相机后弹出带地图预览的定位授权（`CoreLocationVanillaWhenInUseAuthPromptPlugin`）。01:38:14 adreno8 报 `external BO health check failed; submissions closed and pages retained until cold reset` 与 `GPU power, HFI or translation check failed`。
 - 停转前最后十几次 GPU 提交来自该插件。轮次的 `render-report.txt`「before the GPU stopped」一节列出了这些提交，主机侧合并日志没有缺口。
-- 同一秒内，CoreLocation 插件、cameracaptured、backboardd 都以 `exception 1`、访问地址 `0x18` 崩溃。三者 pc 的页内偏移都是 `0x578`，位于共享缓存之外的同一镜像，推测是用户态 Metal 驱动，未确认。
+- 同一秒内，CoreLocation 插件、cameracaptured、backboardd 都以 `exception 1`、访问地址 `0x18` 崩溃。按各进程日志里 `images:` 行的加载基址换算，三处 pc 都是 `libannibaleair.dylib` 偏移 `0x3cf578`，即 `fd_bo_mark_for_dump()` 的第一条指令 `ldr w8, [x0, #0x18]`：GPU 停转后 `fd_bo_new()` 返回 NULL，`upload_shader_variant()` 与 `fd6_build_bindless_state()` 没有检查就传给它。
 - 停转后 `AnnibaleGPUUserClient::start` 拒绝所有新客户端（`0xe00002c7`）：`annibale_gpu_recover()` 恒返回 false，`gGPUReported` 置位后不再清除。SpringBoard 重启后拿不到 Metal 设备，在 SiriUICore 内空指针崩溃（未滑移 pc `0x1c6e27ac0`）。本轮 SpringBoard 先后起了 5 个进程，backboardd 重启过一次。
 - 这一轮结束时设备照常留在 iOS，之后整屏亮暗交替闪烁、点击无响应。取截图与日志后经 `recover-loader.py` 退回 loader，闪烁停止，没有按键。
 
@@ -35,4 +35,4 @@
 
 - `CAM-3`：给两处 nil 返回补上被拒纹理的像素格式、平面数、用途与尺寸，复测时找出不满足的条件。
 - Espresso 的 ANE 引擎在 K90 上返回 NULL。Espresso 自带的 CPU 回退要求内核报告运行在虚拟机里，这会影响其他读取同一信息的框架，是否采用需要用户决定。
-- GPU 停转（S21）：从 `cam3-trace2` 的合并日志查 `external BO health check failed` 的来源；按页内偏移 `0x578` 确认停转后崩溃的镜像与函数。
+- GPU 停转（S21）：从 `cam3-trace2` 的合并日志查 `external BO health check failed` 的来源。Mesa 在 `fd_bo_new()` 失败后崩溃只发生在停转之后，补空指针检查不能恢复绘制，排在停转原因之后处理。

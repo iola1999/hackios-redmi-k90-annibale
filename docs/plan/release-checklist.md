@@ -32,7 +32,7 @@
 - loader：`build-all.sh` 用最后一个改动 `xnuloader/` 的提交作为 `BUILD_ID`，与测试机上 `fastboot -s xnuloader getvar build-id` 读到的值对照。
 - 引导镜像：`python3 -I hackios-xnu-kernel/prebuilt/avb/avbtool.py info_image --image hackios-xnu-kernel/out/boot-a-ios.img` 显示 96 MiB 的镜像和指向 vbmeta 的页脚。原因见第 9 节的 AVB 页脚一项。
 - `apfs-tool`：`out/apfs-tool/` 里有 `apfs-tool-Darwin`、`apfs-tool-Linux-x86_64`、`apfs-tool-Linux-aarch64`。macOS 版用 `lipo -info` 确认含 arm64 与 x86_64，`vtool -show-build` 的 `minos` 为 13.0，`otool -L` 只依赖 `/usr/lib` 下的系统库；Linux 版用 `file` 确认为静态链接。
-- 每个 `apfs-tool` 都用转换测试跑一遍：`APFS_TOOL=<程序> python3 hackios-xnu-userland/tools/apfs/test_annfs.py --rounds 2 --objects 3000`。x86_64 的 macOS 版用 `arch -x86_64` 包一层，Linux 版用 `docker run --platform linux/<平台>` 包一层，并把 `/var/folders` 挂到容器里的同一路径。
+- 每个 `apfs-tool` 都用转换测试跑一遍：`APFS_TOOL=<程序> python3 hackios-xnu-userland/tools/apfs/test_annfs.py --rounds 2 --objects 3000`。测试用 `hackios-xnu-userland/xnu-deps/build/apfsprogs/apfsck/apfsck` 检查结果，新克隆里没有它，在日常工作区运行，或先在新克隆执行 `build-apfsck.sh`。`tools/apfs` 自上一版没有改动、程序与上一版发布记录的 SHA-256 相同时，至少跑本机架构一遍。x86_64 的 macOS 版用 `arch -x86_64` 包一层，Linux 版用 `docker run --platform linux/<平台>` 包一层，并把 `/var/folders` 挂到容器里的同一路径。
 
 ## 5. 生成发布包
 
@@ -86,3 +86,4 @@
 | v0.2.0 | `camtuning.py` 说明把调校文件的手机路径写成 `/vendor/lib64/camera/`，实际在 `/odm/lib64/camera/` | 体验说明新增的命令在测试机上原样执行（第 6 节） |
 | v0.2.0 | 发布说明草稿按驱动启动值写了「亮度跨重启保留」，发布镜像上 CoreBrightness 随后把亮度设为 140 nits | 功能结论按开机完成后用户看到的状态核对（第 6 节） |
 | v0.2.0 | 本机编出的 `apfs-tool` 的 `minos` 是本机系统版本（27.0），并依赖 Homebrew 的 OpenSSL 动态库；Linux 上新写入引擎用到的 `ENOATTR`、`__unused` 和 `os/base.h` 在 glibc 里没有 | macOS 版用 CommonCrypto 并指定最低 macOS 13，Linux 版补兼容头并静态链接（用户态 `c86af29`）；第 4 节检查依赖并逐个跑转换测试 |
+| v0.2.1 | 在新克隆里运行 `test_annfs.py` 报找不到 `apfsck` | 在日常工作区运行或先编译 `apfsck`（第 4 节） |

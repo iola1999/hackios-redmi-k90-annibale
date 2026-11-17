@@ -13,7 +13,7 @@
 | 触摸与按键 | 触摸、电源键和音量键可用 |
 | 声音 | 双扬声器出声，充电提示音、AAC 本地播放与 HLS 流媒体音频可用 |
 | Wi-Fi 与蓝牙 | Wi-Fi 可联网、保存网络并在开机后自动连接；蓝牙可扫描外设 |
-| 相机 | 后摄预览出图，画面偏暗偏绿；前摄与拍照未通过 |
+| 相机 | 前摄与后摄预览出图，后摄约 30 帧/秒，画面有分块条纹；拍照还不能保存 |
 | 视频与网页 | H.264 硬解本地播放 720p、1080p 通过，HLS 流媒体播放通过；Safari 能显示网页，播放网页内视频 |
 | 安装应用 | 预装 TrollStore，支持安装和管理已解密的 `.ipa`／`.tipa` 应用；Safari 下载的安装包可在 TrollStore 中选择，或从「文件」分享给 TrollStore |
 | 电池与温控 | 显示电量与充电状态；处理器和 GPU 按负载调频，过热时逐档降频 |
@@ -23,7 +23,7 @@
 - [11-08 手势测试](docs/progress/2026-11-08-performance-regression.md#2-五轮结果)：固定翻页约 92.5 帧／秒，按拷贝完成间隔计算。
 - [11-09 静置测试](docs/progress/2026-11-09-thermal-and-pipeline-optimization.md#3-分项实施与验证记录)：桌面静置 14 分钟后，CPU 38.4～39.1 °C、GPU 40.5 °C。
 
-[v0.1.3](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.1.3) 人工体验反馈性能较好、渲染错误减少，当前版本的持续交互帧率仍待复测。最新版是 [v0.2.0](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.2.0)（11-16），数据盘改用 APFS 并新增 NVRAM 分区，已安装的用户要先迁移数据盘，步骤见发布说明。
+[v0.1.3](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.1.3) 人工体验反馈性能较好、渲染错误减少，当前版本的持续交互帧率仍待复测。最新版是 [v0.2.1](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.2.1)（11-18），修复蓝牙拉起失败及由此引起的设置、控制中心卡死，从 `v0.2.0` 升级只需重新合成并刷入引导镜像。[v0.2.0](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.2.0) 起数据盘改用 APFS 并新增 NVRAM 分区，更早版本的用户要先按它的发布说明迁移数据盘。
 
 最新状态和实测数据以[进度表](docs/plan/2026-10-23-tracking.md)为准，未完成事项与候选方向见[待办目录](docs/backlog/README.md)，架构分层见[架构总览](docs/plan/architecture.md)，验收目标见[路线图](docs/plan/2026-10-26-roadmap.md)。
 
