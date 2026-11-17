@@ -113,6 +113,7 @@
 - [视频解码调研：H.264／HEVC／VP9 在 iOS 26 移植上的播放与 SM8750 硬件解码](analysis/2026-11-05-video-decode.md)。
 - [音频播放、相机适配与视频硬解根因定位及架构设计（2026-11-11）](analysis/2026-11-11-multimedia-root-causes-and-design.md)。
 - [多媒体验证结果与剩余问题（2026-11-11）](analysis/2026-11-11-multimedia-validation.md)。
+- [相机预览、前摄连续流与拍照处理链修复（2026-11-17）](analysis/2026-11-17-camera-pipeline-and-isp-fixes.md)。
 
 相关轮次记录：
 
