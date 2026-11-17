@@ -64,6 +64,7 @@
 - `annibale_bt_uart_write()` 的等待都有上限，超时会打印 `TX FIFO stays` 或 `not sent`，下载循环失败会打印 `bt: stop:`。这些都没有出现，拉起线程没有从下载循环返回，停在哪里未确认。
 - 拉起线程不结束，`annibale_bt_ios_ended()` 不会被调用，`/dev/uart.bluetooth` 的 open 与控制套接字 connect 仍会等满 40 s，第 3 节的 watchdog 中止与卡死风险在这类开机里依然存在。
 - 04:45 那次开机里 bluetoothd 经 Skywalk 通道（`btsk_sync_tx` → `bt_ios_put`）发出 HCI 命令，这条路径不检查 `bt_serving`，芯片没有就绪时也会写 UART。该开机里这些命令出现在下载停住之后，不是停住的原因。
-- 停住的开机之后接着驻留开机，三次都停住；中间跑过一轮 k90auto 再驻留开机，两次都成功。芯片状态是否跨热重启保留、k90auto 的启动路径是否给芯片重新上电，都未确认。
-- 下一步：在停住的开机里用 `kern.annibale.thread_dump` 取内核线程的等待位置；下载循环按片打印进度以确定停在第几片；对比 loader 的 `oem run` 与自动启动两条路径对 BT_EN 和 WCN7850 供电的处理；`bt_ios_put` 在芯片就绪前不写 UART。
+- 停住的开机之后接着驻留开机，三次都停住；中间跑过一轮 k90auto 再驻留开机，两次都成功。
+- 每次开机 PCIe 上电在 H 步读到的 BT_EN（PM8550VE GPIO3）「as found」都是低电平（`DIG_OUT_SOURCE_CTL 0`、下拉），成功与停住的开机相同，芯片每次都从断电状态开始，「芯片状态跨热重启保留」排除。
+- 下一步：在停住的开机里用 `kern.annibale.thread_dump` 取内核线程的等待位置；下载循环按片打印进度以确定停在第几片；对比 loader 的 `oem run` 与自动启动两条路径在 BT 拉起期间的差异（时序、并行的 UFS 读写与外设初始化）；`bt_ios_put` 在芯片就绪前不写 UART。
 
