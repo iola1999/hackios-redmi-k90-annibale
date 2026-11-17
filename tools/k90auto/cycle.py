@@ -13,12 +13,13 @@ usage: tools/k90auto/cycle.py LABEL [--baseline ROUND_DIR] [--seconds N] [--kern
      checkpoint() resets slot A's retry count at LK and boots the requested loader image.
   3. round-run.py in the background; once SpringBoard reports the boot unlock, tour.py runs TOUR or --tour
      (only its first step when the GPU has already stopped). By default run-auto.py is then asked to
-     leave iOS running (run/leave-running) and the device stays on the home screen. --teardown asks
+     leave iOS running (run/leave-running) and the device stays on the home screen, unless unhealthy()
+     finds a stopped GPU or a restarting SpringBoard in the round's logs. --teardown asks
      the round to stop instead (run/stop-request). With --hold the round runs until respin.py --stop
      or the N seconds, and respin.py changes settings and restarts processes in it meanwhile. No boot
      unlock within UNLOCK_WAIT skips the tour and stops the round.
   4. render-health.py, against --baseline when given, into ROUND_DIR/render-report.txt.
-  5. With --teardown, ensure_loader_idle() again after the round.
+  5. With --teardown, or when unhealthy() kept iOS from being left running, ensure_loader_idle() again.
 
 Exit code: 0 when the round ran (and, with --teardown, the loader came back idle), 1 otherwise.
 """
@@ -185,6 +186,28 @@ def newest_log(run_dir):
     return logs[-1].read_bytes().decode("utf-8", "replace") if logs else ""
 
 
+SHELL_LINE = re.compile(rb"System shell connected: <BKSystemShellClient: 0x[0-9a-f]+; SpringBoard\.(\d+);")
+
+
+def unhealthy(run_dir):
+    """Why iOS should not be left running after this round, or None.
+
+    A stopped GPU refuses every new client, so SpringBoard dies whenever it next needs Metal, and backboardd
+    turns the backlight off and on with each death: the whole screen flashes until the kernel is stopped
+    (cam3-trace2, 2026-11-18). Both show in the round's logs: the GPU_STOP line, or SpringBoard connecting to
+    backboardd as more than one process.
+    """
+    springboards = set()
+    for log in sorted(run_dir.glob("s[0-9]*.log")):
+        data = log.read_bytes()
+        if GPU_STOP.encode() in data:
+            return "the GPU stopped"
+        springboards.update(SHELL_LINE.findall(data))
+    if len(springboards) > 1:
+        return f"SpringBoard ran as {len(springboards)} processes"
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("label")
@@ -255,6 +278,7 @@ def main():
         print(f"slot preflight failed: {problem}")
         return 1
     out = open(EVIDENCE / f"cycle-{args.label}.out", "w")
+    teardown = args.teardown
     rounder = subprocess.Popen([sys.executable, str(HERE / "round-run.py"), str(round_dir), str(args.seconds),
                                 "0,0,5"], cwd=WORKSPACE, stdout=out, stderr=subprocess.STDOUT,
                                env=dict(os.environ, K90_FREEZE_OFF="1"))
@@ -281,6 +305,10 @@ def main():
             print(f"held: tools/k90auto/respin.py {round_dir} ... (--stop ends it)", flush=True)
         elif args.teardown:
             (round_dir / "run" / "stop-request").write_text("")
+        elif (problem := unhealthy(round_dir / "run")):
+            print(f"not left running: {problem}; the round is torn down instead")
+            (round_dir / "run" / "stop-request").write_text("")
+            teardown = True
         else:
             (round_dir / "run" / "leave-running").write_text("")
     rounder.wait()
@@ -295,7 +323,7 @@ def main():
     # summary.py and visual-audit.py read as well; one round's 13 shots go from 171 MB to 46 MB in 6 s.
     run(["bash", HERE / "sheets.sh", round_dir / "run"], stdout=subprocess.DEVNULL)
 
-    if args.teardown:
+    if teardown:
         problem = ensure_loader_idle()
         if problem:
             print(f"loader not ready after the round: {problem}")

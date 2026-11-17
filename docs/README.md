@@ -150,6 +150,8 @@
 - [架构审查跟进、亮度同步、相机与触觉反馈推进记录（2026-11-10）](progress/2026-11-10-arch-review-execution.md)。
 - [11-15 Wave 1 真机验收、应用闪退修复与提交](progress/2026-11-15-handoff.md)。
 - [多专题并行研究与真机复现（2026-11-15～16）](analysis/2026-11-16-multi-topic-research.md)：IPA 安装入口、组件渲染、蜂窝、工具链、待办整理、相机、硬解与音频、性能的结论与跟踪。
+- [设置与控制中心卡死：bluetoothd 中止与内核 BT 拉起修复（2026-11-18）](progress/2026-11-18-ui-freeze-bluetoothd.md)：bluetoothd watchdog 中止机制、HCI 事件解析错帧的根因、修复与真机验证。
+- [相机编码链观测与定位授权弹窗整屏闪烁（2026-11-18）](progress/2026-11-18-camera-trace-and-perm-flicker.md)：Espresso ANE 上下文、快门后驱动拒绝的纹理、GPU 停转后的崩溃循环与留机检查。
 
 ## 10. 代码仓库中的说明
 

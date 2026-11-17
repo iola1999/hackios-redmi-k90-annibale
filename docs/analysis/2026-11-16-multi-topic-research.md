@@ -286,7 +286,8 @@ RAW 半块丢失（11-16，内核 `12377-cam4g`～`12377-camtfe` 共 9 轮，基
   - TZ 静态 QoS：按原厂 `cam_cpastop_poweron` 调用 `qcom_scm_camera_update_camnoc_qos(0)`（SiP 0x4200180a），返回 0，无变化。
   - TFE0/1/2 GDSC：三个都上电，CAMNOC SBM 状态保持 0x111100，无变化。
 - Android 对照（B 槽，原厂相机预览使用 TFE2，没有使用 IFE-lite）：TITAN_TOP GDSC 给 `qnm_camnoc_hf` 投票，CAMNOC RT 与 NRT AXI 时钟均为 300 MHz（本驱动 RT 为 200 MHz）。没有找到能解释译码错误的配置差异。
-- 未确认：错误记录器的地址字段为 0，可能是第二个端口发出的写地址本身为 0，也可能是该记录器不保存地址。IFE-lite 总线状态寄存器（溢出 0x1268、越界 0x1270、WM 调试与地址状态 0x1780～0x179c）还没有读过。
+- 未确认：错误记录器的地址字段为 0，可能是第二个端口发出的写地址本身为 0，也可能是该记录器不保存地址。
+- 2026-11-18 补读（内核 `12377-cam1bus`，`camera_test native-back` 单帧，`cam_rt_mhz=300`）：IFE-lite `0x1260`～`0x1278`（含溢出 `0x1268`、越界 `0x1270`）全为 0，WM 写出地址 `0x8fd07c0` 覆盖整帧，FIFO 为空；同一帧 `phys_bit8_1=12000/12000`、`phys_bit8_0=0/12000`，CAMNOC RT `ERRLOG0_LOW` 仍为 `0x114`（地址译码错误）。WM 侧没有溢出或越界，下一步核对 CAMNOC RT 的地址映射与交织配置。
 
 下一步：校正后摄预览的亮度、颜色与帧率；拍照链路的 Metal 编译失败归 AIR 着色器翻译排查。前摄取帧超时、黑电平与半块问题按原顺序排在后摄预览之后。
 

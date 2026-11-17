@@ -53,6 +53,9 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - **启动测试轮前自动从当前状态收敛至驻留 loader。** 下一轮真机测试或更换启动载荷时直接由工具链从当前状态自动收敛到已枚举的 `xnuloader` 并刷入启动：设备处于运行中的 iOS 时先发 `oem stop` 等内核静默后执行 `reboot` 并发 `oem recovery` 锁定 Fastboot 空闲态（硬校验 `getvar result` 为 `idle`、`getvar product` 为 `xnuloader` 且常驻区为空），处于 B 槽 Android 时经 `recover-loader.py` 切回 A 槽 loader。软件恢复失败时记录现场并报告用户。
 - **序列号为空视同未枚举。** `adb devices` 列出设备但序列号为空时，除轮询外不发任何命令。序列号必须能原样读出。
 - **单轮测试完成后默认留在 iOS 运行态。** 相机、Safari、播放等测试复用同一次开机依次执行，单项完成后清理对应测试进程，整轮验收结束后设备默认保持在 iOS 桌面供观察与交互；更换启动载荷、开启下一轮测试或恢复需要重启的故障时再执行退出收尾（内核 DMA 停止、同步和资源保留要求继续生效，退回 loader 后须满足 `result: idle`、`product: xnuloader` 与常驻区为空三项硬校验）。
+- **运行态稳定性巡检。** 留机前和留机期间检查三项：系统进程是否反复重启（日志里 `System shell connected` 之后紧跟 `No system apps remain. Waiting for one to spawn`，或 `ps` 里 SpringBoard、cameracaptured 的 pid 不断变化）；GPU 是否已停转（`submissions closed`、`AnnibaleGPU client refused`，停转后所有新 GPU 客户端都被拒绝）；整屏是否亮暗交替。`cycle.py` 留机前会检查前两项，发现即收尾退回 loader；手动留机或 `--hold` 轮次结束时先读 `render-report.txt` 的 restart 与 gpu 两段。
+- **整屏闪烁紧急停。** 整屏亮暗交替闪烁按紧急状态处理：用一次 `oem screenshot` 和 `oem log` 取证，随即经 `recover-loader.py` 退回 loader 停闪，不让它持续。2026-11-18 `cam3-trace2` 轮在定位授权弹窗期间 GPU 停转，SpringBoard 随后反复崩溃重启，轮次结束仍留在 iOS，整屏闪烁持续到软件恢复，据此确立。
+- **高耗能状态限时保持。** 相机传感器开启、屏幕高亮度、GPU 高档满载只在测试动作期间保持：单项完成即退出相机或对应应用，亮度回到常规档位；连续诊断轮之间让设备回到桌面待机，不在传感器开启或高亮度下长时间停留。
 - **A 槽重试预算与 GPT GUID 相位。** `xnuloader` 启动时会自动维护自身槽位的重试计数与 `_a`／`_b` 分区 `PartitionTypeGUID` 相位；主机侧启动测试轮前仍需检查 `slot-retry-count:a`（低于 3 先 `set_active a`），切槽时确保 LUN 4 与 LUN 0 的活动槽位持有各自的 `PartitionTypeGUID`（非活动槽位为 `77036cd4-...`），防止触发高通 LK `ValidateSlotGuids` 校验失败。
 - **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再启动下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。

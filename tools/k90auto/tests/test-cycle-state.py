@@ -155,5 +155,25 @@ class LoaderStateTests(unittest.TestCase):
             run.assert_called_once_with(["fastboot", "devices"], capture_output=True, text=True, timeout=5)
 
 
+class UnhealthyRoundTests(unittest.TestCase):
+    SHELL = ("2026-11-18 01:38:15.400737+0800 backboardd[329:3602] [SystemShell] System shell connected: "
+             "<BKSystemShellClient: 0x10a550510; SpringBoard.{pid}; bundleIdentifier: com.apple.springboard>\n")
+
+    def check(self, *logs):
+        with tempfile.TemporaryDirectory() as td:
+            for i, text in enumerate(logs):
+                (Path(td) / f"s{i:03d}.log").write_bytes(b"\xff\x00binary\n" + text.encode())
+            return cycle.unhealthy(Path(td))
+
+    def test_healthy_round_is_left_running(self):
+        self.assertIsNone(self.check(self.SHELL.format(pid=30), self.SHELL.format(pid=30) + "other lines\n"))
+
+    def test_stopped_gpu_or_restarting_springboard_is_torn_down(self):
+        stop = "adreno8: external BO health check failed; submissions closed and pages retained until cold reset\n"
+        self.assertEqual(self.check(self.SHELL.format(pid=30), stop), "the GPU stopped")
+        self.assertEqual(self.check(self.SHELL.format(pid=30), self.SHELL.format(pid=335) + self.SHELL.format(pid=352)),
+                         "SpringBoard ran as 3 processes")
+
+
 if __name__ == "__main__":
     unittest.main()
