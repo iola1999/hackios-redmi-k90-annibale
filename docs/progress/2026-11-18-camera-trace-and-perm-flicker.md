@@ -1,6 +1,6 @@
 # 相机编码链观测与定位授权弹窗整屏闪烁（2026-11-18）
 
-本文记录 2026-11-18 三轮相机观测（`cam3-trace`、`cam3-trace2`、`cam3-ane`，内核 `12377-stage4-k7`）与三轮复测（`cam3d`、`mapk1`、`mapk2`，内核 `12377-bt1`）得到的拍照落盘线索，`cam3-trace2` 轮 GPU 停转后整屏亮暗闪烁的经过与处理，以及地图快照服务崩溃的修复。待办见[多媒体待办 M6](../backlog/multimedia.md)与[系统待办 S21](../backlog/system.md)。轮次目录为 `docs/progress/evidence/k90auto/kernel-12377-stage4-k7-cam3-*` 与 `kernel-12377-bt1-{cam3d,mapk1,mapk2}`，闪烁现场在 `out/cam-perm-flicker-2026-11-18/`，均为 Git 忽略目录。
+本文记录 2026-11-18 三轮相机观测（`cam3-trace`、`cam3-trace2`、`cam3-ane`，内核 `12377-stage4-k7`）与六轮复测（`cam3d`、`mapk1`～`mapk5`，内核 `12377-bt1`）得到的拍照落盘线索，`cam3-trace2` 轮 GPU 停转后整屏亮暗闪烁的经过与处理，以及地图快照服务崩溃的修复。待办见[多媒体待办 M6](../backlog/multimedia.md)与[系统待办 S21](../backlog/system.md)。轮次目录为 `docs/progress/evidence/k90auto/kernel-12377-stage4-k7-cam3-*` 与 `kernel-12377-bt1-{cam3d,mapk1,…,mapk5}`，闪烁现场在 `out/cam-perm-flicker-2026-11-18/`，均为 Git 忽略目录。
 
 ## 1. Espresso 上下文观测
 
@@ -51,7 +51,18 @@
 - `cycle.py` 判定「the GPU stopped」后没有留机，`oem recovery` 因内核保留资源被拒，随后经 `recover-loader.py` 退回 loader 空闲态，没有按键。
 - `mapk2` 轮只打开「地图」。AIR 临时加了诊断：绘制时可空且未绑定的纹理或缓冲槽位，按着色器与槽位各打印一次（未入库）。弹窗插件的绘制没有这类槽位，只有 MercuryPosterExtension 的 `space::rasterizeCylinderFragment`、`space::rasterizeBackgroundFragment` 留空纹理 3，可空槽位的全零纹理描述符这一候选排除。
 - `mapk2` 轮结束时 GPU 还在运行，`cycle.py` 照常留机；约 20 秒后 GPU 以同样的 `SMMU fault 0x2 at 0:0` 停转，未完成的仍是弹窗插件的命令缓冲，「nearest live above」这次是 pid 30（SpringBoard）。取一张截图后经 `recover-loader.py` 退回 loader，没有按键。
-- `cam3-trace2`、`mapk1` 与上面的 `mapk2` 三次停转都发生在定位授权弹窗显示期间（3 次中 3 次），打开「地图」后让弹窗保持显示即可复现，从弹窗出现到停转的时长没有逐次测量。
+- `mapk3`～`mapk5` 三轮用 annsh `setenv` 写 `kern.annibale.env`，只给弹窗插件进程设一个开关，其余条件与 `mapk2` 相同：
+
+| 轮次 | 插件进程的开关 | 结果 |
+|---|---|---|
+| `mapk3` | `ANNIBALE_SYNC_DRAWS=1`：每次绘制后提交并等待完成 | 弹窗显示约 3.5 分钟没有停转；插件的提交大多引用 17～22 个缓冲 |
+| `mapk4` | `FD_MESA_DEBUG=nolrz`：关闭 LRZ | 停转，错误相同 |
+| `mapk5` | `FD_MESA_DEBUG=sysmem`：不分块，直接渲染到内存 | 停转，错误相同 |
+
+- 三轮的开关都在插件日志里出现（`kern.annibale.env:`、`FD_MESA_DEBUG=`）。LRZ 与分块渲染路径排除；每帧一次提交、多帧同时排队时出现，逐次同步时不出现。
+- 内核 `MSM_INFO_GET_IOVA` 对不存在的句柄返回错误，freedreno `msm_bo_iova()` 遇到错误时不报错、把 BO 地址记为 0，此后这个 BO 的重定位都指向 0。这几轮日志里没有「buffer %u is asked for and is not there」，这条路径未得到证实。
+- `mapk4` 停转发生在 `cycle.py` 留机检查之后，设备照常留在 iOS，停转后 46 秒内取截图并退回 loader；`mapk5` 停转发生在轮次中，按停止请求收尾。
+- 不开同步绘制的五次（`cam3-trace2`、`mapk1`、`mapk2`、`mapk4`、`mapk5`）都在定位授权弹窗显示期间停转，打开「地图」后让弹窗保持显示即可复现，从弹窗出现到停转的时长没有逐次测量。
 
 ## 6. 处理
 
@@ -62,4 +73,4 @@
 
 - `CAM-3`：找出快门后拍照结果停在哪一步（相机应用的拍照回调、cameracaptured 编码节点或 `deferredmediad`）。确认 2×2 组合纹理在拍照链里会被使用后，再在 Mesa 实现双平面纹理的着色器写入。
 - Espresso 的 ANE 引擎在 K90 上返回 NULL。Espresso 自带的 CPU 回退要求内核报告运行在虚拟机里，这会影响其他读取同一信息的框架，是否采用需要用户决定。
-- GPU 停转（S21）：用「打开地图、等待定位授权弹窗」复现，找出弹窗插件的 VectorKit 绘制里引用 IOVA 0 的绑定（纹理、缓冲或描述符）。Mesa 在 `fd_bo_new()` 失败后崩溃只发生在停转之后，补空指针检查不能恢复绘制，排在停转原因之后处理。
+- GPU 停转（S21）：用「打开地图、等待定位授权弹窗」复现。内核在 SMMU 故障时读出 CP 正在执行的 IB1／IB2 地址并对应到 BO 与进程，确认读 IOVA 0 的命令来自哪一次提交；再用 `ANNIBALE_SYNC_MATCHED_DRAWS` 只同步部分管线，缩小到具体绘制。Mesa 在 `fd_bo_new()` 失败后崩溃只发生在停转之后，补空指针检查不能恢复绘制，排在停转原因之后处理。

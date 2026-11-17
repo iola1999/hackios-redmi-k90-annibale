@@ -44,4 +44,26 @@
 
 - 设置「隐私与安全性」页卡死与 bluetoothd 的关系未确认，复现时取设置主线程栈。
 - 对端进程退出后，客户端的同步 XPC 是否按时收到中断错误未验证。
-- 驻留 iOS 开机时固件下载没有进度行的原因未确认；驻留 `boot_a` 换用含本修复的内核后再观察。
+- 驻留 iOS 开机时固件下载停住，见第 7 节。
+
+## 7. 驻留开机的固件下载停住（发布后观察）
+
+`boot_a` 换成 `v0.2.1` 发布镜像（内核与 `12377-bt1` 相同）后，11-18 当天驻留开机 7 次，3 次拉起成功，4 次停在 `bt: hmtbtfw20.tlv: sending 275208 bytes in 1133 pieces, unanswered`，之后没有任何 `bt:` 行，最长观察超过 10 分钟。成功的开机在同一位置之后依次打印 25%～100%、`taken` 与 `done`。日志在 Git 忽略的 `out/handover-2026-11-18/final/`。
+
+| 开机时间 | 之前的状态 | 结果 |
+|---|---|---|
+| 发布验证时 | 经 LK 刷入 `boot_a` 后重启 | 成功 |
+| 04:20 | `mapk1` 轮（蓝牙正常）GPU 停转后退回 loader 空闲态，再 `fastboot reboot` | 成功 |
+| 04:34 | `mapk5` 轮（蓝牙正常）GPU 停转、按停止请求收尾后，loader 自动启动 | 停住 |
+| 04:45、04:49、04:51 | 上一次驻留开机停住，经 `recover-loader.py` 退回空闲态后 `fastboot reboot` | 都停住 |
+| 04:58 | `btcam5` 轮（蓝牙正常）结束后退回空闲态，再 `fastboot reboot` | 成功 |
+
+
+- 同一天 k90auto 的 7 轮（`cam3d`、`mapk1`～`mapk5`、`btcam5`）用同一内核从 loader 内存启动，蓝牙全部拉起成功。凌晨事故的两次驻留开机（第 4 节）也是这个现象。
+- 启动参数的差异只有 `cam=5`、`torch=1`、`gpu_log`、`touch_lat`、`autounlock`、`usertrap`。`btcam5` 轮带上 `cam=5 torch=1` 后照常拉起，这两项排除。剩下的差异是启动方式：轮次从 loader 内存载入内核与根盘，驻留开机由 `boot_a` 镜像从 UFS 启动。
+- `annibale_bt_uart_write()` 的等待都有上限，超时会打印 `TX FIFO stays` 或 `not sent`，下载循环失败会打印 `bt: stop:`。这些都没有出现，拉起线程没有从下载循环返回，停在哪里未确认。
+- 拉起线程不结束，`annibale_bt_ios_ended()` 不会被调用，`/dev/uart.bluetooth` 的 open 与控制套接字 connect 仍会等满 40 s，第 3 节的 watchdog 中止与卡死风险在这类开机里依然存在。
+- 04:45 那次开机里 bluetoothd 经 Skywalk 通道（`btsk_sync_tx` → `bt_ios_put`）发出 HCI 命令，这条路径不检查 `bt_serving`，芯片没有就绪时也会写 UART。该开机里这些命令出现在下载停住之后，不是停住的原因。
+- 停住的开机之后接着驻留开机，三次都停住；中间跑过一轮 k90auto 再驻留开机，两次都成功。芯片状态是否跨热重启保留、k90auto 的启动路径是否给芯片重新上电，都未确认。
+- 下一步：在停住的开机里用 `kern.annibale.thread_dump` 取内核线程的等待位置；下载循环按片打印进度以确定停在第几片；对比 loader 的 `oem run` 与自动启动两条路径对 BT_EN 和 WCN7850 供电的处理；`bt_ios_put` 在芯片就绪前不写 UART。
+
