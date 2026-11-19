@@ -24,7 +24,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REGS = "/tmp/mesa-air-host/mesa-26.2.5/src/freedreno/registers/adreno/a6xx.xml"
+_HOST_REGS = Path("/tmp/mesa-air-host/mesa-26.2.5/src/freedreno/registers/adreno/a6xx.xml")
+_LOCAL_REGS = HERE.parents[1] / "hackios-xnu-kernel/xnu-deps/build/mesa/mesa-26.2.5/src/freedreno/registers/adreno/a6xx.xml"
+REGS = str(_HOST_REGS if _HOST_REGS.is_file() else _LOCAL_REGS)
 TREE = re.compile(r"adreno8: tree (\d+) of (\d+) (0x[0-9a-f]+):((?: (?:[0-9a-f]{8}|unmapped))+)")
 SLOT = re.compile(r"adreno8: fs bindless slot (\d+) (0x[0-9a-f]+):((?: (?:[0-9a-f]{8}|unmapped))+)")
 INDIRECT = {0x3f, 0x57}
@@ -79,17 +81,19 @@ def register_names(path):
 
 
 def buffers(text):
-    """GPU address -> words (None for unmapped), one entry per printed buffer. The merged log
-    can carry a kernel line twice; a line inside a buffer already read is skipped."""
-    out, current = {}, None
+    """GPU address -> words (None for unmapped), coalesced across duplicated or interleaved lines."""
+    by_addr = {}
     for m in TREE.finditer(text):
         address = int(m.group(3), 16)
-        words = [None if w == "unmapped" else int(w, 16) for w in m.group(4).split()]
-        if current is not None and address == current + 4 * len(out[current]):
-            out[current].extend(words)
-        elif not any(s <= address < s + 4 * len(ws) for s, ws in out.items()):
-            current = address
-            out[current] = words
+        for i, token in enumerate(m.group(4).split()):
+            by_addr.setdefault(address + 4 * i, None if token == "unmapped" else int(token, 16))
+    out, current = {}, None
+    for addr in sorted(by_addr):
+        if current is not None and addr == current + 4 * len(out[current]):
+            out[current].append(by_addr[addr])
+        else:
+            current = addr
+            out[current] = [by_addr[addr]]
     return out
 
 

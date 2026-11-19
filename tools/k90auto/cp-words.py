@@ -26,7 +26,9 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-PM4 = os.environ.get("CP_PM4", "/tmp/mesa-air-host/mesa-26.2.5/src/freedreno/registers/adreno/adreno_pm4.xml")
+_HOST_PM4 = Path("/tmp/mesa-air-host/mesa-26.2.5/src/freedreno/registers/adreno/adreno_pm4.xml")
+_LOCAL_PM4 = Path(__file__).resolve().parents[2] / "hackios-xnu-kernel/xnu-deps/build/mesa/mesa-26.2.5/src/freedreno/registers/adreno/adreno_pm4.xml"
+PM4 = os.environ.get("CP_PM4", str(_HOST_PM4 if _HOST_PM4.is_file() else _LOCAL_PM4))
 DUMP = re.compile(r"adreno8: pipe (\d+) (\w+) at -(\d+) (0x[0-9a-f]+):((?: (?:[0-9a-f]{8}|unmapped))+)")
 LEVEL = re.compile(r"adreno8: hang pipe (\d+) (\w+) base (0x[0-9a-f]+) rem (\d+) init (\d+)")
 
