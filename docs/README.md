@@ -155,7 +155,8 @@
 - [11-18 接手：会话审查、蓝牙修复、v0.2.1 与相机／GPU 停转线索](progress/2026-11-18-handoff.md)：凌晨会话产出的取舍、本批提交与真机轮次、未完成事项。
 - [相机编码链观测与定位授权弹窗整屏闪烁（2026-11-18）](progress/2026-11-18-camera-trace-and-perm-flicker.md)：Espresso ANE 上下文、快门后驱动拒绝的纹理、GPU 停转后的崩溃循环与留机检查。
 - [阶段五进展：GPU 故障取证、Mesa 状态修复与蓝牙就绪门控（2026-11-19）](progress/2026-11-19-stage5-s21-misc9.md)：`adreno8` IB/BO 故障转储、`SP_*_PVT_MEM` 修复、蓝牙就绪门控与测试结果。
-- [阶段六进展：性能优化、图形 CCHE 修复、基带 QMI 上线与相机链推进（2026-11-19）](progress/2026-11-19-stage6-modem-camera-graphics.md)：`PERF-1/2/3/5` 验证、`fd6_barrier.cc` CCHE 与 `adreno8_speed_tick` 修复、`MPSS` QMI 服务上线、`CAM-3` 与 `MiniM2Scaler` 进展。
+- [阶段六进展：性能优化、图形 CCHE 修复、基带 QMI 上线与相机／麦克风推进（2026-11-19）](progress/2026-11-19-stage6-modem-camera-graphics.md)：`PERF-1/2/3/5` 验证、`fd6_barrier.cc` CCHE 与 `adreno8_speed_tick` 修复、`MPSS` QMI 与 `QMI_LOC` 实测、`CAM-3`／`MiniM2Scaler` 与 `M8` 进展。
+- [11-19 阶段六与 Batch 6 交接](progress/2026-11-19-handoff.md)：阶段五／六及 `s6h-r2` 已验证结果、空闲 `xnuloader` 停放状态、未完成事项与下次恢复步骤。
 
 ## 10. 代码仓库中的说明
 

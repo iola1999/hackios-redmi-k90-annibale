@@ -1,6 +1,6 @@
-# 阶段六进展：性能优化、图形 CCHE 修复、基带 QMI 上线与相机链推进（2026-11-19）
+# 阶段六进展：性能优化、图形 CCHE 修复、基带 QMI 上线与相机／麦克风推进（2026-11-19）
 
-本阶段（`s6a`～`s6g-r3`，内核 `12377-s6g3`）围绕 `PERF-1`～`PERF-5` 性能优化、桌面条纹与多图标闪烁修复、MPSS 基带 QMI 服务上线以及相机后处理链路推进展开实现与真机验证。
+本阶段（`s6a`～`s6h-r2`，内核 `12377-s6g3`／`12377-s6h2`）围绕 `PERF-1`～`PERF-5` 性能优化、桌面条纹与多图标闪烁修复、MPSS 基带 QMI 与休止生命周期、相机后处理链路以及 `M8` 麦克风采集展开实现与真机验证。
 
 ## 1. 性能专项（PERF-1/2/3/5 与 PERF-4 评估）
 
@@ -27,17 +27,26 @@
 - **GLINK 与 QRTR 结果**：`s6e-r2` 完成 `SMP2P READY`（`2450 ms`）与 `SMEM GLINK IPCRTR` 握手；[annibale_qrtr.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_qrtr.c) 补齐 `qrtr_local_servers` 发布并将服务表容量升至 `96`。
 - **APPS 侧 QMI 服务上线**：在 [annibale_modem_svc.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_modem_svc.inc) 的 `lowdma` 区间（`[0xce800000, 0xcf600000)`，核对与 Wi-Fi/音频/IPA 零重叠）提供 `MEMSHARE (0x34)`、`RMTFS (0x0e)`（UFS 只读加内存写影子）与 `SERVREG_LOCATOR (0x40)`。
 - **7 项 MPSS QMI 服务在线验证**：`s6f-r3`（`12377-s6f3`，`modem=3`）实测 `kern.annibale.modem_state = 4`，`WDS (0x01)`、`DMS (0x02)`、`NAS (0x03)`、`WMS (0x05)`、`Voice (0x09)`、`UIM (0x0b)`、`LOC (0x10)` 全部上线并收到 `QMI LOC registered position report events`，全程 0 崩溃；`s6g-r1` 补齐 `WMS` `qmi_flags == 0x04` 判别与 `UIM TLV 0x10` 偏移解析。
-- **`QMI_LOC` 与待验证边界**：`QMI_LOC` 的 `0x1e`/`0x20`/`0x01` 回退掩码改动已通过主机 ASan+UBSan 与 `qmi-test`（`87` 项全过），因 `s6g-r3` 在该轮触发 `MPSS SMP2P READY timeout after 8000 ms`，该回退分支实机回传待下一批重启复测；同时继续排查无 SIM 卡状态下 `DMS` 上电进入 `operating_mode=3 (OFFLINE)` 的前置条件。
+- **MPSS 休止与状态查询（`s6h-r1`／`s6h-r2`，`12377-s6h2`）**：在 [annibale_modem.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_modem.c)、[annibale_modem_boot.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_modem_boot.inc) 与 [loader_return.c](../../hackios-xnu-kernel/xnu/files/osfmk/arm64/loader_return.c) 补齐 `PAS_SHUTDOWN`（`SCM_CALL(2, 6)`）、`SMEM_HOST_GLOBAL` 隔离、`mpss_glink_locate_queues()` 单次保护与返回前静默。
+- **MPSS 运行态读数（`s6h-r2`）**：实测 `kern.annibale.modem_state = 4`、`modem_loc_status` 输出 `dms_mode=3 dms_err=60 uim_card=2 uim_err=3 loc_reg=0 loc_fb=1 loc_err=3 loc_rev=2`。
+- **`QMI_LOC` `0x1e`～`0x21` 序列实测（`s6h-r2/run/s016.log`）**：`0x001e`（`GET_SUPPORTED_MSGS`，跳过 2 字节 `num_bytes` 前缀后 `n=22` 字节，覆盖 `0x001e..0x00aa`）、`0x001f`（`GET_SUPPORTED_FIELDS(0x0021)`，0 个可选 TLV）与 `0x0020`（`QMI_LOC_INFORM_CLIENT_REV = 2`）全部返回 `flags=0x2 result=0 err=0`；随后 `0x0021`（`REG_EVENTS` `mask=0x187` 及回退 `mask=0x01`）仍各收到两次 `flags=0x2` 应答（`err=48` 与 `err=3`），`DMS` 停在 `mode=3`（`OFFLINE`），待后续继续定位。
 
 ## 4. 相机与多媒体（CAM-3 / MiniM2Scaler / Metal IOSurface）
 
 - **CAM-3 `-6680`／`-73343` 修复**：`cam3-fignotes.log` 与 `CoreVideo`/`CMCapture` 反汇编确认 `CoreVideo` 按设备树不注册苹果 UBC 压缩像素格式，而 `CMCapture` 为 `V57` 硬编码开启压缩能力位导致 `BWPixelBufferPool` 返回 `-6680`。[inject_media.c](../../hackios-xnu-userland/userland/src/inject/inject_media.c) 新增 `align_cmcapture_compression_caps()` 并在 `s6f-r3` 实测生效。
-- **MiniM2Scaler 旋转与中断修复**：[MiniM2Scaler.cpp](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniM2Scaler.cpp) 将 `kM2FlagTranspose` 更正为顺时针 90° 旋转 `kM2FlagRotate90`（`dst(x, y) -> src(uy, dw - 1 - ux)`），将 `xform != 0` 接入平面直拷贝快路径并用 `fAbortGen` 实现 `kM2MethodAbortTransfers`。`s6g-r3` `docs/progress/evidence/k90auto/kernel-12377-s6g3-s6g-r3/run/cam3-preview.png` 实测预览方向正确。
+- **MiniM2Scaler 旋转与中断修复**：[MiniM2Scaler.cpp](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/MiniM2Scaler.cpp) 将 `kM2FlagTranspose` 更正为顺时针 90° 旋转 `kM2FlagRotate90`（`dst(x, y) -> src(uy, dw - 1 - ux)`），将 `xform != 0` 接入平面直拷贝快路径并用 `fAbortGen` 实现 `kM2MethodAbortTransfers`。`s6g-r3` `cam3-preview.png` 实测预览方向正确。
 - **Metal IOSurface 缓冲前端与驱动**：针对 `UBProcessorV4.m:298` `-73465` 调用 `-[MTLDevice newBufferWithIOSurface:]` 的缺口，在 [air_metal_texture.inc](../../hackios-xnu-userland/tools/mesa/air/air_metal_texture.inc) 新增 `rwa_buffer_from_surface()`。
 - **Metal IOSurface 缓冲封装**：在 [annibalemetal_buffer_pipeline.inc](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal_buffer_pipeline.inc) 与 [annibalemetal_device_caps.inc](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal_device_caps.inc) 实现 `-newBufferWithIOSurface:` 与 `-iosurface`（优先 `kAnnibaleSurface` 零拷贝，客户端内存回退 `rwa_buffer_from_memory`）。
-- **相机未决事项**：`s6g-r3` 启用 `cam_bcm=1 cam_rt_mhz=300` 后，后摄预览流仍于 `seq=8` 发生 `IFE-lite0` `bus_ovf=0x1` 超时停流（`error=60`），256B 半块条纹（`CAM-1`）与 `DCIM/100APPLE` 照片落盘（`CAM-3`）继续在下一批排查。
+- **VBLANK 位 9 同步（`s6h-r2`，`12377-s6h2`）**：在 [annibale_camera_native.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera_native.inc) 将 `cam_native_wait_vblank()` 改为等待 bit-9 `INFO_INPUT_EOF (0x200)`，`s6h-r2` `cam3-preview.log` 实测 `vblank wait timeout` 由 `s6h-r1` 的 `seq=1` 超时降至 `0` 次；但 `seq=4`（`fll=12500`）仍出现 `IFE-lite0` `bus_ovf=0x1`（`consumed=0`），`DCIM/100APPLE` 尚未落盘。
+- **预取参数配置（`12377-s6h2`）**：在 [annibale_camera.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera.c) 接入默认关闭的 `cam_wm_prefetch` 参数，供下一批零重编运行 `CAM-1` 对照。
 
-## 5. 文档、启动参数与宿主单测
+## 5. 麦克风与 AudioReach 采集（M8）
 
-- 运行 `tools/bootargs.py` 更新 [内核启动参数目录](../analysis/boot-args.md)（共 `163` 项参数），使 `tools/bootargs.py --check` 通过；同步修复 [阶段五进展](2026-11-19-stage5-s21-misc9.md) 超 500 字符段落，使 `tools/check-docs.py` 全仓文档检查通过。
-- 阶段六核心宿主单测均在最终修改后以退出码 `0` 通过：`test-adreno8-hfi.py`、`test-annibale-gpu-dispatch.py`、`test-annibale-perf2.py`、`test-annibale-perf3.py`、`test-annibale-modem-loader.py`、`tools/qmi-test/run.sh`、`test-annibale-m2scaler.py`、`test-mini-m2scaler.py`、`test-annibale-camera-native.py`、`test-camera-device-ios26.py`。
+- **4 槽异步 GPR 与 Q6PRM 格式（`s6h-r1`～`s6h-r2`）**：在 [annibale_audio_reach.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_audio_reach.c) 与 [annibale_mic.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_mic.c) 实现 `/dev/annibale-mic` 4 槽异步 GPR 流水线，并将 `REQ LPASS CORE`／`REQ VA MCLK` 修正为 `0x0100100f` -> `0x02001002`（[annibale_adsp.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_adsp.c)）。
+- **VA Macro 与 DMIC 引脚初始化**：按 `annibale-merged.dts` 启用 K90 `VA_MACRO`（`0x07660000`）与 DMIC0..5 引脚，并在 `mic_hw_prepare()` 接入 `annibale_audio_reach_is_active()` 就绪门控。
+- **真机实测与遗留阻塞（`s6h-r2/run/m8-mic.log`）**：`REQ LPASS CORE`（`rsp 0x2001002 second 0`）、`REQ VA MCLK`、`VA macro core id 0x2 0xf 0x80 0x40`、`OPEN SG_MIC`、`SET_CFG MIC_SOURCE` 与 `OPEN SG_CAPTURE` 均返回成功，连续两次 `/annibale/bin/record_test`（各 `240000 samples`）打开关闭正常；但 `SET_CFG CAP_ENC`（参数 `0x08001006`）返回 `0x3`（`AR_EUNSUPPORTED`）且失败后未关闭已打开子图导致后续 `OPEN SG_MIC` 返回 `0x18`，录音采样全零。
+
+## 6. 文档、启动参数与宿主单测
+
+- 运行 `tools/bootargs.py` 更新 [内核启动参数目录](../analysis/boot-args.md)（纳入 `cam_wm_prefetch`，共 `164` 项参数），使 `tools/bootargs.py --check` 通过；同步修复 [阶段五进展](2026-11-19-stage5-s21-misc9.md) 超 500 字符段落，使 `tools/check-docs.py` 全仓文档检查通过。
+- 阶段六与 Batch 6 核心宿主单测均在最终修改后以退出码 `0` 通过：`test-adreno8-hfi.py`、`test-annibale-gpu-dispatch.py`、`test-annibale-perf2.py`、`test-annibale-perf3.py`、`test-annibale-modem-loader.py`、`tools/qmi-test/run.sh`（87 checks）、`test-annibale-m2scaler.py`、`test-mini-m2scaler.py`、`test-annibale-camera-native.py`、`test-camera-device-ios26.py`、`test-annibale-mic.py`、`test-annibale-mic-transport.py`、`test-annibale-audio-transport.py`、`test-audioreach-routing.py`、`test-audio-drain.py`。
