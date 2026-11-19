@@ -168,7 +168,7 @@ INJECT = (
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n" +
     ("/annibale/lib/libannibale.dylib backboardd\n" if TOUCH_LAT else "") +
     "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension WidgetRenderer_Default SharingUIService Preferences lsd wifid\n"
-    "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd\n"
+    "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd deferredmediad\n"
     "/annibale/lib/libannibale-vt.dylib videocodecd mediaserverd com.apple.WebKit.GPU video_decode_test video_player_test\n"
     "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
     ("/annibale/lib/libannibale-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
@@ -363,6 +363,7 @@ DRIVER_FLAGS = ["-O1", "-framework", "Foundation", "-framework", "IOKit", "-fram
 # annibalemetal_commandbuffer.inc, which no manifest recorded: the .m hashes matched and the product
 # hash did not, so the search could only end by rebuilding from candidate trees.
 DRIVER_INCLUDES = ["tools/userland-driver/annibale_drawable.h",
+                   "tools/userland-driver/air_metal_copy.h",
                    "tools/userland-driver/air_metal_reflection.h",
                    "tools/userland-driver/annibalemetal_archive.inc",
                    "tools/userland-driver/annibalemetal_blit.inc",
