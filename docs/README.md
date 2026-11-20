@@ -158,6 +158,7 @@
 - [阶段六进展：性能优化、图形 CCHE 修复、基带 QMI 上线与相机／麦克风推进（2026-11-19）](progress/2026-11-19-stage6-modem-camera-graphics.md)：`PERF-1/2/3/5` 验证、`fd6_barrier.cc` CCHE 与 `adreno8_speed_tick` 修复、`MPSS` QMI 与 `QMI_LOC` 实测、`CAM-3`／`MiniM2Scaler` 与 `M8` 进展。
 - [11-19 阶段六与 Batch 6 交接](progress/2026-11-19-handoff.md)：阶段五／六及 `s6h-r2` 已验证结果、空闲 `xnuloader` 停放状态、未完成事项与下次恢复步骤。
 - [相机预览停帧、照片落盘与开机图标空白的修复（2026-11-20）](progress/2026-11-20-camera-photo-icons.md)：CAMNOC 静态 QoS 调用、IOSurface 扩展像素字段顺序与 10 位平面格式、解锁与布局回调的先后，以及快门期间 GPU 停转和麦克风全零两项未解决问题。
+- [基带离开 OFFLINE：APPS 侧 TFTP 服务与固件卷按路径读取（2026-11-20）](progress/2026-11-20-modem-tftp.md)：MPSS 经 TFTP 读写文件的四轮定位、服务端实现与 GLINK intent 续传，`DMS` 进入 ONLINE；`UIM` 与 `QMI_LOC 0x21` 未解决。
 
 ## 10. 代码仓库中的说明
 
