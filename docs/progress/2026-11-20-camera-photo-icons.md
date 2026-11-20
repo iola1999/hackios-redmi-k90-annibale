@@ -43,7 +43,7 @@
 
 改动在 [annibale_camera_diag.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera_diag.inc) 的 `cam_cpas_qos_init()` 与 [annibale_camera.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera.c)：`arginfo` 改为 `0x83`，每次 CPAS 上电都执行两路 QChannel 握手和该调用。`cam-b1` 起日志为 `SCM 0x4200180a returned 0`、`scm camnoc_qos(0) st=0`。
 
-未验证部分：`camnoc_rt_base` 只在 `cam_probe` 或 `cam_bcm` 下映射，这几轮没有读回 `RT1` 的 QoS 寄存器。停帧消失与该调用成功同时出现，寄存器实际取值留待带 `cam_probe=1` 的一轮读回。
+`g2-probe` 轮（`12377-g1a`，`cam_probe=1 cam_bcm=1`）读回 `RT1` 的五个寄存器，与上表原厂值逐项相同：`0x55544444`、`0x66666665`、`0x1c40`、`0xffffff00`、`0xf`。
 
 ### 2.3 没有 comp_done 的帧不再锁死设备
 
@@ -175,3 +175,46 @@ GPU 停止后 backboardd 在 `libannibaleair` 内解引用空指针退出（崩�
 
 - 带 `gpu_tl=1` 的 `g1-tl` 轮在 GPU 正常运行时 backboardd 崩溃一次（`fd_submit_append_bo` 中哈希表为空，调用自 `fd_batch_resource_read_slowpath`），SpringBoard 随之重启一次。原因未查。
 - 单张照片的 GPU 处理要 1.4～5.8 秒，期间再按快门不响应。
+
+## 8. 后摄 256 字节半块未写入（CAM-1）的本轮结果
+
+`g2-probe` 与 `g2-prefetch` 两轮用 `camera_test native-back` 取单帧，结果相同：24,000 个 256 字节块中 `addr[8]==0` 的 12,000 块写入，`addr[8]==1` 的 12,000 块全零；`CAMNOC_RT` 错误记录为 `ERRLOG0=0x114`、`ERRLOG1=0x11`、`SBM=0x111101`。照片的竖条纹来自这里。
+
+| 变量 | 轮次 | 结果 |
+|---|---|---|
+| `MM1`／`MM0`／`SH1`／`SH0`／`MC0`／`ACV` 六项 BCM 票（APPS RSC） | `g2-probe` | 六项返回成功，条纹不变 |
+| RT 与 NRT 两路 QChannel | `g2-probe` | 均为 `0x1/0x1`，不变 |
+| TrustZone 静态 QoS | `g2-probe` | `RT1` 寄存器与原厂表一致，不变 |
+| 写入器 `mmu_prefetch`（`cam_wm_prefetch=1`） | `g2-prefetch` | 不变 |
+
+同轮只读探针：`cam_hf_qtb` 的 fence 请求与应答为 0，两个端口的在途事务快照为 0；`MMSS_NOC` 上 `qnm_camnoc_hf` 两个端口的 QoS 寄存器相同；`apps_smmu` 全局故障寄存器为 0。
+
+剩余候选，均未验证：
+
+- Android 运行态的互连表里，后摄的带宽票全部投在 `cam_ife_2` 这个 DRV 的节点上（`qnm_camnoc_hf_cam_ife_2` 等各 3,125,025 kbps），APPS 侧 `qnm_camnoc_hf` 只有 2,098 kbps。本移植只经 APPS RSC 投票，没有经 `cam_rsc`（`0xadc8000`）的 DRV 投票。
+- Android 后摄走 `TFE2`（`0xaca6000`，CAMNOC `RT0` 端口），`IFE-lite` 在 Android 运行态没有启用。改走 `TFE2` 需要重写取帧路径，放到连续流改造时一起评估。
+- `cam_hf_qtb` 的 ECATS 地址翻译探针没有做。
+
+照片偏绿需要后摄对着白墙或灰卡测量三通道均值，测试机后摄朝下放置，本轮没有测。「照片」App 打开刚拍的照片也没有验证。
+
+## 9. 麦克风采样全零（M8）的本轮结果
+
+四轮（`g3a-r1`～`g3d-r1`，内核 `12377-g3a`～`12377-g3d`）只加探针，探针已全部撤回，内核源码与 `12377-g1a` 相同。验收未达到：`record_test` 仍为 `peak 0 of 32768`。
+
+| 检查 | 读数 | 结论 |
+|---|---|---|
+| DMIC 时钟与数据脚（LPI `gpio6`～`gpio9`、`gpio12`、`gpio13`，采集图运行中各读 4,096 次） | 时钟脚 906～1,299 次翻转，数据脚 2,121～2,200 次翻转，高电平约占一半 | 麦克风在输出 PDM 数据 |
+| VA 宏寄存器回读 | `MCLK 0x1`、`FS_CNT 0x1`、`TOP_CFG0 0x2`、`DMIC_CTL 0xb`×3、`ADC_MUX0 0x10/0`、`TX0 0x24/0xc0/0xb/0`、`0x410 0x4`、`0x418 0x1` | 写入值均已生效 |
+| `CODEC_DMA` 接口取值（每组关闭后重开子图） | VA 的 TX0／TX1／TX2、通道掩码 3 与 `0xf`、RXTX 的 TX0～TX3，共九组 | 全部 `peak 0`；掩码多于一路时 `START SG_MIC` 首次返回 `0x1` |
+| 共享内存读回位置（提交读请求前把该槽填 `0xa5`） | 完成后整槽 1,920 字节变为 `0x00`，`flags 0x14` | DSP 写入了本驱动读取的位置，写入的内容是零 |
+
+`lpaif_type = 3`（VA）与 `intf_index = 1`（TX0）与 Linux `audioreach.h` 的定义一致。读回缓冲用写合并方式映射，不经过数据缓存。
+
+剩余候选，均未验证：
+
+- VA 宏抽取器到 LPAIF 之间没有数据：原厂流程除 `VA MCLK`（`0x307`）外是否还请求 2X 或 NPL 时钟，需要对照原厂 `lpass-cdc-va-macro` 模块核对。
+- `SG_MIC` 子图的方向与场景属性。
+- 源端未发送 `PARAM_ID_HW_EP_POWER_MODE_CFG`（`0x8001176`）与 `PARAM_ID_HW_EP_DMA_DATA_ALIGN`（`0x08001233`）。
+
+需要人确认的听感清单（采到非零波形后）：对着手机说话时录音回放是否清晰、有无爆音；上下两个麦克风各自是否有声。
+
