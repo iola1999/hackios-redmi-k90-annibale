@@ -110,7 +110,7 @@ sb26: icons: occlusion reasons 0, lock screen element in the layout 0
 
 ## 5. 未解决与新发现
 
-1. **快门期间 GPU 停转**：`cam-b5` 预览 75 秒后间隔 7 秒按两次快门，内核报 `hang UCHE_CLIENT_PF = 0x81 (client 1: BR_SP)`、`context EOP timeout failed; submissions closed`，SpringBoard 随后反复重启，已按紧急停规则退回 loader。`cam-b4` 与 `cam-c1` 各按一次快门未出现。现场在 `kernel-12377-camb5-cam-b5/run/cam-session.log`，尚未定位到提交方与资源。
+1. **快门期间 GPU 停转**：已修复，见第 7 节。
 2. **照片画质**：两张照片能辨认场景，带竖条纹并整体偏绿。条纹与 `CAM-1`（`addr[8]==1` 的 256 字节块未写入）一致，偏色待单独核对。
 3. **麦克风采样全零**：`SET_CFG CAP_ENC` 的参数 `0x08001006` 换成对转换器与编码器各发 `PARAM_ID_PCM_OUTPUT_FORMAT_CFG`（`0x08001008`），源端补 `HW_EP_FRAME_SIZE_FACTOR`，失败后关闭已开子图，图可正常启动并按 20 ms 读回。另试过三项，结果不变并已撤回：追加 `lpass_audio_hw_vote` 与 `TX MCLK`（`0x30c`）请求；把 0 号抽取器输入依次切到 DMIC0～DMIC5。VA 宏回读为 `MCLK 0x1`、`FS_CNT 0x1`、`TOP_CFG0 0x2`、`DMIC_CTL 0xb`、`ADC_MUX0 0x10/0`、`TX0 0x24/0xc0`，LPI 引脚 6～9 为 `0x6c4/0x2`、`0x4c4/0`。下一步确认 DMIC 时钟脚是否有输出，以及 `CODEC_DMA` 接口取值。
 4. **蜂窝 `DMS` 停在 `OFFLINE`**：只做了代码与日志核对。`s6h-r2` 日志中 MPSS 只打开 `modemst1`／`modemst2`，各读一次后写入内存副本；`offline_reason=0`。APPS 侧未提供 TFTP（QRTR 服务 `0x1000`）与 `servreg_notify`（`0x42`），对 `tms/servreg` 的域查询返回 7 项。这些是候选，本轮没有做对照实验。
@@ -119,4 +119,59 @@ sb26: icons: occlusion reasons 0, lock screen element in the layout 0
 
 ## 6. 设备状态
 
-`cam-c1` 结束后设备留在 iOS 主屏（内核 `12377-camc1`），相机已退出，日志中没有 GPU 停转与 SpringBoard 重启记录。
+`g1a-r3` 结束后设备留在 iOS 主屏（内核 `12377-g1a`），相机已退出，日志中没有 GPU 停转与 SpringBoard 重启记录。
+
+## 7. 快门期间 GPU 停转
+
+### 7.1 复现与现场
+
+在 `12377-camc1` 上，相机预览 15 秒后间隔 8 秒连按 6 次快门全部正常；预览 75 秒后间隔 7 秒，第 2 次快门时 GPU 停转。两份现场给出同一个提交：
+
+| 现场 | 内核给出的结束原因 | 当时的 GPU |
+|---|---|---|
+| `cam-b5` | `EOP timeout waiting for 5051`，随后 `submissions closed` | `RBBM_STATUS 0xec1625`，CP 仍在执行 cameracaptured 的单 IB 提交（`0x12f` 字，一次全幅 2352×1776 绘制，4 个纹理） |
+| `cam-c1` 复现 | `AnnibaleGPU no answer; last 204186, retired 204182; SMMU fault 0` | 转储时 `RBBM_STATUS 0x1`、各级 IB 剩余为 0，CP 已空闲 |
+
+此前记录里的两个读数不表示地址故障：`UCHE_CLIENT_PF = 0x81` 是初始化写入的值，`SMMU fault 1` 来自提交关闭后置位的内存失败标志，SMMU 故障检查为 `no fault bits set`。`cam-b5` 只按到一次快门。
+
+### 7.2 原因
+
+拍照处理链的降噪融合阶段在一次提交里做全幅绘制，GPU 在低档位时要跑数秒。修复后内核对超过 250 ms 的提交打印一行，三轮读数为 0.4～5.8 秒：
+
+```
+adreno8: submission 4785 ran 1391 ms on the GPU
+adreno8: submission 5859 ran 5844 ms on the GPU
+adreno8: submission 6304 ran 4418 ms on the GPU
+```
+
+内核有两处按固定时限把仍在执行的提交判为挂死，并永久关闭提交：
+
+- `adreno8_speed_tick()` 换档前调用 `adreno8_context_wait_idle()`，等待 2 秒未完成即 `context_fail("EOP timeout")`。
+- `AnnibaleGPU.cpp` 的 `gpuWait()` 在一次不少于 1 秒的等待落空后报告 `no answer` 并置 `gGPUReported`。
+
+GPU 停止后 backboardd 在 `libannibaleair` 内解引用空指针退出（崩溃报告栈：`subpass_create`、`build_prog_fb_rast`），SpringBoard 随之反复重启。
+
+### 7.3 修复
+
+- [adreno8_context.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8_context.c)：等待时间戳的失败判据改为「管线末端时间戳连续 30 秒没有前进」。GMU 上报的挂死（HFI 150）仍经完成轮询立即结束等待。新增 `adreno8_context_drained()`：限时等待在途提交，未完成返回假且不关闭任何东西。
+- [adreno8_hfi.c](../../hackios-xnu-kernel/xnu/files/bsd/dev/adreno8/adreno8_hfi.c)：`adreno8_speed_tick()` 换档前改用上述限时等待（20 ms），提交仍在执行则保持档位，下个周期再试；超过 250 ms 的提交打印时长。
+- [AnnibaleGPU.cpp](../../hackios-xnu-kernel/xnu/files/iokit/Kernel/AnnibaleGPU.cpp)：`gpuWait()` 超时只向调用方返回失败；已完成时间戳在这类等待之间连续 30 秒不变才报告 `no answer`。
+
+宿主测试：`test-adreno8-context.py`（新增限时等待未完成不关闭的场景）、`test-adreno8-hfi.py`、`test-annibale-gpu-dispatch.py`、`test-annibale-gpu-lifetime.py` 通过。
+
+### 7.4 验收
+
+内核 `12377-g1a`，每轮预览 75 秒后连按快门：
+
+| 轮次 | 点击 | 相机接受 | 落盘 | 节点错误 | 最长提交 | GPU 停转／SpringBoard 重启 |
+|---|---|---|---|---|---|---|
+| `g1a-r1`（间隔 7 秒） | 6 | 5 | 5 | 0 | 5,844 ms | 无 |
+| `g1a-r2`（间隔 12 秒） | 7 | 7 | 7 | 0 | 4,994 ms | 无 |
+| `g1a-r3`（间隔 12 秒） | 7 | 7 | 7 | 0 | 3,726 ms | 无 |
+
+`g1a-r1` 有一次点击落在上一张仍在处理期间，相机没有发起拍摄。
+
+未解决的相邻问题：
+
+- 带 `gpu_tl=1` 的 `g1-tl` 轮在 GPU 正常运行时 backboardd 崩溃一次（`fd_submit_append_bo` 中哈希表为空，调用自 `fd_batch_resource_read_slowpath`），SpringBoard 随之重启一次。原因未查。
+- 单张照片的 GPU 处理要 1.4～5.8 秒，期间再按快门不响应。
