@@ -27,9 +27,10 @@
 | loader → LK | `python3 tools/k90auto/reboot-lk.py <新目录> --payload hackios-xnu-kernel/out/ios26-resume/reboot-lk-prepare/annibale-reboot-lk-prepare.bin --sha256 6b81e800ae789cf30adbaaa9c98768012e264c66a4e56110c6449cecf93fb7d7 --serial "${ANDROID_SERIAL}"` | 工具输出 `LK FASTBOOT verified on slot <a\|b>`，`result.json` 的 `lk_entered` 为真 | 8 秒 |
 | loader 复位（PSCI） | `fastboot -s xnuloader reboot` | 先断开约 10 秒，再重新枚举为 `xnuloader`，`result` 返回 `idle`，`ramdisk-state` 返回 `idle 0 0 0` | 11 秒 |
 
-- 两个方向都通过 `set_active` 切换目标槽后再 `reboot`。LK 的 `reboot` 本身只做复位，启动哪个槽由 `set_active` 决定。
+- 在 LK 中使用 `set_active` 选择目标槽，再执行 `reboot`。LK 的 `set_active` 同步更新 GPT 活动槽和 UFS Boot LUN。
 - 切到 A 槽前先核对 B 槽可用：`slot-successful:b=yes`、`slot-unbootable:b=no`。`reboot-lk.py --return-loader` 会自动检查这两个量，手工切槽时须自行核对。
-- 从 loader 回 Android 需分两步：先 `reboot-lk.py` 进 LK，再 `set_active b` 加 `reboot`。loader 自己的 `reboot` 只会回到 A 槽。
+- 从 loader 回 Android，使用开机菜单的「Boot Android」，或在 loader 处于空闲状态且常驻区为空后执行 `fastboot -s xnuloader oem android`。内核提交 `c755e776` 起，这两个入口共用切槽逻辑。loader 更新 LUN 4 和 LUN 0 的 GPT，再写入并回读目标 UFS Boot LUN。写入或校验失败时留在 loader Fastboot。
+- 旧版 loader 切槽只更新 GPT。2026-11-20 真机复现活动槽已变为 B，LK 仍报告 `LoadImageAndAuth Fail`。已进入 LK 的设备可以用 `set_active b` 同步 Boot LUN，再 `reboot` 恢复 Android。修正版从 A 槽启动后以 `oem android` 通过验证，Android 启动完成且 UFS Boot LUN 为 2。
 - 从运行中的 iOS 退回驻留 loader：除主机执行 `fastboot -s xnuloader oem stop` 外，也可在触摸屏五指同时按住 1.5 秒（`annibale_input.c` 的 `EXIT_FINGERS=5`、`EXIT_HOLD_MS=1500`），内核依次调用 `annibale_var_save_on_return()` 同步 `/private/var`、`annibale_wifi_stop()` 停止 Wi-Fi，再经 `loader_return()` 退回 `xnuloader`（`getvar result` 返回 `returned ...`）。
 - `reboot-lk.py` 的前置条件、记录文件与往返模式见 [k90auto 说明 §5](../../tools/k90auto/README.md#5-软件进入-lk-fastboot)。
 
