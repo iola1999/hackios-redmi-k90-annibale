@@ -213,6 +213,28 @@ stage-1 的三次中间读数：`TCR2` 的输出位宽超过 36 位时记翻译�
 
 剩余候选是上面两项：经 `cam_rsc` DRV 投带宽票，改走 `TFE2`。
 
+### 8.2 追加的四轮（`g12`～`g15`）
+
+| 变量 | 轮次 | 结果 |
+|---|---|---|
+| 前摄取帧（同样经 IFE-lite0） | `g12-front` | 前摄 `2592×1458` 帧也只有 `addr[8]==0` 的块写入（9,249 对 0）。半块未写入属于 IFE-lite0 到 CAMNOC `RT1` 这条路径，与传感器、PHY、帧尺寸无关 |
+| CAMNOC `RT0` 与 `RT1` 端口的 QOSGEN、NIU、DYNATTR 寄存器块对比 | `g13b-noc` | 除 QoS 查找表取值外没有差异；`RT0` 另有 UBWC 编码器错误寄存器块 |
+| 相机流表项换成精确匹配 `0x1c02` | `g14-sid2` | 第一次取帧内核即退回 loader，与非零掩码的结果一致 |
+| 读 `MMSS_NOC` 基址 `0x00`～`0x3c` | `g15-mmss` | 同步外部中止，内核退回 loader，该段不可读 |
+
+`g13a` 整段读取 CPAS top 与 CAMNOC RT（`0`～`0x400`、`0x4000`～`0x5500`）同样触发外部中止，`g13b` 改为只读原厂寄存器表列出的块。
+
+前摄此前的验收只覆盖取帧不超时，没有统计块写入情况。
+
+对照原厂 `camera-kernel` 源码（SM8750 设备的公开内核树）：
+
+- `cpastop_v980_100.h` 里 `RT1` 的端口名是 `RT1-TFE0,1,2_PDAF_FD_IFE_LITE_0,1_RDI_GAMMA_STATS`，IFE-lite 的 RDI 经 `RT1` 进入，与第 8.1 节最大写水位的读数一致。
+- `cam_cpastop_poweron` 在启用安全 QoS 的配置下只复位中断并经 TrustZone 写静态 QoS，勘误表两项都未启用，没有其他 CAMNOC 写入。
+- `cam_cpastop_hw.c` 收到 CAMNOC 地址译码错误时按「可能的页错误」通知客户端。
+- Android 运行时的带宽转储里，后摄的带宽票由 `cam_ife_2` DRV 投出（3,125,025 kbps），APPS 侧 `qnm_camnoc_hf` 只有 2,098 kbps。
+
+剩余候选仍是经 `cam_rsc` DRV 投带宽票与改走 `TFE2`。各 `RT` 端口最终经同一条 HF 链路进入 `cam_hf_qtb`，改走 `TFE2` 能否消除半块未写入没有依据。
+
 照片偏绿需要后摄对着白墙或灰卡测量三通道均值，测试机后摄朝下放置，本轮没有测。「照片」App 的结果见第 11 节。
 
 ## 9. 麦克风采样全零（M8）的本轮结果
@@ -336,4 +358,47 @@ stage-1 的三次中间读数：`TCR2` 的输出位宽超过 36 位时记翻译�
 
 ### 11.5 开机后地图快照服务触发的 GPU 停转
 
-`g10-drawlog2` 开机约 2 分钟后 GPU 停转，`cycle.py` 自动退回 loader。提交方是 `com.apple.MapKit.SnapshotService`（`UCHE_CLIENT_PF` 的客户端为 `BR_SP`），当时 Photos 没有启动。同一服务在其余各轮都在渲染且没有停转。这是 `S21` 的同一路径在开机阶段的一次出现。
+`g10-drawlog2` 开机约 2 分钟后 GPU 停转，`cycle.py` 自动退回 loader。提交方是 `com.apple.MapKit.SnapshotService`（`UCHE_CLIENT_PF` 的客户端为 `BR_SP`），当时 Photos 没有启动。同一服务在其余各轮都在渲染且没有停转。这是 `S21` 的同一路径在开机阶段的一次出现。后续排查见第 12 节。
+
+## 12. 定位授权弹窗期间的 GPU 停转（S21）
+
+### 12.1 复现步骤
+
+开机后执行 `annsh restart Maps CoreLocationVanillaWhenInUseAuthPromptPlugin`，再用 `trollstorehelper open com.apple.Maps` 打开「地图」，每 3 秒取一次日志，出现 `adreno8: hang` 即停。`g16`～`g28` 十三轮里十一轮停转，停转发生在第 1～10 次重开之间；`g23`、`g26` 各重开 10 次没有停转。每次停转后取日志并退回 loader。
+
+### 12.2 现场
+
+- 提交方是定位授权弹窗插件或 Maps；`g10-drawlog2` 那次是 `com.apple.MapKit.SnapshotService`。
+- `UCHE_CLIENT_PF` 的客户端都是 `BR_SP`；GPU 上下文的 SMMU 记录都是翻译故障，故障地址为 `0`、`0x40` 或 `0x80`。
+- 停转批次既有 GMEM 渲染（`g18`、`g21`，IB1 里有带 `uses_gmem` 的 `CP_SET_MARKER`），也有 sysmem 渲染（`g25`，`RM6_DIRECT_RENDER`）。
+- 停转转储在停转约 30 秒后打印，期间用户态在栅栏超时后继续运行。转储里数据类 BO（描述符表、常量缓冲）的内容可能已被后续帧改写，只有命令流与寄存器读回可以当作停转时刻的状态。
+
+### 12.3 逐项排除
+
+| 假设 | 做法 | 结果 |
+|---|---|---|
+| sysmem 批次沿用了 GMEM 批次打过补丁的 fb-read 描述符 | fb-read 描述符记录所属批次，draw 落在别的批次时重建（`g17`、`g18`） | 第 4 次、第 2 次仍停转，`g18` 的停转批次是 GMEM。撤回 |
+| 着色器读取了未绑定的应用 UBO | 宿主对 VectorKit `default.metallib` 的 327 个顶点与片元函数核对 NIR 读取的 UBO 序号与反射资源表（20 个函数翻译失败）；设备侧在装载 UBO 表时比对变体读取的序号（`g20`、`g21`）；`g28` 转储离线核对 172 个 draw、48 个着色器程序开头 128 字里的 `ldc` | 没有发现读取空表项。`g20` 的图形变体来自着色器缓存，读取序号未知；`g21` 设了 `MESA_SHADER_CACHE_DISABLE` 后没有命中，是否仍有来自缓存的变体没有确认；`g28` 有 4 个阶段的程序没有转储到 |
+| CCHE 的陷阱基址与直写基址没有初始化 | 内核补写 `UCHE_CCHE_TRAP_BASE`、`UCHE_CCHE_WRITE_THRU_BASE`（`g22`）。Linux `a8xx_gpu.c` 的 `hw_init` 写四个基址，本移植此前只写了 UCHE 的两个 | 寄存器读回正确，第 5 次仍停转。改动与上游一致，保留 |
+| fb-read 的 GMEM 描述符基址落在 GMEM 地址范围之外 | 基址改为 `0x04000000` 加 GMEM 内偏移（`g24`） | 第 4 次仍停转，故障地址仍为 0。撤回 |
+| 只在 GMEM 渲染下发生 | 三个进程设 `FD_MESA_DEBUG=sysmem`，驱动日志确认变量生效（`g23`）；只对带 fb-read 的批次强制 sysmem（`g25`） | `g23` 十次没有停转；`g25` 第 2 次停转，停转批次是 sysmem，fb-read 描述符是内存地址样式。`g23` 没有停转不能当作判别依据 |
+| 私有内存基址为 0 | 停转时读回 `SP_VS_PVT_MEM_BASE`、`SP_PS_PVT_MEM_BASE` 并反汇编寄存器指向的着色器（`g27`） | 基址非 0；这两个着色器没有 `ldp`、`stp`、`ldg`、`ldib`，直接访问内存的只有前导码里读 UBO 的 `ldc` |
+
+[11-18 的记录](2026-11-18-camera-trace-and-perm-flicker.md)写「分块渲染（`sysmem`）已排除」，当时没有确认环境变量在目标进程生效，该结论不再采用。
+
+### 12.4 停转转储的改动
+
+`adreno8_gpu_hang_dump` 增加三项输出，都在转储末尾：
+
+- 重打一次 BR 的 IB1 与 GPU 上下文的 SMMU 故障记录。命令树加上各进程的超时日志超过 1.3 MB 的日志环，树根与故障记录最先被覆盖。
+- BR 当前的顶点与片元着色器指令（`SP_VS_BASE`、`SP_PS_BASE` 乘以指令长度）和私有内存寄存器读回。
+- 命令树里出现过的每个着色器程序的前 128 字（`adreno8: code` 行）。
+
+宿主用 `out/mesa-host-build/build/src/freedreno/isa/ir3-disasm -c 44050001` 反汇编这些指令字。
+
+### 12.5 下一步
+
+- 把每个程序的转储从前 128 字扩到完整长度并包含分箱变体，对全部 draw 重做直接内存访问（`ldc`、`ldg`、`ldib`、`ldp`、`stp`）与 UBO 表、描述符、私有内存寄存器的核对。
+- 把转储提前到判定停转之前（首次栅栏超时即取 SMMU 故障记录与 UBO 表），使数据类 BO 的内容对应停转时刻。
+- 判别实验：对三个进程设 `IR3_SHADER_DEBUG=nopreamble`，看停转是否消失。
+
