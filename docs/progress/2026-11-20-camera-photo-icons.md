@@ -54,7 +54,7 @@
 - 其余错误（地址不匹配、寄存器不可读）保持 `HELD`。
 - 失败时多打一行 `capture failure:`，含首个 SOF 与溢出的时刻、写入器调试状态和 CAMNOC 错误记录。
 
-这条路径本轮没有在真机上触发，验证来自宿主测试：`test-annibale-camera-native.py` 46 个场景、11 个变异被拒绝，新增超时恢复、溢出恢复、保持流下的溢出恢复、FIFO 卡住仍 `HELD`、残留溢出位不误判 5 个场景。
+超时恢复在第 10 节的连续流改造后用注入的丢帧在真机上触发过一次；溢出恢复仍只有宿主测试覆盖。
 
 ## 3. 拍照保存
 
@@ -217,4 +217,49 @@ GPU 停止后 backboardd 在 `libannibaleair` 内解引用空指针退出（崩�
 - 源端未发送 `PARAM_ID_HW_EP_POWER_MODE_CFG`（`0x8001176`）与 `PARAM_ID_HW_EP_DMA_DATA_ALIGN`（`0x08001233`）。
 
 需要人确认的听感清单（采到非零波形后）：对着手机说话时录音回放是否清晰、有无爆音；上下两个麦克风各自是否有声。
+
+## 10. 相机取帧改为连续流
+
+### 10.1 改造前
+
+每次 `CAMIOC_CAPTURE` 都复位并重新配置 CSID 路径和写入器，等一帧，再关闭路径。`camera_test stream` 实测 13 帧/秒，相机 App 预览约 7 帧/秒；传感器输出约 30 帧/秒。
+
+### 10.2 写入器的取址行为
+
+两轮探针（`g5b-fifo2`、`g5c-fifo3`，探针已撤回）把缓冲区预填图样后查看哪些区域被写：
+
+| 做法 | 结果 |
+|---|---|
+| 开流前向 `WM_ADDRESS` 连写两个地址，只写一次 `RUP_AUP` | 第 1 帧写入第一个地址；之后 300 ms 没有第 2 次完成中断，第二个地址未被写 |
+| 第 1 帧完成后写下一个地址，再写一次 `RUP_AUP` | 32 ms 后第 2 帧完成，写入新地址 |
+| 第 2 帧完成后只写 `RUP_AUP`，不给地址 | 300 ms 没有完成中断，其他区域未被写 |
+
+写入器每帧在寄存器更新时取一个地址；没有排队地址时不写入。
+
+### 10.3 实现
+
+[annibale_camera_native.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_camera_native.inc)：
+
+- 帧缓冲从一块 8 MB 改为两块（`CAMERA_SLOT_SIZE`）。路径配置一次后保持使能。
+- 每次 `CAMIOC_CAPTURE` 等在途帧完成，核对完成地址，把另一块缓冲写入 `WM_ADDRESS` 并写 `RUP_AUP`，然后把完成的那块交给调用方。新增状态 `ANNIBALE_CAM_CAPTURE_STREAMING`，头文件提供 `ANNIBALE_CAM_CAPTURE_HAS_FRAME()` 判断是否有可读帧。
+- 调用方慢于传感器时写入器因没有排队地址而丢帧，调用方正在读的缓冲不会被写。
+- 帧失败（超时、溢出、地址不符）时停传感器、复位并释放，下一次调用从头启动；关闭设备或更换配置时放弃在途帧并停流。
+- `cam_keep_stream=0` 保留逐帧启停的单帧方式。原来的 VBLANK 等待已删除。
+
+用户态 [camera_device_native.inc](../../hackios-xnu-userland/userland/src/services/camera_device_native.inc) 改用 `ANNIBALE_CAM_CAPTURE_HAS_FRAME()`。
+
+宿主测试 `test-annibale-camera-native.py`：53 个场景、17 个变异被拒绝。模型按 10.2 的行为实现写入器，覆盖两槽交替、调用方缓冲不被写、流内超时与溢出后的重启、完成地址不符保持占用、寄存器更新丢失、流中关闭、第二块缓冲的地址检查。
+
+### 10.4 验收
+
+内核 `12377-g5d`（`g5d-r1`）与带临时注入开关的 `12377-g5e`（`g5e-r1`）：
+
+| 项目 | 结果 |
+|---|---|
+| `camera_test stream 1 3000 6218 256 6250`（后摄） | 3,000／3,000 帧，29.9 帧/秒，最慢一帧 278 ms，无 `capture error`，结束时最高 63.6 °C |
+| 相机 App 预览 | 约 58 秒内 886 帧，约 15 帧/秒 |
+| 快门 | 3 次全部落盘；退出重开后 2 次全部落盘 |
+| 注入一次取帧失败（让第 299 帧不排地址） | 内核 1,155 ms 后报 `capture error=60`，用户态记 `transient capture error (1/3)`，预览继续出帧，随后快门照片落盘 |
+
+相机 App 预览帧率低于传感器帧率，差距在用户态的逐帧处理，本轮没有测量各段耗时。
 
