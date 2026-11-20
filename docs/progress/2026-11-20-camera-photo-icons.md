@@ -113,8 +113,8 @@ sb26: icons: occlusion reasons 0, lock screen element in the layout 0
 1. **快门期间 GPU 停转**：已修复，见第 7 节。
 2. **照片画质**：两张照片能辨认场景，带竖条纹并整体偏绿。条纹与 `CAM-1`（`addr[8]==1` 的 256 字节块未写入）一致，偏色待单独核对。
 3. **麦克风采样全零**：`SET_CFG CAP_ENC` 的参数 `0x08001006` 换成对转换器与编码器各发 `PARAM_ID_PCM_OUTPUT_FORMAT_CFG`（`0x08001008`），源端补 `HW_EP_FRAME_SIZE_FACTOR`，失败后关闭已开子图，图可正常启动并按 20 ms 读回。另试过三项，结果不变并已撤回：追加 `lpass_audio_hw_vote` 与 `TX MCLK`（`0x30c`）请求；把 0 号抽取器输入依次切到 DMIC0～DMIC5。VA 宏回读为 `MCLK 0x1`、`FS_CNT 0x1`、`TOP_CFG0 0x2`、`DMIC_CTL 0xb`、`ADC_MUX0 0x10/0`、`TX0 0x24/0xc0`，LPI 引脚 6～9 为 `0x6c4/0x2`、`0x4c4/0`。下一步确认 DMIC 时钟脚是否有输出，以及 `CODEC_DMA` 接口取值。
-4. **蜂窝 `DMS` 停在 `OFFLINE`**：只做了代码与日志核对。`s6h-r2` 日志中 MPSS 只打开 `modemst1`／`modemst2`，各读一次后写入内存副本；`offline_reason=0`。APPS 侧未提供 TFTP（QRTR 服务 `0x1000`）与 `servreg_notify`（`0x42`），对 `tms/servreg` 的域查询返回 7 项。这些是候选，本轮没有做对照实验。
-5. **宿主测试现状**：`tools/run-host-tests.py` 全量为 130 通过、14 跳过、4 失败。4 项失败在本轮改动前的提交上同样失败：`test-annibale-cpufreq.py`、`test-annibale-iris-return.py`、`test-wrapped-surface.py`、`test-air-view-writeback.py`。`test-annibale-audio-intents.py` 因常量筛选漏掉 `PRM_CMD_` 而失败，已修。
+4. **蜂窝 `DMS` 停在 `OFFLINE`**：本节写于基带修复之前，后续结果见[基带与定位](2026-11-20-modem-tftp.md)。当时只做了代码与日志核对。`s6h-r2` 日志中 MPSS 只打开 `modemst1`／`modemst2`，各读一次后写入内存副本；`offline_reason=0`。APPS 侧未提供 TFTP（QRTR 服务 `0x1000`）与 `servreg_notify`（`0x42`），对 `tms/servreg` 的域查询返回 7 项。这些是候选，本轮没有做对照实验。
+5. **宿主测试现状**：四项失败后来已修到通过，见[帧率与遗留小项 §3](2026-11-20-perf-and-leftovers.md#3-基线上失败的四个宿主测试)。本节写作时 `tools/run-host-tests.py` 全量为 130 通过、14 跳过、4 失败。4 项失败在本轮改动前的提交上同样失败：`test-annibale-cpufreq.py`、`test-annibale-iris-return.py`、`test-wrapped-surface.py`、`test-air-view-writeback.py`。`test-annibale-audio-intents.py` 因常量筛选漏掉 `PRM_CMD_` 而失败，已修。
 6. **CAMNOC QoS 读回**：见第 2.2 节。
 
 ## 6. 设备状态
@@ -193,9 +193,27 @@ GPU 停止后 backboardd 在 `libannibaleair` 内解引用空指针退出（崩�
 
 - Android 运行态的互连表里，后摄的带宽票全部投在 `cam_ife_2` 这个 DRV 的节点上（`qnm_camnoc_hf_cam_ife_2` 等各 3,125,025 kbps），APPS 侧 `qnm_camnoc_hf` 只有 2,098 kbps。本移植只经 APPS RSC 投票，没有经 `cam_rsc`（`0xadc8000`）的 DRV 投票。
 - Android 后摄走 `TFE2`（`0xaca6000`，CAMNOC `RT0` 端口），`IFE-lite` 在 Android 运行态没有启用。改走 `TFE2` 需要重写取帧路径，放到连续流改造时一起评估。
-- `cam_hf_qtb` 的 ECATS 地址翻译探针没有做。
 
-照片偏绿需要后摄对着白墙或灰卡测量三通道均值，测试机后摄朝下放置，本轮没有测。「照片」App 打开刚拍的照片也没有验证。
+### 8.1 追加的六轮（`g8a`～`g8h`）
+
+错误记录按原厂 `cam_cpas_api.h` 的字段解读：`ERRLOG0=0x114` 是一次写事务的地址译码错误（`opc=1`、`err_code=1`），`ERRLOG1=0x11` 是路由编号，地址字为 0。
+
+| 变量 | 轮次 | 结果 |
+|---|---|---|
+| 流匹配掩码：`SMR` 从 `0x80001c00` 改为带掩码 `0x3ff` 或 `0x1`，覆盖 `cam_hf_qtb` 的流号范围 | `g8a-smr`、`g8a-smr2`、`g8a-smr1` | `SMR` 写入并读回成功，随后写 `S2CR` 触发同步外部中止，内核 panic（三轮一致）。非零掩码不可用 |
+| 相机上下文开启 stage-1 翻译，两块帧缓冲按 2 MiB 块恒等映射 | `g8g-s1` | 翻译生效（`SCTLR.M=1`，无翻译或权限故障），写入结果与旁路时相同：`addr[8]==0` 的 12,000 块写入，另一半未写 |
+| 写入器帧模式（`WM_CFG=0x10001`） | `g5a-frame` | 不变 |
+| `cam_hf_qtb` 与 `mdp_hf_qtb` 寄存器页只读转储 | `g8h-qtb` | 两页可读；`QsmStatus` 都是 3，两个端口的在途事务快照都是 0。原厂驱动不对 QTB 端口做配置 |
+
+`g8g-s1` 中全局故障寄存器为 0，上下文故障寄存器没有新记录。未写入的一半突发没有到达 SMMU 上下文，在 CAMNOC 到 QTB 之间被答复译码错误。旁路与翻译两种方式结果相同，流号不匹配的假设也没有得到支持（Android 设备树对 IFE 同样是精确匹配 `0x1c00`）。
+
+stage-1 的三次中间读数：`TCR2` 的输出位宽超过 36 位时记翻译故障；块描述符缺少非特权读写位时记权限故障，故障地址等于帧缓冲地址，写入器发出的地址正确；`TCR2` 的 `TBI0`／`TBI1` 位读回恒为 1。实验代码已撤回，探针保留故障地址与故障特征两个读数。
+
+同批读数：CAMNOC RT 各端口的最大写水位只有 `0x4820` 非零且每轮不同，`0x4620`、`0x4a20`、`0x4c20`、`0x5220` 为 0。IFE-lite0 的写流量经 `0x4800` 这个端口进入。设备树的 QoS 树把 IFE-lite（`ife3`／`ife4`）列在 `0x4c30` 所在的端口，两者的对应关系没有核对。
+
+剩余候选是上面两项：经 `cam_rsc` DRV 投带宽票，改走 `TFE2`。
+
+照片偏绿需要后摄对着白墙或灰卡测量三通道均值，测试机后摄朝下放置，本轮没有测。「照片」App 的结果见第 11 节。
 
 ## 9. 麦克风采样全零（M8）的本轮结果
 
@@ -262,4 +280,28 @@ GPU 停止后 backboardd 在 `libannibaleair` 内解引用空指针退出（崩�
 | 注入一次取帧失败（让第 299 帧不排地址） | 内核 1,155 ms 后报 `capture error=60`，用户态记 `transient capture error (1/3)`，预览继续出帧，随后快门照片落盘 |
 
 相机 App 预览帧率低于传感器帧率，差距在用户态的逐帧处理，本轮没有测量各段耗时。
+
+## 11. 「照片」App
+
+### 11.1 现象与原因
+
+`g8h-qtb` 轮拍照后打开「照片」，图库显示「35 张照片」，网格区域全空白，点击没有反应。Photos 进程的每次绘制都被 Metal 驱动拒绝，日志 141 次 `the draw failed: fragment_main reads buffer 5 and 3 buffers were bound`。
+
+着色器在 `Tungsten.framework/default.metallib`。`fragment_main` 的 5 号缓冲是 `const float4 *shaderP`，指针参数，没有 `air.buffer_size`，只在精灵带着色器操作码时读取；Photos 画网格时只绑定 0～2 号。原生 Metal 允许着色器不读取的指针参数不绑定。驱动的 `check_bindings()` 只放行与空指针比较过的设备缓冲，其余未绑定的缓冲一律让整次绘制失败。
+
+### 11.2 修复
+
+[air_metal.c](../../hackios-xnu-userland/tools/mesa/air/air_metal.c)：没有声明大小的常量缓冲指针参数未绑定时放行，绑定一块 4,096 字节的清零占位缓冲。带 `air.buffer_size` 的引用参数仍要求绑定。
+
+### 11.3 验证
+
+`g9-photos`（内核 `12377-g5d`）：
+
+| 项目 | 结果 |
+|---|---|
+| Photos 进程的绘制失败 | 0 次（修复前 141 次） |
+| 点击网格位置打开单张照片 | 打开并显示当天拍的照片，画面带第 8 节的竖条纹 |
+| 图库网格缩略图 | 未解决：背景之外只有约 0.33% 的像素被画出，是零散的小块图像 |
+
+网格缩略图的问题记为 `G25`。
 
