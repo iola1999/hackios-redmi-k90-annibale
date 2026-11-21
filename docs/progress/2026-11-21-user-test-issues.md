@@ -20,6 +20,9 @@
 | U10 | — | 在 iOS 里触发关机后，loader 停在异常状态，没有处理关机请求 |
 | U11 | 19:40 前后 | 桌面上 TrollStore 图标异常 |
 | U12 | 19:40 前后 | 桌面上「红果短剧」图标异常 |
+| U13 | 20:53:46 | 打开应用的过程中长时间出现黑色窗口闪烁，各应用都如此；之后再打开没有复现 |
+| U14 | 21:10:52 | 在「相机」里拍照后整屏持续闪烁 |
+| U15 | — | 帧率低，滑动卡顿多 |
 
 ## 2. 取证
 
@@ -59,6 +62,9 @@
 | U9 | 开发分支不复现，见第 7 节 |
 | U11 | 复现并修复，见第 8 节 |
 | U12 | 应用包缺少 iPhone 图标，见第 8 节 |
+| U13 | 用户再次打开时没有复现，记录现象，继续观察，见第 10 节 |
+| U14 | 复现并修复，见第 9 节 |
+| U15 | 待查；App 资源库方向的翻页掉帧见 U2 |
 
 ## 5. 地图触发的 GPU 停转与整屏闪烁（S21）
 
@@ -174,4 +180,48 @@ TrollStore 的 `AppIcon*.png` 实际是 JPEG 数据。`kernel-12377-camreg-ic2` 
 ### 8.3 解锁后图标半透明（U1）
 
 清空图标缓存后开机（`kernel-12377-m2444-ic3`，16 s 自动解锁），解锁后 3 s 首页大部分图标是半透明占位，10 s 时首页图标全部画完。用户看到的现象出现在图标缓存需要重建的那次开机；用户那次「日历」「时钟」在解锁 26 s 后仍是半透明，比这里慢，原因待查。
+
+## 9. 拍照后整屏持续闪烁（U14）
+
+### 9.1 现场
+
+内核 `12377-m2444`（`kernel-12377-m2444-sb1`），用户 21:10:52 前后在「相机」里拍照，之后整屏亮暗交替。21:12 停止本轮、退回 loader。
+
+- 21:10:49 起 backboardd 的纹理申请全部失败（`the GPU driver would not allocate`），提交返回 `submit failed: -5`，等待返回 `wait-fence failed! -5`。SpringBoard 的申请同样失败，backboardd 重启一次。
+- 显示驱动每次交换都等满 500 ms，再把没画完的画面照原样上屏（`the GPU is not done with surface 1 after 500 ms; shown as it is`，surface 1、2、400 轮流出现），即用户看到的闪烁。
+- 内核日志没有 `adreno8: AnnibaleGPU ...` 停转报告，GPU 后端仍可用（`annibale_gpu_ready()` 为真）。拒绝申请的日志行把日志环刷满，环里只剩约 2.5 秒，21:10:46～21:10:49 的内容已被覆盖。
+
+### 9.2 原因
+
+AnnibaleGPU 用 `gGPUReported` 标记 GPU 已失效，置位后所有客户端的申请与提交都返回 `kIOReturnNotReady`。后端仍可用且没有停转报告时，只有 `freeBuffer()` 中的一条路径会置位它：
+
+- 程序释放缓冲时 GPU 还在执行之前的提交，缓冲先放进该客户端的延迟释放表 `fLeft`（256 项），提交完成后由 `reap()` 释放。
+- 表满时 `freeBuffer()` 只等待 1 秒（`gpuWait(last, 1000)`），超时就打印 `retaining ... until reset` 并置位 `gGPUReported`，之后不再恢复。
+- 拍照处理链有一次提交在 GPU 上运行 1.4～5.8 秒（[11-20 进展 §7](2026-11-20-camera-photo-icons.md#7-快门期间-gpu-停转)）。这期间 backboardd、SpringBoard 等继续释放纹理，`fLeft` 写满后的那次释放等不到处理结束，GPU 就被判为失效。
+
+11-20 修复快门期间的 GPU 停转时改了 `gpuWait()` 与 `adreno8_speed_tick()` 的固定时限，这里的 1 秒时限没有改。第 5.2 节的显示改动只在 `annibale_gpu_ready()` 为假时保持上一帧，不检查 `gGPUReported`，所以这次照常上屏未完成的画面。
+
+### 9.3 修复
+
+- `AnnibaleGPUMemory.inc`：`fLeft` 已满时按 `GPU_PATIENCE_MS`（5 秒）分段重复等待，直到这次释放前的最后一个提交完成，或 `gpuWait()` 的停转判据（已完成时间戳 30 秒不变）报告停转。等待结束打印 `N buffers given back wait for the GPU; one more waited M ms for submission S: done`（未完成为 `not done`）。
+- `AnnibaleGPU.cpp`、`MiniIOSurface.h`：新增 `MiniIOSurfaceGPUStopped()`，后端关闭提交或 `gGPUReported` 置位时返回真。
+- `MiniIOMobileFramebuffer.cpp`：`show()` 改用 `MiniIOSurfaceGPUStopped()`，GPU 被判为失效后同样保持上一帧完成的画面。
+
+宿主测试 `test-annibale-gpu-lifetime.py` 新增两个场景：表满时提交运行约 7 秒，释放跨两段等待后完成，不置位 `gGPUReported`；已完成时间戳不前进时 30 秒后报告停转。新增的两个变异（只等一段、`MiniIOSurfaceGPUStopped()` 不看 `gGPUReported`）均被检出。
+
+### 9.4 验证
+
+内核 `12377-gl1`。每次循环：打开「相机」，预览 45～75 秒，按快门，立即或 0.3～1.5 秒后按 Home。
+
+| 轮次 | 条件 | 快门 | 表满后的等待 | 结果 |
+|---|---|---|---|---|
+| `gl1` | 默认 GPU 档位，最长提交 1.9 s | 6 | 1 次，50 ms（backboardd） | 照片全部落盘，SpringBoard 与 backboardd 的 pid 不变 |
+| `gl1s4` | `GPU_SPEED=4`，最长提交 2.9 s | 3 | 无 | 同上 |
+| `gl1d` | 诊断内核 `12377-gl1d`（`GPU_LEFT` 改为 16），`GPU_SPEED=4` | 3 | 4 次 3,149～3,434 ms，全部 `done`（backboardd、SpringBoard、WidgetRenderer） | 同上，没有 `retaining` |
+
+`gl1d` 的四次等待都超过原来的 1 秒时限，旧代码在这几次会把 GPU 判为失效。`GPU_LEFT` 为 16 只用于这一轮的诊断内核，源码保持 256。
+
+## 10. 打开应用时的黑色窗口（U13）
+
+用户 20:53:46 打开应用时看到长时间的黑色窗口闪烁，此后再打开各应用没有复现。同一时段的 `kernel-12377-m2444-sb1` 冷启动应用时，录屏里有 1～2 帧黑色窗口；SpringBoard 日志有 `No default launch images found` 与 `pre-warming SplashBoard`，设备上只有 4 个应用存在 SplashBoard 启动图快照目录。黑色窗口是否来自启动图缺失还没有核对，继续观察；再出现时记下时间和应用名，读取 SpringBoard 与 splashboardd 的日志。
 
