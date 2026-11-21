@@ -144,11 +144,12 @@ def firmware(args, recipes, work):
             run([sys.executable, K / "tools/camsensor.py", "--profile", module, r["mode"], out], stdout=subprocess.DEVNULL)
             files[r["name"]] = out.read_bytes()
         if r["kind"] == "firmware" and r["source"] == "camera-tuning":
-            tuned = (args.camera or Path()) / r["tuned"]
-            if args.camera is None or not tuned.is_file():
-                raise SystemExit(f"this release requires --camera DIR with the phone's {r['tuned']}")
+            tuned, module = (args.camera or Path()) / r["tuned"], (args.camera or Path()) / r["module"]
+            for f in (tuned, module):
+                if args.camera is None or not f.is_file():
+                    raise SystemExit(f"this release requires --camera DIR with the phone's {f.name}")
             out = work / r["name"]
-            run([sys.executable, K / "tools/camtuning.py", tuned, out], stdout=subprocess.DEVNULL)
+            run([sys.executable, K / "tools/camtuning.py", tuned, out, module, r["mode"]], stdout=subprocess.DEVNULL)
             files[r["name"]] = out.read_bytes()
     return files
 

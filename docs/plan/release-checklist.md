@@ -42,6 +42,7 @@
 
 - 解包核对文件清单：新增的脚本和程序都在包里（v0.2.0 起包括 `annfs-to-apfs.py`、`build-apfsck.sh`、`apfsprogs-host.patch`、`avbtool.py` 和三个 `apfs-tool`），`manifest.json` 的三个提交与已推送的提交一致。
 - 末尾的 review 行逐个确认来源，「property list edits carry N bytes」与上一版对照没有明显增大。
+- 生成手机固件的脚本（`camsensor.py`、`camtuning.py`）在 `userland/build.sh` 里的参数有变化时，同步 `build-release.py` 的 `CAMERA_PROFILES`、`CAMERA_TUNINGS` 和 `assemble.py` 的调用。`build-release.py` 不重新生成这些文件，参数不一致只在第 6 节合成时报「the phone's firmware differs」。
 - `assemble.py` 或 `localfiles.py` 有改动时，按开发指南第 10 节第 5 步在 Linux 容器里解包合成一次。
 
 ## 6. 上机验证
@@ -87,3 +88,4 @@
 | v0.2.0 | 发布说明草稿按驱动启动值写了「亮度跨重启保留」，发布镜像上 CoreBrightness 随后把亮度设为 140 nits | 功能结论按开机完成后用户看到的状态核对（第 6 节） |
 | v0.2.0 | 本机编出的 `apfs-tool` 的 `minos` 是本机系统版本（27.0），并依赖 Homebrew 的 OpenSSL 动态库；Linux 上新写入引擎用到的 `ENOATTR`、`__unused` 和 `os/base.h` 在 glibc 里没有 | macOS 版用 CommonCrypto 并指定最低 macOS 13，Linux 版补兼容头并静态链接（用户态 `c86af29`）；第 4 节检查依赖并逐个跑转换测试 |
 | v0.2.1 | 在新克隆里运行 `test_annfs.py` 报找不到 `apfsck` | 在日常工作区运行或先编译 `apfsck`（第 4 节） |
+| v0.2.2 | `camtuning.py` 改为按传感器模式的读出区域映射镜头阴影表（内核 `aa069aef`），多了模块文件和模式号两个参数；`assemble.py` 仍只传调校文件，用户合成的 `camera-*.isp` 与根盘里的不同，合成时报「the phone's firmware differs」 | `CAMERA_TUNINGS` 同时记录模块文件和模式号，`assemble.py` 一并传给 `camtuning.py`。`build-release.py` 不重新生成手机固件，这类差异只在第 6 节合成时出现；生成固件的脚本参数有变化时，对照 `userland/build.sh` 检查发布配方 |

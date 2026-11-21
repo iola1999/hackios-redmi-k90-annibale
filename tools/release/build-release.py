@@ -63,9 +63,12 @@ VENDOR_FIRMWARE = {"gen80000_zap.mbn": "zap", "vpu35_4v.mbn": "iris",
 # the phone, in the mode userland/build.sh makes them with
 CAMERA_PROFILES = {"camera-ov20b-front-mode4.tab": ("com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin", 4),
                    "camera-ovx8000-wide-mode24.tab": ("com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin", 24)}
-# the camera's colour tuning: camtuning.py of a Chromatix tuning file of the phone, as userland/build.sh makes it
-CAMERA_TUNINGS = {"camera-ov20b40.isp": "com.qti.tuned.annibale_sunny_ov20b40_front_i.bin",
-                  "camera-ovx8000.isp": "com.qti.tuned.annibale_aac_ovx8000_wide_i.bin"}
+# the camera's colour tuning: camtuning.py of a Chromatix tuning file of the phone, with the sensor
+# module and mode its lens shading is mapped to, as userland/build.sh makes it
+CAMERA_TUNINGS = {"camera-ov20b40.isp": ("com.qti.tuned.annibale_sunny_ov20b40_front_i.bin",
+                                         "com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin", 4),
+                  "camera-ovx8000.isp": ("com.qti.tuned.annibale_aac_ovx8000_wide_i.bin",
+                                         "com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin", 24)}
 # directories of the root image holding iOS property lists with the project's edits, other than the
 # jobs: root directory -> the iOS directory (userland/mkcameraresources.py)
 PLIST_SOURCES = {"lib/CMCaptureResources/V57/": "os:System/Library/PrivateFrameworks/CMCapture.framework/V57/"}
@@ -154,7 +157,7 @@ def split(root):
             if name in CAMERA_PROFILES:
                 recipes[rel]["module"], recipes[rel]["mode"] = CAMERA_PROFILES[name]
             if name in CAMERA_TUNINGS:
-                recipes[rel]["tuned"] = CAMERA_TUNINGS[name]
+                recipes[rel]["tuned"], recipes[rel]["module"], recipes[rel]["mode"] = CAMERA_TUNINGS[name]
             continue
         same = [ref for ref in index.get(len(data), []) if read_ios(":".join(ref)) == data] if len(data) > 8 else []
         if same:
