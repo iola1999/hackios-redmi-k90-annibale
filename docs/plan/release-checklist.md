@@ -28,7 +28,7 @@
 在新克隆根目录执行 `tools/release/build-all.sh > out-build-all.log 2>&1`，每一步的日志在 `out/release-build/<步骤>.log`。脚本退出码为 0 只说明每一步的命令成功，下面几项还要逐一核对。
 
 - 每一步的用时与上一版对照，明显偏快或偏慢时先读日志再继续。v0.2.0 在本机（30 核）上内核全量构建约 80 秒、Mesa 37 秒、打包 9 秒；`v0.1.4` 的内核用了约 40 分钟，当时告警屏蔽没有生效，日志约 800 MB。
-- 内核：新克隆的 `hackios-xnu-kernel/out/xnu12377-local.bin` 与最后一次真机验证的内核比 SHA-256。不同时先查清差异来源，不能直接发布。v0.2.0 与 `12377-nvram1` 逐字节相同。
+- 内核：新克隆的 `hackios-xnu-kernel/out/xnu12377-local.bin` 与最后一次真机验证的内核比 SHA-256。不同时先查清差异来源，不能直接发布。v0.2.0 与 `12377-nvram1` 逐字节相同。日常增量构建按 [k90auto 说明](../../tools/k90auto/README.md)每次换新的 `KERNEL_UUID`，发布构建用 `xnu26/build-macos.sh` 的默认值，两者的 LC_UUID 不同；比对前先把真机内核的 LC_UUID 改成默认值，再比 SHA-256。
 - loader：`build-all.sh` 用最后一个改动 `xnuloader/` 的提交作为 `BUILD_ID`，与测试机上 `fastboot -s xnuloader getvar build-id` 读到的值对照。
 - 引导镜像：`python3 -I hackios-xnu-kernel/prebuilt/avb/avbtool.py info_image --image hackios-xnu-kernel/out/boot-a-ios.img` 显示 96 MiB 的镜像和指向 vbmeta 的页脚。原因见第 9 节的 AVB 页脚一项。
 - `apfs-tool`：`out/apfs-tool/` 里有 `apfs-tool-Darwin`、`apfs-tool-Linux-x86_64`、`apfs-tool-Linux-aarch64`。macOS 版用 `lipo -info` 确认含 arm64 与 x86_64，`vtool -show-build` 的 `minos` 为 13.0，`otool -L` 只依赖 `/usr/lib` 下的系统库；Linux 版用 `file` 确认为静态链接。
@@ -88,4 +88,5 @@
 | v0.2.0 | 发布说明草稿按驱动启动值写了「亮度跨重启保留」，发布镜像上 CoreBrightness 随后把亮度设为 140 nits | 功能结论按开机完成后用户看到的状态核对（第 6 节） |
 | v0.2.0 | 本机编出的 `apfs-tool` 的 `minos` 是本机系统版本（27.0），并依赖 Homebrew 的 OpenSSL 动态库；Linux 上新写入引擎用到的 `ENOATTR`、`__unused` 和 `os/base.h` 在 glibc 里没有 | macOS 版用 CommonCrypto 并指定最低 macOS 13，Linux 版补兼容头并静态链接（用户态 `c86af29`）；第 4 节检查依赖并逐个跑转换测试 |
 | v0.2.1 | 在新克隆里运行 `test_annfs.py` 报找不到 `apfsck` | 在日常工作区运行或先编译 `apfsck`（第 4 节） |
+| v0.2.2 | 新克隆的内核与真机验证的 `12377-lens` 有 16 字节不同，位置是 LC_UUID：日常构建每次换 `KERNEL_UUID`，发布构建用固定值 | 把真机内核的 LC_UUID 改成默认值后比 SHA-256（第 4 节） |
 | v0.2.2 | `camtuning.py` 改为按传感器模式的读出区域映射镜头阴影表（内核 `aa069aef`），多了模块文件和模式号两个参数；`assemble.py` 仍只传调校文件，用户合成的 `camera-*.isp` 与根盘里的不同，合成时报「the phone's firmware differs」 | `CAMERA_TUNINGS` 同时记录模块文件和模式号，`assemble.py` 一并传给 `camtuning.py`。`build-release.py` 不重新生成手机固件，这类差异只在第 6 节合成时出现；生成固件的脚本参数有变化时，对照 `userland/build.sh` 检查发布配方 |
