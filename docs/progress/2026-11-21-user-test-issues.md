@@ -18,6 +18,8 @@
 | U8 | 约 15:01:53 | 「照片」显示 35 张照片，网格预览区全空白，滚动条正常 |
 | U9 | 约 15:02:16 | 「照片」中单张照片可以打开和缩放，但左右反转，放大后方向变对 |
 | U10 | — | 在 iOS 里触发关机后，loader 停在异常状态，没有处理关机请求 |
+| U11 | 19:40 前后 | 桌面上 TrollStore 图标异常 |
+| U12 | 19:40 前后 | 桌面上「红果短剧」图标异常 |
 
 ## 2. 取证
 
@@ -46,7 +48,7 @@
 
 | 编号 | 结果 |
 |---|---|
-| U1 | 开发分支不复现：`kernel-12377-camreg-u1rec` 开机 16 s 自动解锁，解锁后 4 s 的截图里「日历」「时钟」图标正常 |
+| U1 | 开发分支不复现：`kernel-12377-camreg-u1rec` 开机 16 s 自动解锁，解锁后 4 s 的截图里「日历」「时钟」图标正常；清空图标缓存后开机可复现半透明占位，见 8.3 |
 | U2 | `kernel-12377-camreg-u1rec` 在桌面左右各翻 3 次，`gestures.py` 统计：从右往左（翻到 App 资源库）146 个帧间隔 p50 8.7 ms、p95 31.9 ms、最长 63.1 ms，14% 超过 18 ms；从左往右 p95 17.2 ms、最长 36.5 ms。掉帧集中在翻到 App 资源库的方向，原因待查 |
 | U3 | 预览条纹复现（CAM-1）。左右反与 U9 同源：后摄预览由 cameracaptured 经 M2Scaler 旋转（`m2_log` 记录 `rot90 1`，`1608x1206` 到 `1206x1612`），`v0.2.1` 的 rot90 是转置，开发分支已改为顺时针旋转，预览方向待在光照充足时对照实物复核。对焦框闪烁：插件交给 CMCapture 的帧元数据不带对焦状态（`AFStatus`、`FocusNowCommandID` 等），待查 CMCapture 判断对焦完成的依据。延迟未测。另复现一次相机黑屏（物理连续缓冲区申请失败），已修复，见第 7 节 |
 | U4 | 从相机返回后两次打开「设置」，每秒 10 帧的录屏里没有黑色横带 |
@@ -55,6 +57,8 @@
 | U7 | 复现：页面空白、一直加载，没有 `com.apple.WebKit.*` 进程；已修复，见第 6 节 |
 | U8 | 「照片」打开在「精选集」页，「固定」一行的三个缩略图是黑块；「图库」页网格空白（`kernel-12377-m2log-m2a`）。补充读数见 7.3 |
 | U9 | 开发分支不复现，见第 7 节 |
+| U11 | 复现并修复，见第 8 节 |
+| U12 | 应用包缺少 iPhone 图标，见第 8 节 |
 
 ## 5. 地图触发的 GPU 停转与整屏闪烁（S21）
 
@@ -154,4 +158,20 @@ LaunchServices 只在数据库缺失或损坏时整库重建，开机不会重�
 - 网格先用一次实例化绘制画出全部 35 个精灵（绑定 4092×744 的图集）；之后每张照片单独绘制一次，每次 1 个实例，绑定 Photos 导入的 241×321 `420f` 缩略图（Y 平面 `R8Unorm`，CbCr 平面 121×161 `RG8Unorm`，每行 256 字节）。两类绘制都绑定 5 个纹理。
 - 这两类绘制的输入纹理都没有采到样，只采到了输出：`rwa_texture_thumbnail` 拒绝压缩格式，`420f` 平面纹理也没有返回样本。下一步先让诊断能读出这两类纹理，再区分纹理内容和着色器取样。
 - `fragment_main` 是带函数常量的通用着色器（`has_color_trc`、`has_color_cube`、`has_ycbcr_matrix` 等），纹理槽位为 `tex` 0、`color_trc` 1、`color_cube` 2（`texture3d<half>`）、`texChroma` 4、`shaderStatic2DTextures` 5～7、`shaderStatic3DTextures` 8～10。
+
+## 8. 桌面图标（U1、U11、U12）
+
+### 8.1 TrollStore 图标（U11）
+
+TrollStore 的 `AppIcon*.png` 实际是 JPEG 数据。`kernel-12377-camreg-ic2` 清空图标缓存（`systemgroup.com.apple.lsd.iconscache` 下的 `*.isdata`）后开机复现，`m2_log` 记录 iconservicesagent 用 M2Scaler 做了一次 `444f 180x180 -> RGBA` 转换。`444f` 是 AppleJPEG 解出的 4:4:4 双平面 YUV，`MiniM2Scaler` 不认这个格式，通用路径按 BGRA 读 Y 平面：每个输出行读到四行亮度，图标变成四份灰色窄条，窄条之间的黑线是行尾填充。
+
+内核 `7e5a3cee` 增加 4:4:4 双平面格式，并让通用路径拒绝没有像素读写实现的格式（返回 `kIOReturnUnsupported`），调用方改走其他转换。`kernel-12377-m2444-ic3` 再次清空图标缓存后开机，TrollStore 图标为蓝底笑脸。
+
+### 8.2 「红果短剧」图标（U12）
+
+`com.phoenix.video`（`Eggplant.app`）的 `Info.plist` 声明 `CFBundleIconName = AppIcon` 与 `CFBundleIconFiles = AppIcon60x60`，但包内没有 `Assets.car`，也没有 `AppIcon60x60*.png`，只有 iPad 用的 `AppIcon76x76@2x~ipad.png`。iPhone 上找不到图标时显示系统占位图标，这个现象来自安装包本身，需要核对安装包来源。
+
+### 8.3 解锁后图标半透明（U1）
+
+清空图标缓存后开机（`kernel-12377-m2444-ic3`，16 s 自动解锁），解锁后 3 s 首页大部分图标是半透明占位，10 s 时首页图标全部画完。用户看到的现象出现在图标缓存需要重建的那次开机；用户那次「日历」「时钟」在解锁 26 s 后仍是半透明，比这里慢，原因待查。
 
