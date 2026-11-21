@@ -29,6 +29,7 @@ Teardown saves logs before resetting a returned or hung kernel. Unsupported or m
 preserve the device state and stop the queue.
 """
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,9 @@ import sys
 import time
 
 WORKSPACE = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import screenrec  # noqa: E402  (tools/k90auto/screenrec.py: frames of the screen stream, read in this loop)
+screenrec_mtime = Path(screenrec.__file__).stat().st_mtime
 def digest(path):
     result = hashlib.sha256()
     with path.open("rb") as source:
@@ -394,6 +398,8 @@ def leave_running(elapsed):
     """cycle.py's leave-running request: take a last snapshot and end with the kernel still running."""
     global index
     (run / "leave-running").unlink()
+    for open_stream in list(screenrec.streams.values()):
+        open_stream.close()
     print("LEAVE_RUNNING_REQUESTED", round(elapsed, 1), flush=True)
     if call(["oem", "log"], 8, False)["rc"] == 0:
         call(["get_staged", run / f"s{index:03d}.log"], 20, False)
@@ -492,7 +498,17 @@ while duration <= 0 or time.monotonic() - start < duration:
         shots += 1
     serve_commands()
     serve_pushes()
+    try:
+        # A fix to screenrec.py takes effect between recordings, without a new round.
+        if not screenrec.streams and Path(screenrec.__file__).stat().st_mtime != screenrec_mtime:
+            screenrec = importlib.reload(screenrec)
+            screenrec_mtime = Path(screenrec.__file__).stat().st_mtime
+        screenrec.serve(run)
+    except Exception as error:  # a broken recording must not end the round
+        print("SCREENREC_ERROR", repr(error), flush=True)
     time.sleep(0.5)
+for open_stream in list(screenrec.streams.values()):
+    open_stream.close()
 print("SAMPLED_SECONDS", time.monotonic() - start, "failed_call", failed, flush=True)
 if (run / "leave-running").exists():
     leave_running(time.monotonic() - start)

@@ -157,7 +157,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 - `install-ipa.py 轮次目录 App.ipa [--open]`：经 USB 把 IPA 分块（每块不超过 15 MB）推进内核的 16 MB 收件区，annsh 的 `pull 路径 偏移` 写到 `/private/var/tmp/ipa/`，等 `trollstorehelper list` 出现该应用。需要带 `serve_pushes` 的 `run-auto.py` 和支持偏移的 annsh。
 - `ui.py 轮次目录 dump|tap 文字|wait 文字|shot 名称|accessibility`：读各进程 `libannibale-ax.dylib` 写的界面元素（文字和屏幕坐标），按文字点按，代替手写坐标。UIKit 的按钮、提示框和主屏图标能读到；SwiftUI 页面（设置的列表、天气）目前读不到。
 
-其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`XPCWATCH`、`TOUCH_LAT`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。
+其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`XPCWATCH`、`OSLOG`、`OSLOG_LINES`、`TOUCH_LAT`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。`OSLOG="进程名 ..."` 把这些进程的 os_log（default 级及以上）经 `kern.annibale.say` 转进内核日志（`say PID 进程名: oslog 级别: 内容`），用于标准错误没有去处的应用、扩展和守护进程。
 
 `JOB_ENV="任务.plist:变量=值 ..."` 给指定任务的 plist 和 launchd 缓存各加一个环境变量，一项一个变量。常用的几个：
 
@@ -207,3 +207,16 @@ python3 tools/k90auto/fb_filmstrip.py --recording out/rec-home-longpress/recordi
 
 - `--arm N` 经 `rsh.py` 写 `sysctl kern.annibale.rec_arm=N`，执行 `--cmd`（省略时静置等待 `N` 秒），再置 `0` 停止录制，经 `fastboot oem stage` 拉回 `recording.bin` 与 `loader.log`；加 `--scanout` 时写 `-N`，直接采样 DPU 当前在屏物理扫描缓冲。
 - 自动异常检测覆盖四类规则：整屏瞬态黑闪 `BLACK_FLASH`、中部横向黑带 `HORIZ_BAND`、相邻帧大幅往复跳变 `FLICKER_ALT` 与非全屏边缘暗带 `DARK_FRINGE`，同时收集录制时间窗内的 `annibalemetal` 与 `adreno8` 分配／提交错误。离线单测见 `python3 tools/k90auto/tests/test-fb-filmstrip.py`。
+
+## 10. 长录屏
+
+`screenrec.py` 在测试轮进行期间持续录屏。内核 `kern.annibale.rec_stream=N`（12377-rec1 起）把在屏画面按每秒至多 N 帧写进 96 MiB 录制缓冲，写满后覆盖最旧的帧；`run-auto.py` 每次循环经 `oem stage` 读出新帧，编码成 `run/rec-NAME/screen.mp4`。用法和输出格式写在 `screenrec.py` 文件头。
+
+```sh
+python3 tools/k90auto/screenrec.py docs/progress/evidence/k90auto/kernel-NAME-LABEL start --fps 10
+python3 tools/k90auto/screenrec.py docs/progress/evidence/k90auto/kernel-NAME-LABEL stop
+```
+
+- 录制尺寸为面板的三分之一（385×836），缓冲约容纳 104 帧，每秒 10 帧时约 10 秒。
+- 每帧左上角印估算的北京时间和内核时间，`frames.jsonl` 每行记一帧的内核时间，用于和日志对时。
+- 启动参数 `wifi_quiet=1` 关掉 Wi-Fi 驱动每次扫描打印的邻近网络列表，日志环能覆盖更长时间。

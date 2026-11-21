@@ -143,6 +143,12 @@ TOOLS = WORKSPACE / "tools/apfs"
 # with those file names: it puts the named services they connect to, with counts, into the kernel
 # log ("say PID NAME: xpcwatch ..."). For finding the clients that reconnect in a loop.
 XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
+# OSLOG="NAME ..." inserts libannibale-oslog.dylib (userland/src/inject/oslogwatch.c) into those programs:
+# their os_log messages, default level and above, go into the kernel log ("say PID NAME: oslog ...").
+# For applications and extensions, whose standard error goes nowhere. OSLOG_LINES=N changes how many
+# messages each process forwards (4000 without it).
+OSLOG_PROCESSES = os.environ.get("OSLOG", "").split()
+OSLOG_LINES = os.environ.get("OSLOG_LINES", "")
 # libannibale-ax.dylib goes into these programs unless AX is set to the empty string. userland/src/ax.m:
 # on the notification com.annibale.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
 # which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
@@ -173,6 +179,7 @@ INJECT = (
     "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
     ("/annibale/lib/libannibale-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
+    ("/annibale/lib/libannibale-oslog.dylib " + " ".join(OSLOG_PROCESSES) + "\n" if OSLOG_PROCESSES else "") +
     ("/annibale/lib/libannibale-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "")
 )
 JOBS = "etc/rc.jobs"
@@ -404,6 +411,7 @@ SB26_SOURCES = ["userland/src/inject/inject_sb26.c", "userland/src/inject/inject
 SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundation", "-framework", "Metal",
               "-lMobileGestalt"]
 XPCWATCH_SOURCES = ["userland/src/inject/xpcwatch.c"]
+OSLOG_SOURCES = ["userland/src/inject/oslogwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
 AX_SOURCES = ["userland/src/inject/ax.m", "userland/src/inject/statusbar26.m"]
 AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
@@ -784,6 +792,10 @@ def main():
     if XPCWATCH_PROCESSES:
         commands["xpcwatch"] = build(XPCWATCH_SOURCES, "/annibale/lib/libannibale-xpcwatch.dylib",
                                      XPCWATCH_FLAGS, xpcwatch)
+    oslog = OUT / "libannibale-oslog.dylib"
+    if OSLOG_PROCESSES:
+        commands["oslog"] = build(OSLOG_SOURCES, "/annibale/lib/libannibale-oslog.dylib",
+                                  XPCWATCH_FLAGS + ([f"-DOSLOG_LINES={int(OSLOG_LINES)}"] if OSLOG_LINES else []), oslog)
     audio = OUT / "AnnibaleAudio"
     if AUDIO:
         commands["audio"] = build(AUDIO_SOURCES, "", AUDIO_FLAGS, audio, dynamic=False)
@@ -799,6 +811,7 @@ def main():
     sources = {name: sha(SRC_ROOT / name)
                for name in [*SHIM_SOURCES, *DRIVER_SOURCES, *DRIVER_INCLUDES, *SB26_SOURCES,
                             *(XPCWATCH_SOURCES if XPCWATCH_PROCESSES else []),
+                            *(OSLOG_SOURCES if OSLOG_PROCESSES else []),
                             *(AX_SOURCES if AX_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
@@ -898,6 +911,8 @@ def main():
     shutil.copy2(sb26, dest / "lib/libannibale-sb26.dylib")
     if XPCWATCH_PROCESSES:
         shutil.copy2(xpcwatch, dest / "lib/libannibale-xpcwatch.dylib")
+    if OSLOG_PROCESSES:
+        shutil.copy2(oslog, dest / "lib/libannibale-oslog.dylib")
     if AX_PROCESSES:
         shutil.copy2(ax, dest / "lib/libannibale-ax.dylib")
     if AUDIO:
@@ -1018,6 +1033,7 @@ def main():
              | ({"/fw/" + IRIS_FW_FILE} - set(before) if IRIS_FW else set())
              | {"/bin/" + program.name for program in EXTRA_PROGRAMS if "/bin/" + program.name not in before}
              | ({"/lib/libannibale-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
+             | ({"/lib/libannibale-oslog.dylib"} if OSLOG_PROCESSES else set())
              | ({"/lib/libannibale-ax.dylib"} if AX_PROCESSES else set())
              | ({"/lib/libannibale-vt.dylib"} - set(before))
              | {"/LaunchDaemons/" + name for name in rest_added}
@@ -1038,6 +1054,7 @@ def main():
                 "/bin/video_decode_test", "/bin/video_player_test", "/bin/video_combined_test",
                 "/bin/metal_reflection_test",
                 *(["/lib", "/lib/libannibale-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
+                *(["/lib", "/lib/libannibale-oslog.dylib"] if OSLOG_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-ax.dylib"] if AX_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),
                 *(["/bin/bluetool", "/bin/bluetoothd"] if BLUETOOTH else []),
