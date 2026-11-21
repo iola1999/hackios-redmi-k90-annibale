@@ -46,13 +46,14 @@
 
 | 编号 | 结果 |
 |---|---|
-| U1 | 开机约 2 分钟后「日历」「时钟」图标正常；解锁瞬间的状态没有录到，待从开机起录屏复核 |
-| U3 | 预览条纹复现（CAM-1）；对焦框、延迟、左右反待逐项判读。另复现一次相机黑屏（物理连续缓冲区申请失败），已修复，见第 7 节 |
+| U1 | 开发分支不复现：`kernel-12377-camreg-u1rec` 开机 16 s 自动解锁，解锁后 4 s 的截图里「日历」「时钟」图标正常 |
+| U2 | `kernel-12377-camreg-u1rec` 在桌面左右各翻 3 次，`gestures.py` 统计：从右往左（翻到 App 资源库）146 个帧间隔 p50 8.7 ms、p95 31.9 ms、最长 63.1 ms，14% 超过 18 ms；从左往右 p95 17.2 ms、最长 36.5 ms。掉帧集中在翻到 App 资源库的方向，原因待查 |
+| U3 | 预览条纹复现（CAM-1）。左右反与 U9 同源：后摄预览由 cameracaptured 经 M2Scaler 旋转（`m2_log` 记录 `rot90 1`，`1608x1206` 到 `1206x1612`），`v0.2.1` 的 rot90 是转置，开发分支已改为顺时针旋转，预览方向待在光照充足时对照实物复核。对焦框闪烁：插件交给 CMCapture 的帧元数据不带对焦状态（`AFStatus`、`FocusNowCommandID` 等），待查 CMCapture 判断对焦完成的依据。延迟未测。另复现一次相机黑屏（物理连续缓冲区申请失败），已修复，见第 7 节 |
 | U4 | 从相机返回后两次打开「设置」，每秒 10 帧的录屏里没有黑色横带 |
 | U5 | 「设置」的状态栏文字和底部搜索框颜色正常；滚动中搜索框背景有一帧偏深，待放大核对 |
 | U6 | 复现：「地图」中地球视图出现大片黑色扇区，随后 GPU 停转，见第 5 节 |
 | U7 | 复现：页面空白、一直加载，没有 `com.apple.WebKit.*` 进程；已修复，见第 6 节 |
-| U8 | 「照片」打开在「精选集」页，「固定」一行的三个缩略图是黑块；「图库」页网格空白（`kernel-12377-m2log-m2a`） |
+| U8 | 「照片」打开在「精选集」页，「固定」一行的三个缩略图是黑块；「图库」页网格空白（`kernel-12377-m2log-m2a`）。补充读数见 7.3 |
 | U9 | 开发分支不复现，见第 7 节 |
 
 ## 5. 地图触发的 GPU 停转与整屏闪烁（S21）
@@ -117,7 +118,7 @@ LaunchServices 只在数据库缺失或损坏时整库重建，开机不会重�
 | `kernel-12377-graft1-graft2` | 同上，同一镜像重启 | lsd 首启工作不再打印 `Marking container`；没有重建数据库，Safari 打开百度并显示图文 |
 | `kernel-12377-graft2-graft3` | `12377-graft2`，带一次性重建的 init | init 删除 2 个数据库文件，lsd 开机重建；Safari 启动三个 WebKit 进程，百度图文正常 |
 
-## 7. 单张照片左右反转（U9）与相机黑屏
+## 7. 照片与相机
 
 ### 7.1 U9
 
@@ -144,3 +145,13 @@ LaunchServices 只在数据库缺失或损坏时整库重建，开机不会重�
 验证：`kernel-12377-camreg-cam1` 启动日志没有申请失败；连续三次先打开「照片」再打开「相机」，三次预览都正常。这一轮的内核日志快照里没有 `failed to allocate camera frame buffer` 和 `streams given back N times`，插件每次建出两个流（`the device made: 2 streams`）。
 
 遗留：`/dev/annibale-camera` 打开失败时，插件仍为后摄建一个只带闪光灯的流，CMCapture 会反复请求和交还它。缓冲区改为启动时申请后，这条路径只在启动时就申请失败的情况下出现。
+
+### 7.3 「照片」网格的补充读数（U8）
+
+`kernel-12377-camreg-cam1` 用 `ANNIBALE_THUMB_*` 采样 Photos 的绘制：
+
+- 缩略图表 `PhotoData/Thumbnails/{3307,3324,4531}.ithmb` 的内容是 16 字节一块的 ASTC 数据（块头 `51 02`），`thumbnailConfiguration` 记录格式 `5005`、`4531`、`3324`、`3307`。
+- 网格先用一次实例化绘制画出全部 35 个精灵（绑定 4092×744 的图集）；之后每张照片单独绘制一次，每次 1 个实例，绑定 Photos 导入的 241×321 `420f` 缩略图（Y 平面 `R8Unorm`，CbCr 平面 121×161 `RG8Unorm`，每行 256 字节）。两类绘制都绑定 5 个纹理。
+- 这两类绘制的输入纹理都没有采到样，只采到了输出：`rwa_texture_thumbnail` 拒绝压缩格式，`420f` 平面纹理也没有返回样本。下一步先让诊断能读出这两类纹理，再区分纹理内容和着色器取样。
+- `fragment_main` 是带函数常量的通用着色器（`has_color_trc`、`has_color_cube`、`has_ycbcr_matrix` 等），纹理槽位为 `tex` 0、`color_trc` 1、`color_cube` 2（`texture3d<half>`）、`texChroma` 4、`shaderStatic2DTextures` 5～7、`shaderStatic3DTextures` 8～10。
+

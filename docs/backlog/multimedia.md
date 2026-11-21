@@ -26,5 +26,6 @@ NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查
 | M11 | SLM 管线探针耗时 | 待拆分；slm_calc_eyes 探针总耗时 47,705 ms，同轮 IR3 等待 60.637 ms，探针仅创建管线与反射 | 分开计时设备初始化、库读取、AIR→NIR→IR3 管线编译、反射及销毁；实际 dispatch 需要另行测量 | [多媒体验证 §19](../analysis/2026-11-11-multimedia-validation.md#19-正常频率下的独立功能验证) |
 | M12 | 软件解码覆盖与线程开销 | 后续候选；已有 H.264／VP9 路径，AV1 和线程调整按实际需求评估 | 先确认格式、解码器选择和冷启动故障，比较吞吐、CPU、同步及播放结果 | [视频分析 §6](../analysis/2026-11-05-video-decode.md) |
 | M13 | IOSurface copy wrapper 别名读写 | 已复现；不同 usage 创建的 copy 资源在同一 command-buffer 内写后读得到旧值，跨已完成命令的读写通过 | 核对可共享的 usage／资源布局与原生顺序，验证同一 IOSurface 多 wrapper 的写后读；修复期间保留只读相机输入的验收范围 | [多媒体验证 §36](../analysis/2026-11-11-multimedia-validation.md#36-进程自有-iosurface-的相机输入) |
+| M14 | 相机对焦框一直闪烁 | 11-21 用户在 `v0.2.1` 报告；插件交给 CMCapture 的帧元数据只有端口、时间戳、曝光、增益、帧率和变焦，没有对焦状态（`AFStatus`、`FocusNowCommandID`、`FocusLensPosition` 等） | 反汇编 CMCapture 判断对焦完成与 `adjustingFocus` 的依据，按原生字段补齐插件的帧元数据；验收为点按对焦后对焦框按原生节奏消失 | [11-21 真机体验问题 §4](../progress/2026-11-21-user-test-issues.md#4-开发分支上的复现结果) |
 
 当前按真实传感器、DMA、原生会话和用户可见结果分阶段验收，设备访问与恢复条件遵循[真机手册](../plan/device-test-playbook.md)。蓝牙音频的连接与传输前提见[外设待办](platform.md)。
