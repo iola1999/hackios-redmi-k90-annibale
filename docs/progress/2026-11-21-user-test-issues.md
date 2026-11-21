@@ -47,12 +47,13 @@
 | 编号 | 结果 |
 |---|---|
 | U1 | 开机约 2 分钟后「日历」「时钟」图标正常；解锁瞬间的状态没有录到，待从开机起录屏复核 |
-| U3 | 预览条纹复现（CAM-1）；对焦框、延迟、左右反待逐项判读 |
+| U3 | 预览条纹复现（CAM-1）；对焦框、延迟、左右反待逐项判读。另复现一次相机黑屏（物理连续缓冲区申请失败），已修复，见第 7 节 |
 | U4 | 从相机返回后两次打开「设置」，每秒 10 帧的录屏里没有黑色横带 |
 | U5 | 「设置」的状态栏文字和底部搜索框颜色正常；滚动中搜索框背景有一帧偏深，待放大核对 |
 | U6 | 复现：「地图」中地球视图出现大片黑色扇区，随后 GPU 停转，见第 5 节 |
 | U7 | 复现：页面空白、一直加载，没有 `com.apple.WebKit.*` 进程；已修复，见第 6 节 |
-| U8 | 「照片」打开在「精选集」页，「固定」一行的三个缩略图是黑块；网格页待复核 |
+| U8 | 「照片」打开在「精选集」页，「固定」一行的三个缩略图是黑块；「图库」页网格空白（`kernel-12377-m2log-m2a`） |
+| U9 | 开发分支不复现，见第 7 节 |
 
 ## 5. 地图触发的 GPU 停转与整屏闪烁（S21）
 
@@ -116,3 +117,30 @@ LaunchServices 只在数据库缺失或损坏时整库重建，开机不会重�
 | `kernel-12377-graft1-graft2` | 同上，同一镜像重启 | lsd 首启工作不再打印 `Marking container`；没有重建数据库，Safari 打开百度并显示图文 |
 | `kernel-12377-graft2-graft3` | `12377-graft2`，带一次性重建的 init | init 删除 2 个数据库文件，lsd 开机重建；Safari 启动三个 WebKit 进程，百度图文正常 |
 
+## 7. 单张照片左右反转（U9）与相机黑屏
+
+### 7.1 U9
+
+内核 `12377-m2log` 带启动参数 `m2_log=1` 时，`MiniM2Scaler` 为每个进程每种转换打印一行（标志、格式、尺寸）。`kernel-12377-m2log-m2a` 打开一张照片：
+
+- 「照片」先用 M2Scaler 把 1606×1204 的图旋转成 1206×1608（标志 `0x3004`，rot90），作为打开时的整屏图；放大后的分块不经过这一步。
+- 用户手机上的 `v0.2.1` 内核早于 `0f213aee`（11-19）。该提交之前 rot90 按转置实现（`tx = uy, ty = ux`），转置等于旋转加左右镜像，所以打开时左右反、放大后正常。
+- 开发分支上 rot90 已是顺时针旋转：同一张照片打开时与放大后的方向一致。
+
+### 7.2 相机黑屏与拍摄按钮扫描
+
+`kernel-12377-m2log-m2a` 在「照片」之后打开「相机」，预览一直是黑的，期间 backboardd 每秒约 740 行 `setScanningActive:YES/NO button:cameraCapture pid:29` 与 `no services (yet?), pending`。同一现场的内核日志：
+
+- 17:33:26 打开「相机」后，内核两次 `vm_page_find_contiguous(num=1024, ...)` 找不到连续页，`annibale_cam: failed to allocate camera frame buffer`，两个摄像头的 `/dev/annibale-camera` 都打开失败（`EIO`）。
+- 插件只为后摄建了一个仅带闪光灯的流（`the device made: 1 streams`），CMCapture 随后约每秒 200 次请求并交还这个流（`streams given back 11000 times`），从未启动采集。
+- SpringBoard 的拍摄按钮扫描随会话状态每次开关一次，所以扫描日志是采集会话循环的结果。
+
+根因：内核驱动每次打开摄像头时用 `kmem_alloc_contig` 申请 16 MB 物理连续的两帧缓冲区，关闭时释放。CSID/VFE 写物理地址（cam_hf_qtb 的 Stage 1 旁路），缓冲区必须连续；系统运行一段时间后物理内存碎片化，找不到 16 MB 连续空闲页。
+
+修复（内核 `annibale_camera.c`）：启动时在 `annibale_camera_init` 申请这块缓冲区并一直保留，打开时只在启动时申请失败的情况下重试，关闭不再释放。每次采集准备时 `cam_native_prepare` 之后会清零两帧，保留缓冲区不会带出上次会话的内容。
+
+`kernel-12377-graft3-btn1` 从桌面打开「相机」，申请成功、预览正常，backboardd 只有一组 `setScanningActive:YES`，没有循环；U3 的对焦框闪烁和延迟与这个循环无关，待单独判读。
+
+验证：`kernel-12377-camreg-cam1` 启动日志没有申请失败；连续三次先打开「照片」再打开「相机」，三次预览都正常。这一轮的内核日志快照里没有 `failed to allocate camera frame buffer` 和 `streams given back N times`，插件每次建出两个流（`the device made: 2 streams`）。
+
+遗留：`/dev/annibale-camera` 打开失败时，插件仍为后摄建一个只带闪光灯的流，CMCapture 会反复请求和交还它。缓冲区改为启动时申请后，这条路径只在启动时就申请失败的情况下出现。

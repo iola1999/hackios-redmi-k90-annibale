@@ -157,7 +157,7 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 - `install-ipa.py 轮次目录 App.ipa [--open]`：经 USB 把 IPA 分块（每块不超过 15 MB）推进内核的 16 MB 收件区，annsh 的 `pull 路径 偏移` 写到 `/private/var/tmp/ipa/`，等 `trollstorehelper list` 出现该应用。需要带 `serve_pushes` 的 `run-auto.py` 和支持偏移的 annsh。
 - `ui.py 轮次目录 dump|tap 文字|wait 文字|shot 名称|accessibility`：读各进程 `libannibale-ax.dylib` 写的界面元素（文字和屏幕坐标），按文字点按，代替手写坐标。UIKit 的按钮、提示框和主屏图标能读到；SwiftUI 页面（设置的列表、天气）目前读不到。
 
-其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`XPCWATCH`、`OSLOG`、`OSLOG_LINES`、`TOUCH_LAT`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。`OSLOG="进程名 ..."` 把这些进程的 os_log（default 级及以上）经 `kern.annibale.say` 转进内核日志（`say PID 进程名: oslog 级别: 内容`），用于标准错误没有去处的应用、扩展和守护进程。
+其余诊断开关（`PAYLOAD_SRC_ROOT`、`PAYLOAD_AIR_STRINGS`、`PROBE`、`XPCWATCH`、`OSLOG`、`OSLOG_LINES`、`OSLOG_MATCH`、`TOUCH_LAT`、`ANNIBALE_DIAG`、`ROUND_NOTES`）的含义写在 `package.py` 里各变量定义处的注释中。`OSLOG="进程名 ..."` 把这些进程的 os_log（default 级及以上）经 `kern.annibale.say` 转进内核日志（`say PID 进程名: oslog 级别: 内容`），用于标准错误没有去处的应用、扩展和守护进程。SpringBoard 这类日志多的进程可以加 `OSLOG_MATCH="词|词"`，只转含其中一个词的消息。
 
 `JOB_ENV="任务.plist:变量=值 ..."` 给指定任务的 plist 和 launchd 缓存各加一个环境变量，一项一个变量。常用的几个：
 

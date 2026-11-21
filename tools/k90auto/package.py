@@ -146,9 +146,11 @@ XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
 # OSLOG="NAME ..." inserts libannibale-oslog.dylib (userland/src/inject/oslogwatch.c) into those programs:
 # their os_log messages, default level and above, go into the kernel log ("say PID NAME: oslog ...").
 # For applications and extensions, whose standard error goes nowhere. OSLOG_LINES=N changes how many
-# messages each process forwards (4000 without it).
+# messages each process forwards (4000 without it); OSLOG_MATCH="WORD|WORD" forwards only messages
+# containing one of the words.
 OSLOG_PROCESSES = os.environ.get("OSLOG", "").split()
 OSLOG_LINES = os.environ.get("OSLOG_LINES", "")
+OSLOG_MATCH = os.environ.get("OSLOG_MATCH", "")
 # libannibale-ax.dylib goes into these programs unless AX is set to the empty string. userland/src/ax.m:
 # on the notification com.annibale.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
 # which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
@@ -795,7 +797,8 @@ def main():
     oslog = OUT / "libannibale-oslog.dylib"
     if OSLOG_PROCESSES:
         commands["oslog"] = build(OSLOG_SOURCES, "/annibale/lib/libannibale-oslog.dylib",
-                                  XPCWATCH_FLAGS + ([f"-DOSLOG_LINES={int(OSLOG_LINES)}"] if OSLOG_LINES else []), oslog)
+                                  XPCWATCH_FLAGS + ([f"-DOSLOG_LINES={int(OSLOG_LINES)}"] if OSLOG_LINES else []) +
+                                  ([f"-DOSLOG_MATCH={json.dumps(OSLOG_MATCH)}"] if OSLOG_MATCH else []), oslog)
     audio = OUT / "AnnibaleAudio"
     if AUDIO:
         commands["audio"] = build(AUDIO_SOURCES, "", AUDIO_FLAGS, audio, dynamic=False)
