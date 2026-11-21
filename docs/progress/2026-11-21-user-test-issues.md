@@ -225,3 +225,19 @@ AnnibaleGPU 用 `gGPUReported` 标记 GPU 已失效，置位后所有客户端�
 
 用户 20:53:46 打开应用时看到长时间的黑色窗口闪烁，此后再打开各应用没有复现。同一时段的 `kernel-12377-m2444-sb1` 冷启动应用时，录屏里有 1～2 帧黑色窗口；SpringBoard 日志有 `No default launch images found` 与 `pre-warming SplashBoard`，设备上只有 4 个应用存在 SplashBoard 启动图快照目录。黑色窗口是否来自启动图缺失还没有核对，继续观察；再出现时记下时间和应用名，读取 SpringBoard 与 splashboardd 的日志。
 
+## 11. 后摄条纹（CAM-1）本批排除的变量
+
+基线（`kernel-12377-gl1-gl1u`，`camera_test native-back` 单帧）与 11-20 相同：帧缓冲在物理地址 `0x8cdb54000`，24,000 个 256 字节块中地址第 8 位为 0 的 12,000 块写入，为 1 的 12,000 块全零。本批每项都在同一次开机里用运行时开关切换后各取一帧，诊断代码在得出结论后撤回，补丁留在 Git 忽略的 `hackios-xnu-kernel/out/cam1-diag-1121/`。
+
+| 变量 | 内核／轮次 | 结果 |
+|---|---|---|
+| 相机上下文 SMMU 旁路的内存属性（`SCTLR[27:16]`）：现值（写回、外部共享）、内部共享、不共享、不可缓存 | `12377-smattr`／`sma` | 四种都不变 |
+| 同上，不覆盖属性（沿用 CAMNOC 发出的属性） | 同上 | 取帧后系统退出 iOS，回到 loader 内置内核，现场日志没有留下 |
+| 帧缓冲放到 4 GiB 以下 | `12377-camlow`／`low1` | 没有测成：XNU 管理的内存在 4 GiB 以下找不到 16 MB 连续页；loader 留在 4 GiB 以下的 128 MB 已由 Wi-Fi、GPU 页表、RDDM、调制解调器和音频分用 |
+| CAMNOC 错误记录的 `ERRLOG2`／`ERRLOG3` | `12377-errlog3`／`el3` | 全为 0，错误记录里没有地址 |
+| 写入器总线时钟门控覆盖（`0x1208 = 0x7ffffff`）与帧模式加默认宽度、步长（`0xffff`） | `12377-wmmode`／`wm1` | 两项单独与组合都不变 |
+
+最后一项照搬上游 SM8750 camss 补丁（[v5 系列](https://lore.kernel.org/r/20260601-add-support-for-camss-on-sm8750-v5-0-dac36a190de8@oss.qualcomm.com)）的 VFE gen4 写入器设置。该补丁的 RDI 路径经 TFE，带宽只经 APPS 投票（`MASTER_CAMNOC_HF` 到 `SLAVE_EBI1`），不配置 CAMNOC QoS。保留的改动：探针多打印 `ERRLOG3`，启动时打印帧缓冲的物理地址。
+
+下一步按待办 M2 改走 TFE2 的 RDI：CSID2 与 TFE2 的时钟由相机 CRM 控制（`cam_cc_tfe_2_clk_src` 为 CRM-C VCD 2、源 PLL5，`cam_cc_csid_clk_src` 为 VCD 6），另需 TFE2 的 GDSC。先只上电并读版本寄存器，确认时钟和电源后再接写入器，避免访问未上电的模块挂住总线。
+
