@@ -31,5 +31,6 @@
 | P17 | AirDrop 与投屏实际传输 | 未完成端到端验证；已有离线返回与界面解阻塞处理 | 核对 AWDL、sharingd、发现、连接和文件／媒体传输，逐阶段记录原生协议所需条件 | [注入钩子分析 §2](../analysis/2026-11-09-injection-hooks.md)、[问题复核 §2](../analysis/2026-11-08-issue-reassessment.md) |
 | P18 | 网络校时与跨重启时钟 | 待当前版本复核；已有 PMK8550 硬件对时实现 | 对照网络校时、硬件时钟和重启后系统时间，记录服务、单位及失败阶段 | [架构审查 §12.3](../analysis/2026-11-08-architecture-review.md)、[问题复核](../analysis/2026-11-08-issue-reassessment.md) |
 | P19 | DCS 渐变与 HBM | 可选研究；已用 DBV 上限为 0x1a5e，设备树 max-level 为 0x3fff，正常亮度与 HBM 分界未确认 | 先取得本机面板命令与亮度范围来源，再评估 DCS 渐变和 HBM；自动亮度依赖 P14 的环境光输入 | [亮度分析 §1、§7、§8](../analysis/2026-11-02-brightness-control.md) |
+| P20 | iOS 关机与重启后 loader 的处理 | 实现完成、待验证：内核把关机或重启请求带给 loader，从菜单启动的单次运行据此调用 PSCI `SYSTEM_OFF` 或复位；主机发起的运行仍回到 Fastboot（内核 `6acd5c59`） | 刷入新 loader 后从菜单启动 iOS：重启能回到菜单并再次进入 iOS；关机后整机断电，长按电源键能正常开机（需人在场） | [11-21 真机体验问题 §1](../progress/2026-11-21-user-test-issues.md#1-用户报告的问题) |
 
 蓝牙与 Wi-Fi 共用电源轨和 BT_EN。蓝牙须在 Wi-Fi 上电之后启动，Wi-Fi 在线期间保留 BT_EN，见[蓝牙分析 §1](../analysis/2026-11-02-bluetooth-bringup.md)。
