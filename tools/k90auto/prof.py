@@ -86,7 +86,7 @@ def own_image_bases(text):
 class UserNames:
     def __init__(self, slide, bases=None):
         self.cache = dsc_cache.Cache(str(CACHE_DIR))
-        self.slide = slide
+        self.slide = slide              # None: not known, and a shared cache address is left a number
         self.exports = {}
         self.bases = bases or {}
         self.own = {}
@@ -132,6 +132,8 @@ class UserNames:
         return f"{table[i][1]}+{address - table[i][0]:#x}" if i >= 0 else None
 
     def name(self, pc, pid=None):
+        if self.slide is None:
+            return (self.own_name(pc, pid) if pid is not None else None) or f"{pc:#x}"
         address = pc - self.slide
         if not (self.cache.shared_region_start <= address <
                 self.cache.shared_region_start + self.cache.shared_region_size):
@@ -188,7 +190,7 @@ def main():
     text = logs(args.round_dir / "run")
     if args.threads is not None:
         slides = re.findall(rf"tl: td {args.threads} slide (0x[0-9a-f]+)", text)
-        slide = args.slide if args.slide is not None else int(slides[-1], 16) if slides else 0
+        slide = args.slide if args.slide is not None else int(slides[-1], 16) if slides else None
         threads(text, args.threads,
                 UserNames(slide, own_image_bases(text + "\n" + "\n".join(snapshots(args.round_dir / "run")))))
         return 0
@@ -197,9 +199,14 @@ def main():
         print("no kern.annibale.prof printout in the round's cmd logs")
         return 1
     slides = re.findall(r"tl: td \d+ slide (0x[0-9a-f]+)", text)
-    slide = args.slide if args.slide is not None else int(slides[-1], 16) if slides else 0
+    slide = args.slide if args.slide is not None else int(slides[-1], 16) if slides else None
     names = process_names(text)
-    print(lines[0], f"(shared cache slide {slide:#x})")
+    if slide is None:
+        # (named with a slide of 0, wifid's samples on kernel-12377-lens-hv1 landed in FaceTimeMessageStore and GeoServices)
+        print(lines[0], "(shared cache slide not known: user addresses in the shared cache stay numbers; "
+              "`rsh.py ROUND dump PID` once prints it)")
+    else:
+        print(lines[0], f"(shared cache slide {slide:#x})")
     entries = []
     for line in lines[1:]:
         m = re.match(r"pid (-?\d+) user (\d+) kernel (\d+)", line)
