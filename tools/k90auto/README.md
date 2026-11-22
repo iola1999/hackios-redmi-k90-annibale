@@ -192,7 +192,7 @@ python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL
 - `render-health.py` 合并 `s*.log` 后，把驱动、AIR 库、QuartzCore 的 Metal 日志、MiniIOSurface 与 GPU 驱动里的失败行按类别计数，每类写明屏幕上的后果，未归类的列在 unclassified 下；`--baseline` 给出另一轮的计数并标出只在一侧出现的行。驱动的部分拒绝只在首次或 2 的幂次打印，计数 1 或 2 的幂可能代表更多次。
 - `tour.py` 的每一步是 `标签=命令@等待秒数*截图张数`，命令经 `rsh.py` 发给 annsh；同一步拍两张以上时比较前后两张，状态栏以下的变化写进 `run/tour.json`，用于发现闪烁。全部截图缩成 `run/tour-sheet.png`，编号与 `tour.json` 一致。
 - GPU 挂起后，12377-cmd4 起的内核打印 RBBM 与 CP 状态和各级 IB 在 CP 位置前后的命令字；`python3 tools/k90auto/cp-words.py ROUND_DIR` 把它们按 type 7／type 4 包头解成包名并标出 CP 位置。CP 会预取，停住的包可能在标记之前一两个。
-- SpringBoard 的图层树用 annsh 的 `notify com.annibale.layers.<过滤词>` 打到日志里（`all`、`Icon`、`Wallpaper`、`Poster`、`StatusBar`、`Battery`、`Widget`）。过滤词在任意层级匹配图层类或所属视图类，向下再列 3 层；每行是层级、图层类、视图类、尺寸、位置、隐藏与透明度、内容类型和尺寸，用来区分「图层没有内容」和「有内容但没有画出来」。
+- SpringBoard 的图层树用 annsh 的 `notify com.annibale.layers.<过滤词>` 打到日志里（`all`、`Icon`、`Wallpaper`、`Poster`、`StatusBar`、`Battery`、`Widget`）。`animated` 改为列出所有挂着动画的图层：动画的键、类、时长、重复次数与帧率范围。过滤词在任意层级匹配图层类或所属视图类，向下再列 3 层；每行是层级、图层类、视图类、尺寸、位置、隐藏与透明度、内容类型和尺寸，用来区分「图层没有内容」和「有内容但没有画出来」。
 
 ## 9. 内核逐帧录屏与拼接检测
 

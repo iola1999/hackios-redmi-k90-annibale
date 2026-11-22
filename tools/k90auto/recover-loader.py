@@ -132,9 +132,17 @@ def converge_runtime():
         call(pre+["oem","stop"],20,False)
         deadline=time.monotonic()+int(os.environ.get("K90_STOP_WAIT","70"))
         while time.monotonic()<deadline:
-            state=value(call(pre+["getvar","result"]),"result")
+            # (the loader can be off USB for some seconds while it takes the kernel down: no answer is not a state)
+            out=call(pre+["getvar","result"],8,False)
+            if records[-1]["rc"]!=0 or "FAILED" in out:
+                time.sleep(1);continue
+            state=value(out,"result")
             if not re.fullmatch(r"running [0-9a-fA-F]+ [0-9a-fA-F]+",state):break
             time.sleep(1)
+        if re.fullmatch(r"idle(?: 0 0)?",state):
+            # (a kernel the loader started on its own from its slot came back through a reset: a fresh loader)
+            call(pre+["oem","recovery"])
+            return idle()
     terminal=r"(?:returned|returned-held|hung|hung-held)(?: [0-9a-fA-F]+ 0)?"
     name=state.split()[0]
     if not re.fullmatch(terminal,state):

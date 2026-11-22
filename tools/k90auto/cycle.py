@@ -224,6 +224,11 @@ def main():
     if "ufs_write=1" not in FIXED_ARGS and "ufs_write=1" not in args.boot_args:
         args.boot_args = " ".join([args.boot_args, "ufs_write=1"]).strip()
 
+    try:
+        import numpy  # noqa: F401  (tour.py, summary.py and the screen tools read shots with it)
+    except ImportError:
+        print(f"{sys.executable} has no numpy: run cycle.py with an interpreter that has numpy and Pillow")
+        return 1
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     # GPU up to 1100 MHz (speed 14; kernels from 12377-rate6 lower it to what the bin has, older ones
     # stop the GPU bring-up when asked for more than they list: 7 up to rate1, 10 for rate2 to rate4).

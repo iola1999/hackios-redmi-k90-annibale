@@ -621,6 +621,7 @@ class RunAutoTests(unittest.TestCase):
             (root / path).mkdir(parents=True, exist_ok=True)
         shutil.copy(HERE / "run-auto.py", root / "tools/k90auto/run-auto.py")
         shutil.copy(HERE / "recover-loader.py", root / "tools/k90auto/recover-loader.py")
+        shutil.copy(HERE / "screenrec.py", root / "tools/k90auto/screenrec.py")
         for name, body in (("fastboot", FAKE_FASTBOOT), ("adb", "#!/bin/bash\nexit 0\n")):
             (root / "bin" / name).write_text(body)
             (root / "bin" / name).chmod(0o755)
