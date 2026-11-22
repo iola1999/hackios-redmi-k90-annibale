@@ -48,12 +48,18 @@
 
 ## 3. 自动锁定不生效
 
-用启动参数 `idlelog=1` 在 SpringBoard 里记录空闲计时器（`SBIdleTimerGlobalCoordinator` 的三个方法）：
+11-23 修复。原因是 CommCenter 没有运行，SpringBoard 每秒重置一次空闲计时器。
 
-- 锁屏解除后 SpringBoard 应用的计时器是 `mode: Auto; warn: 40.0s; total: 60.0s`，与「自动锁定 1 分钟」一致，`samplingStartBeforeFirstTimeout` 为 12 秒。
-- 3 分钟以上没有触摸，计时器始终没有走到 40 秒的变暗，背光只随环境光变化。这段时间里没有触摸事件。
+排查顺序（`kernel-12377-lens2-w14`～`w61`，SpringBoard 侧用 `idlelog=1` 的钩子，backboardd 侧用 `awlog=1`）：
 
-SpringBoard 一侧设置正确，倒计时在 backboardd 的 AttentionAwareness（`ITAttentionAwareIdleTimer`）。还没有查清的两个方向：注视检测在到期前 12 秒开始采样，这台机器没有原厂 Face ID 的相机，采样结果可能一直被当作「用户在看」；或者有别的事件不断重置计时。插电后常亮与这是同一个问题，iOS 插电时同样会自动锁定。下一步在 backboardd 里记录 AttentionAwareness 的采样与超时回调。
+- SpringBoard 应用的计时器是 `warn 40 s、total 60 s`，与「自动锁定 1 分钟」一致；倒计时由 IdleTimerHosting 的 `ITAttentionAwarenessClient` 交给 backboardd 里的 AttentionAwareness 服务。
+- 服务本身正常：测试程序 `attn_test` 设 5 s 超时能按时收到 `AWAttentionLostEvent`；触摸事件也送到了服务（`processHIDEvent`，类型 11、掩码 0x8），空闲计时器的客户端对它们「感兴趣」。日志里的「Socket is not connected」和「lost event tag is not a number」来自 SpringBoard 自己的其他注视客户端（HomeGrabberView 等），与空闲计时器无关。
+- 真正的问题：SpringBoard 每秒调用一次 `-[AWAttentionAwarenessClient setConfiguration:shouldReset:YES]`（291 s 内 284 次），每次都让 40/60 s 的计时重新开始。重置的原因几乎全是 `TelephonyManager:UpdateSB`。
+- 调用链：`SBTelephonyManager` 由 `performSelector:afterDelay:` 周期执行一个状态更新函数，CoreTelephony 的服务连接（`_serverConnection`）不可用时走 `handleCallControlFailure:` → `updateCalls` → `updateSpringBoard` → `resetIdleTimerForReason:@"TelephonyManager:UpdateSB"`。连接不可用是因为 `mkjobs.py` 把 CommCenter 放在 DENY 名单里，`com.apple.commcenter.coretelephony.xpc` 没有应答者。
+
+修复：`mkjobs.py` 不再排除 CommCenter。launchd 按设备树选用 `com.apple.CommCenter-noncellular`（没有基带节点的设备用的变体），AppleBasebandPCI 的 cellular plist 照旧跳过。早先记录的「CommCenter 每 15 秒崩一次」在当前内核上没有复现。
+
+验收（`w61`，默认镜像，USB 供电即插电状态）：开机解锁后静置，背光先降到 6 nits（变暗），随后 panel off（锁屏）。`w60` 里空闲计时器按时收到 40 s、42 s、60 s 三个 lost 事件，CommCenter 开机 5 分半没有重启。
 
 ## 4. 「减弱动态效果」
 
