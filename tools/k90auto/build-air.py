@@ -49,7 +49,7 @@ FILES = ["air_metal.c", "air_metal.h", "air_clear_plan.h", "air_metal_clear.inc"
          "air_metal_rgb2p.h", "air_metal_rgb2p.inc", "air_metal_rgb2p_private.h", "air_metal_bicubic.inc",
          "air_reflection.c", "air_reflection.h", "air_metal_reflection.h",
          "air_simd.inc", "air_imageblock.inc", "air_metal_blend.inc",
-         "air_reflection_test.c", "air_copy_test.c", "meson.build"]
+         "air_reflection_test.c", "air_copy_test.c", "air2nir.c", "meson.build"]
 
 # The toolchain: a venv with meson 1.12.1 and the ninja from homebrew, with bison ahead of the
 # system one because the frontend's parser needs it. The paths are part of the host image, not of

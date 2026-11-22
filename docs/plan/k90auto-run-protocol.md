@@ -58,6 +58,7 @@
 - 截图与快照间隔：`run-auto.py` 默认 `0,100,20`（不截图、每 20 秒一份日志），`run-queue.sh` 默认 `3,100,20`，`cycle.py` 传 `0,0,5`。一张截图约 11.6 MB，和日志共用 USB 通道。按需截图用 `shot-now.py`，文件名 `shot-{int(elapsed*10):05d}.raw`（`shot-01002.raw` 是第 100.2 秒）。
 - 冻结即收尾：桌面出现后连续 `K90_FREEZE_SECONDS`（默认 20）秒无新帧，输出 `FROZEN_AT <elapsed>` 并收尾；`K90_FREEZE_OFF=1` 关闭，`cycle.py` 默认关闭。
 - 等一轮结束用 `wait-round.py`，等一个动作的现场用 `action-probe.py`，不用固定 `sleep`。
+- 判别实验改过的系统设置要在这一轮收尾前改回去。数据分区跨轮保留，启动参数触发的设置写入（例如 `ax_rm=1` 调用 `_AXSSetReduceMotionEnabled` 打开「减弱动态效果」）在之后每次开机都生效：`kernel-12377-idle4-w5` 打开后没有改回，用户在 11-22 晚手动关掉。改动前记下原值，收尾时写回原值，并在进度记录里写明改过什么。
 - 检索只按文件点名读 `run/s0*.log` 这类文本（`AGENTS.md` §6）。BSD grep 的内存约为最长无换行段的 3 倍；带上下文窗口的正则在 14 MB 的 `libannibaleair.dylib` 上比 `-F` 慢 79 倍。多 GB 镜像先 `strings` 或流式 `bytes.find`。
 
 ## 5. 计数与判读口径
