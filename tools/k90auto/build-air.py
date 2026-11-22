@@ -43,7 +43,7 @@ FILES = ["air_metal.c", "air_metal.h", "air_clear_plan.h", "air_metal_clear.inc"
          "air_stitch_test.metal", "air_stitch_link_test.c", "nir_air.h", "air_call.inc",
          "air_metal_texture.inc", "air_metal_texels.inc", "air_metal_fence.inc", "air_metal_state.inc",
          "air_metal_dispatch.inc", "air_texture.inc", "air_llvm.inc", "air_argbuf.inc",
-         "air_metal_depth_stencil.inc", "air_ptr_slot.inc", "air_ptr_phi.inc", "air_debug.inc",
+         "air_metal_depth_stencil.inc", "air_ptr_slot.inc", "air_ptr_phi.inc", "air_debug.inc", "air_run.c",
          "air_metal_vertex_cache.inc", "air_metal_yuv.h", "air_metal_yuv.inc",
          "air_metal_formats.inc", "air_metal_allocation.inc", "air_yuv_test.c", "air_gep.inc",
          "air_metal_rgb2p.h", "air_metal_rgb2p.inc", "air_metal_rgb2p_private.h", "air_metal_bicubic.inc",
