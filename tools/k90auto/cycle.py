@@ -235,7 +235,8 @@ def main():
     gpu_speed = os.environ.get("GPU_SPEED", "14")
     # CYCLE_PROGRAMS=path[:path] puts more files into /annibale/bin of the image beside the ones
     # userland/build.sh stages there.
-    env = dict(os.environ, GPU_SPEED=gpu_speed, JOBS_SOURCE="tools/k90auto/jobs/rc.jobs.interactive",
+    env = dict(os.environ, GPU_SPEED=gpu_speed,
+               JOBS_SOURCE=os.environ.get("JOBS_SOURCE", "tools/k90auto/jobs/rc.jobs.interactive"),
                PAYLOAD_PROGRAMS=":".join([*[p for p in BOOT_PROGRAMS if (WORKSPACE / p).exists()],
                                           *[p for p in os.environ.get("CYCLE_PROGRAMS", "").split(":") if p]]))
     with open(EVIDENCE / f"pack-{args.label}.log", "w") as log:
