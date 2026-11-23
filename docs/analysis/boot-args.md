@@ -2,7 +2,7 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 164 个参数。
+共 166 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
@@ -97,6 +97,7 @@
 | `loader_return_after` | `osfmk/arm64/loader_return.c` |
 | `lowdma` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/annibale/annibale_ipa.c`、`bsd/dev/annibale/annibale_modem_svc.inc`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
 | `lowdma_mb` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/annibale/annibale_ipa.c`、`bsd/dev/annibale/annibale_modem_svc.inc`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
+| `m2_log` | `iokit/Kernel/MiniM2Scaler.cpp` |
 | `machine_name` | `iokit/Kernel/GenericARMPE.cpp` |
 | `metal` | `iokit/Kernel/MiniFramebufferUserClient.inc` |
 | `metal_native` | `iokit/Kernel/MiniFramebufferUserClient.inc` |
@@ -170,3 +171,4 @@
 | `virtio_net` | `bsd/dev/annibale/annibale_virtio_net.c` |
 | `virtio_sound` | `bsd/dev/annibale/annibale_virtio_sound.c` |
 | `wifi_mac` | `bsd/dev/annibale/annibale_lx.c` |
+| `wifi_rejoin` | `bsd/dev/annibale/annibale_sta.c` |
