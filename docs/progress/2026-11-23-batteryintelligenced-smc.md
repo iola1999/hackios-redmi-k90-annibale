@@ -22,9 +22,9 @@
 
 ## 4. 真机验收
 
-🔍 `kernel-12377-say21-ubo18` 轮验证中：判定标准为全轮 `batteryintellige` 的 `userabort` 计数（不是 pid 快照）、pid 是否稳定、`Done BatteryAlgorithmsInit` 是否出现。
+✅ `kernel-12377-say21-ubo18`：全轮 67 段日志 `batteryintellige` 的 `userabort` 0 次、全部进程 `userabort` 0 次；`batteryintelligenced` 单 pid 146 常驻（启动至复测 90 s+ 无替换），映射 `default_factors_BATTERYINTELLIGENCE_BATTERY_ANALYSIS(_TTL)_fbs.bin` 模型文件越过 init 进入算法工作；本轮 0 次 AIRFAIL、无 panic。
 
-基线：ubo15 同栈 37 次、ubo16（无服务）31+ 次、ubo17（仅 AppleSMC）71 次。
+基线：ubo15 同栈 37 次、ubo16（无服务）31+ 次、ubo17（仅 AppleSMC）71 次（pid 153→402→437→488 轮换）。
 
 ## 5. 边界
 
