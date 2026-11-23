@@ -59,3 +59,12 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - 但 type-1 observer 仍 `results='{(\n)}'`（13:19:05.669）——type-1 扫描真实执行并产出了 15 个网络，observer 集合依旧空。剩余差异收敛到 wifid 侧：要么是 ingest 前的过滤（结算观察者只保留「可作自动加入候选」的网络，`166666666_5G` 若不在 wifid 已知网络库则滤光），要么是 type-1 结果的分发路径与 type-2 不同。`ingestScanResults` 输入是 WiFiNetworkRef 数组，其调用方（扫描监视器按请求类型分发）待反汇编确认。
 - 旁证：type-2 observer 在 FIFO 后拿到全部 15 个真实网络对象，含 `166666666_5G` RSSI=-22——结果管道本身健康。
 - 状态：A7 的 CC 电源周期路径（链路、wifid 实况查询、约 330 ms 重连）已验证闭合；图标灰与显式 leave 后不复连仍开，根因收敛为 wifid 侧 type-1 结算观察者无候选网络——下一步查「已知网络库是否含 standing 网络」与 `ingestScanResults` 调用方的分发逻辑。
+
+## 7. tgl15–tgl25：已知网络库为空；mwjoin 播种成功但 AssociateAsync 不发 sets 20
+
+- tgl15 根因确认：`restart wifid` 后读 `/private/var/db/wifi.plist`，`List of known networks: []`——wifid 已知网络库是空的（w81 时代该表有 `166666666_5G`，rootfs 重置后丢失）。auto-join 无候选（`relevant passes: ()`），type-1 observer 空集是候选过滤的结果，不是分发问题。
+- mwjoin 迭代（`a80211_test.c`）：读 standing 文件拿 SSID+PMK → `WiFiNetworkCreateWithSsid` → `WiFiNetworkSetPassword`（系统钥匙串写成功，PMK 编 64 位 hex 作为 WPA 口令，对应内核 cipher 6）→ `WiFiNetworkSetWPA`（不设则持久化记录 `isWPA=0`，wifid 按开放网络处理）→ `WiFiManagerClientAddNetwork`（返回指针型句柄而非错误码，回读 `CopyMutableNetworks` 确认 count 1：`166666666_5G` isWPA=1 enabled=true Channel=44）。
+- tgl21 正向结果：已知网络播种后 type-1 observer 输出真实结果（`RJ_166666666_5G`、`166666666_5G` RSSI=-21 等在集合内）——证实空集主因是「已知网络库为空时候选过滤滤光」，播种后过滤放行。
+- 卡点：`WiFiDeviceClientAssociateAsync(device, net, opts, cb)` 各形态都返回 0 但 wifid 从不发 `sets 20`：临时 net/持久化记录（tgl25 `stored 0x100c20ac0`）、opts=NULL/{password}、关联中/leave 后未关联、客户端退出（tgl22 日志证实退出触发 `__WiFiServerClientTerminationCallback ... cleanup state`，挂起关联被回收）vs 存活 30 s（tgl23/25 全程无 sets 20）。wifid 受理请求到发 Apple80211 ASSOCIATE 之间还有内部门槛（UnifiedAutoJoin 状态机或关联参数预填充），IDB 会话反复断线未取到该路径。
+- 图标因果链完整：内核 standing join 恢复链路但 wifid 关联状态位无人置 → 图标灰（tgl12 像素证实）；修复方向只剩「让 wifid 自己完成一次关联」或「找到 wifid 认定的等价关联登记入口」。
+- 下一步（待做）：反汇编 `WiFiDeviceClientAssociateAsync` 的服务端处理（wifid 内 `__WiFiDeviceManager*` 路径，含 `UnifiedAutoJoinIsStateSuitableForNetworkTransition` 判定），或试 `WiFiManagerClient` 层的 AutoJoin/JoinNetwork 入口；拿到服务端门槛后补齐 mwjoin 参数。
