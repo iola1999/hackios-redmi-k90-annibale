@@ -221,3 +221,20 @@ python3 tools/k90auto/screenrec.py docs/progress/evidence/k90auto/kernel-NAME-LA
 - 录制尺寸为面板的三分之一（385×836），缓冲约容纳 104 帧，每秒 10 帧时约 10 秒。
 - 每帧左上角印估算的北京时间和内核时间，`frames.jsonl` 每行记一帧的内核时间，用于和日志对时。
 - 启动参数 `wifi_quiet=1` 关掉 Wi-Fi 驱动每次扫描打印的邻近网络列表，日志环能覆盖更长时间。
+
+## 11. 常见失误与排错
+
+日常操作里反复出现的坑记在这里，新踩到的继续往后补。
+
+- 解释器：所有 `tools/k90auto/*.py` 用 `/Users/fan/miniconda3/bin/python3` 调起。系统 Python 没有 NumPy，直接 `./rsh.py` 执行报 Permission denied。
+- `--kernel` 不带 `kernel-` 前缀：`cycle.py --kernel 12377-say16`。写成 `kernel-12377-say16` 会按 `kernel-kernel-12377-say16/kernel.json` 找登记文件，或生成双前缀轮次目录。
+- `--boot-args` 只放本轮要测的诊断参数。`FIXED_ARGS` 已含 GPU、120 Hz、触摸、Wi-Fi、`bt=4`、`ufs_write=1`，`fbwidth fbheight fbpitch` 由 `cycle.py` 追加在最后。把整组参数再写进 `--boot-args` 会让 cmdline 翻倍超过 `kern.bootargs` 的 1024 字节，`init` 的 `boot_arg()` 全部返回 NULL：`flash_root` 被跳过，iOS 根卷不挂载，随后 `init: camera resource mount failed: No such file or directory` 停机（kernel-12377-say16-ubo13 实测）。日志特征：`=== init ===` 之后整段 iOS 根卷挂载输出缺失。
+- 标签一次性：`make-payload.py` 断言 `kernel-<内核>-<标签>/` 不存在，失败的轮次也占住标签，重跑换下一个标签。
+- `rsh.py` 两种走法：`rsh.py ROUND_DIR 命令` 经 `run-auto.py` 转发；`rsh.py - 命令` 对 `reboot.json` 里 `left: running-held` 的留机轮直连 `fastboot oem sh`。命令正文 ≤119 UTF-8 字节。输出经日志通道取回，有数秒延迟；`rsh: exit 3` 加 `no end of the output in cmd-N.log` 时去 `run/cmd-N.log` 或后续 `s*.log` 找输出。`rsh: exit 127` 表示设备侧命令不存在，通道本身正常。
+- 设备侧命令集：根盘没有 `killall`、`ps`、`kill`、`echo` 这些常规工具，进程和文件操作走 `/annibale/bin/annsh` 内建：`restart 名字...`（SIGKILL 后由 launchd 拉起，冷启动某个守护进程的标准做法）、`ps`、`kill PID SIG`、`cat`、`ls`、`rm`、`mkdir -p`、`chmod`、`sysctl`、`pull`、`outbox`、`inbox`、`process`、`maps`、`threads`。完整列表在 `hackios-xnu-userland/userland/src/apps/annsh.c` 的命令表。`annsh` 不带参数和 `annsh help` 都进交互模式挂住，不要跑。
+- `oem` 是 loader 侧 fastboot 命令，经 rsh 发给 annsh 会报 `oem: No such file or directory`。运行中截图用 `shot-now.py ROUND_DIR`（写 `run/shot-request`，run-auto 拍回 `shot-N.raw`），原始帧按 1156×2510 BGRA 解码：`ffmpeg -f rawvideo -pix_fmt bgra -s 1156x2510 -i shot-N.raw out.png`。
+- UI 操作前先确认屏幕状态：屏幕熄灭时 `trollstorehelper open` 返回 `NOT OPENED`，触摸注入也可能没有界面响应。可靠顺序：`anntouch tap 0.5 0.5`（熄屏时该点按即唤醒，`TOUCH_MODE_WAKE`）→ `shot-now.py` 等几秒截图解码确认非全黑 → `anntouch notify com.annibale.unlock` 解锁到主屏（`autounlock=1` 只在开机时解锁，熄屏后回到锁屏）→ `trollstorehelper open com.apple.camera` 或锁屏右下相机按钮 `anntouch hold 0.82 0.91 900` 长按。相机照片模式快门在 `anntouch tap 0.5 0.83`；拍照是否发生看 `emit` 日志行和 DCIM 新文件。
+- 冷启动相机测首拍：`annsh restart cameracaptured Camera` 后立刻开相机点快门，会话初始化提交在 GPU 排队最久，是复现跨命令缓冲时序问题的窗口。
+- `respin.py ROUND_DIR --stop` 只对 running/held 轮次有效；报 `is not a running round` 时先 `fastboot devices` 与 `getvar product` 读设备实际状态。
+- `/annibale` 分区只读挂载：热替换库不可行（`annsh pull` 写不进），改库必须重新 `package.py` 打包开新轮。
+- 主机侧：macOS 没有 `timeout` 命令；`cat -A` 不支持（逐字查看用 `sed -n l`）；`fetch.py` 取设备文件，`fetch-recording.sh` 取录屏。
