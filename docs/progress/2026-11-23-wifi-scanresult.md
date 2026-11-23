@@ -76,3 +76,11 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - `sub_1000CFF3C` 共 9 个调用点，其中 `0x1000e4bb8` 是一个 op=1026 的 block（队列任务），`0x1000c7c40` 是 ColocatedSSID 通知回调，`__associate` 是 op=手动；剩余 `sub_1000DB0A4`(0x28c)、`sub_1000F317C`、`sub_1000FF11C`、`sub_10018074C`、`sub_1001A2D38` 未展开。
 - 工作假设（待证）：`WiFiDeviceClientAssociateAsync` 走 `WiFiDeviceAssociateAsync`/`...WithCommand` 操作码，进 `__WiFiDeviceAssociateAsyncQueued` 排队器，由 auto-join 引擎在下一次自家扫描出匹配 scanResult 时才放行；我们传的是已知网络持久化记录（无 scanResult/BSSID/IE），且当时已是关联状态（`AutoHotspotStatusAlreadyAssociated` 分支）。引擎既无新扫描结果可用、又可能以「已关联同 SSID」跳过，于是请求挂起不报错。
 - 下一步：反汇编 `sub_1000DB0A4`（队列排空函数）看放行条件；并行试 `leave` + 由 wifid 自家扫描产生 scanResult 后再调 `AssociateAsync`（或改发 `WiFiDeviceAssociateAsyncWithCommand` / 同步 `Apple80211Associate`），让请求带得上 scanRecord。
+
+## 9. tgl30：补上 `ScheduleWithRunLoop` 后扫描回调通，scanResult 记录仍不放行
+
+- **此前各轮还有一个更浅的客户端缺陷**：MobileWiFi 客户端要先 `WiFiManagerClientScheduleWithRunLoop(client, runloop, mode)` 把 XPC 连接挂到 runloop，异步回包才会派发。未调度时 `ScanAsync` 返回 0、wifid 侧确实扫描（`WiFiSettlementObserver ... client='a80211_test'`），但回调函数一次都没跑——tgl14–tgl25 里 `AssociateAsync` 的完成回调同理从未送达。
+- 修正后（`mwxjoin`：`ScheduleWithRunLoop` → `ScanAsync` → 在回调里取扫描结果记录 → `AssociateAsync(device, scanRecord)`）：扫描回调正常返回 8 个结果（`166666666_5G` 在 0/1 位），`AssociateAsync(scan-record 0x101459f70) -> 0`。
+- 但 wifid 仍没打 `starting forced association scan`、没发 `sets 20`；16:03:14 只出现 `network session ended/started`（22 ms 间隔、无底层 ioctl，属会话记账事件）。即把记录换成真正的 scanResult 形态后，`AssociateAsync` 请求仍没到 `WiFiDeviceManagerUserForcedAssociation`——§8 的「记录形态门槛」假设被部分证伪，断点在 op-code 分发更上游。
+- 顺带观测：客户端退出仍触发 `cleanup state`；`mwxjoin` 全程存活已排除这条干扰。
+- 下一步：反汇编客户端 `_WiFiDeviceClientAssociateAsync`（0x264b62074）取它实际发出的 op-code 和参数字典键，再到 wifid 找对应 handler 的前置条件；不要再按「记录形态」猜参数。
