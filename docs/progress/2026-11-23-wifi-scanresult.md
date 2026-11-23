@@ -84,3 +84,6 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - 但 wifid 仍没打 `starting forced association scan`、没发 `sets 20`；16:03:14 只出现 `network session ended/started`（22 ms 间隔、无底层 ioctl，属会话记账事件）。即把记录换成真正的 scanResult 形态后，`AssociateAsync` 请求仍没到 `WiFiDeviceManagerUserForcedAssociation`——§8 的「记录形态门槛」假设被部分证伪，断点在 op-code 分发更上游。
 - 顺带观测：客户端退出仍触发 `cleanup state`；`mwxjoin` 全程存活已排除这条干扰。
 - 下一步：反汇编客户端 `_WiFiDeviceClientAssociateAsync`（0x264b62074）取它实际发出的 op-code 和参数字典键，再到 wifid 找对应 handler 的前置条件；不要再按「记录形态」猜参数。
+- 追加实验（同轮 cmd-20）：先 `WiFiDeviceClientDisassociate`（wifid 确实把链路断了，`the link, 0`），再用扫描记录调 `AssociateAsync`，仍无强制关联扫描、无 `sets 20`——「已关联短路」假设也证伪。注意 wifid 的 WFLog level-3（`Enqueuing command`、`starting forced association scan`、`Currently associated` 同属此级）在本日志里不显示，只能用副作用判定。
+- 服务端路径已定位：`WiFiDeviceAssociateAsync`/`WithCommand` → `sub_10006594C`/`sub_1000659DC` → `__WiFiDeviceCommandEnqueue`（`sub_1000297A0`，命令入设备队列，队列泵是 `__WiFiDeviceDispatchQueuedAssociationEvent`/`sub_10006AA48`）→ 执行时进 `WiFiDeviceManagerUserForcedAssociation`（`sub_1000DAD08`，先强制扫描，回调 `sub_1000DB0A4` 用 CFEqual 比对扫描结果再调 `sub_1000CFF3C`）。断点在「入队后队列泵是否放行」或更上游的 XPC 分发：断开后强制扫描连 `sets 10` 都没发，说明命令没排到执行或排在了一个不放行的状态。
+- 下一步收窄为：反汇编队列泵 `sub_10006AA48`（0x748 字节，含 `__WiFiDeviceDispatchQueuedAssociationEvent` 引用）看它的放行条件（设备状态字 +52、pending 门、power 门），以及 `WiFiDeviceClientAssociateAsync` 的 XPC op 是否真的落到 `sub_10006594C` 入口。
