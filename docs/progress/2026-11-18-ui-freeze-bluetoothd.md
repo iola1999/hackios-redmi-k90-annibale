@@ -66,5 +66,11 @@
 - 04:45 那次开机里 bluetoothd 经 Skywalk 通道（`btsk_sync_tx` → `bt_ios_put`）发出 HCI 命令，这条路径不检查 `bt_serving`，芯片没有就绪时也会写 UART。该开机里这些命令出现在下载停住之后，不是停住的原因。
 - 停住的开机之后接着驻留开机，三次都停住；中间跑过一轮 k90auto 再驻留开机，两次都成功。
 - 每次开机 PCIe 上电在 H 步读到的 BT_EN（PM8550VE GPIO3）「as found」都是低电平（`DIG_OUT_SOURCE_CTL 0`、下拉），成功与停住的开机相同，芯片每次都从断电状态开始，「芯片状态跨热重启保留」排除。
-- 下一步：在停住的开机里用 `kern.annibale.thread_dump` 取内核线程的等待位置；下载循环按片打印进度以确定停在第几片；对比 loader 的 `oem run` 与自动启动两条路径在 BT 拉起期间的差异（时序、并行的 UFS 读写与外设初始化）；`bt_ios_put` 在芯片就绪前不写 UART。
+- 11-23 复查停住日志（`out/handover-2026-11-18/final/`）得到的新证据：
+  - 停住点不固定：`attempt1` 停在 0%，`boot`、`last2` 停在 25% 之后，即下载中途随时冻结，不是固定在某片。
+  - 停住期间串口输出完好：ath12k 扫描、GPU、电池日志在 `unanswered` 行之后持续到 +622 s，`mhi_pcie_say`（无锁、直通 `printf`/`loader_log_line`）没有卡。
+  - `bt_ios_put` 的并发 UART 写（旧内核不查 `bt_serving`）首次出现在停住后约 46 s，时间上排除为停住原因。
+  - 代码路径全查过：`hci_send`→`annibale_bt_uart_write` 内两个等待循环都有 1000 ms 绝对截止且超时会打印，`hci_event`/`hci_cmd` 有 `wait_ms` 上限，循环体其余是寄存器读写与 memcpy。线程要无声停住，只剩两类位置：卡在没有超时的 MMIO 访问上（写入打到时钟被关的块，posted write 在 fabric 里永不完成，CPU 停在 `wr()` 里，读侧的外部中止不会发生因为走不到），或被调度层停在某处。
+  - 共享时钟嫌疑：SE14（0x898000）与传感器 SE10/SE12（0x888000/0x890000）同在 QUPv3 wrapper-2。`annibale_sensors.c:16-22` 记录这些总线可路由给 ADSP/SLPI，且 wrapper-2 支路时钟存在被关断的状态（`CLK_OFF`）。驻留开机跑全量驱动初始化（含 ADSP/传感器），`oem run` 轮次的任务集不同——与「只有驻留开机停住」吻合。候选机制：另一初始化路径在下载中途撤掉 wrapper-2 支路时钟或改总线路由，`uart_write` 开头的 `wr()`（M_IRQ_CLEAR/TX_TRANS_LEN/CMD0）挂死在 fabric 里。
+- 下一步：驻留开机里用 `kern.annibale.thread_dump` 取内核线程的等待位置；下载循环按片打印进度并周期性回读 `GCC_QUPV3_WRAP_2_M_AHB_CBCR`/`S_AHB`/`SE14` 状态——若停住前最后读数显示 wrapper-2 时钟仍开则排除时钟路径，若仪表线程自身在读 SE14 时也冻结则坐实 fabric 停滞；对比 loader 的 `oem run` 与自动启动两条路径在 BT 拉起期间并行运行的驱动集合（重点是 ADSP/SLPI 与传感器初始化是否在轮次中被跳过）；`bt_ios_put` 在芯片就绪前不写 UART。
 
