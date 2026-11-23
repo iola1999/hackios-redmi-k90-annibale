@@ -39,6 +39,10 @@
 
 同日深挖（`ubo3` 内核与 mediaserverd 日志）：每次快门实际产生**两张**静态图——请求字典里 `GenerateRedEyeAuxiliaryImage = 1`，`stills_wanted += 2`，第一张静态图（`StillImage Y 9~11`，Cb/Cr 中性）是红眼辅助帧并带 `RedEyeAuxiliaryImage` 附件标记，第二张（`Y 147~158`，Cb 115 Cr 109 偏绿）是照片帧。两张都进 `BWStillImageCoordinatorNode`，`BWPhotonicEngineNode` 每次拍摄只产出一张 2352×1764，`BWPhotoEncoderNode` 编出一张 4032×3024。会话首拍存出的暗绿（0/18/0，与照片帧同色相、亮度约十分之一）有两个候选解释：协调器把第一张红眼辅助帧错当照片帧（其会话级「哪张是主帧」状态未初始化），或 PhotonicEngine 首张处理时读到未写的参数/融合权重把 Y147 帧压暗。下一步：对照首张与第二张进入协调器/引擎的样本缓冲与附件（`emit_sample_buffer` 已在 `inject_media.c` 有挂点，给附件里的 `RedEyeAuxiliaryImage` 与捕获计数加日志即可定别）。
 
+11-23 再进一轮（`ubo11`，emit 探针加了 `surf=` IOSurface 号与派发绑定表）：冷会话首拍 `IMG_0104` 仍为暗绿（0.2/2.5/20.0），emit 链定别——协调器交的照片帧亮度正常（`s369` lum=185），`BWPhotonicEngineNode` 输出的 `s367` 在 emit 时读 0，编码器输出与成片随之全零；同轮较亮的会话（首拍 `IMG_0103`，172/191/208）对照组绑定表完全一致（含此前怀疑的 1 字节分支旗标 `buf4=1`），排除「辅助帧错选」与「旗标差异」。写 `s367` 的是全尺寸 `VarianceSharpening_kernel_5x5`（tex0=s369 输入、tex13=s367 输出）。两个关键时序读数：暗拍时处理链提交在 GPU 上排队 0.8~1.4 秒，emit 发生在 `commit 262`（写 `s367` 的那个提交）完成约 600 ms 之前；提交完成后的回读探针显示 `s367` 中心像素非零、签名与亮会话 `s236` 相同——GPU 确实把数据写进了面。亮会话里 emit 同样先于尾部提交，但读到的是真实数据（`s236` 的写入在更早提交落地）。目前解释面最窄的模型：首拍 GPU 队列长时，下游消费者（编码器的 CPU 侧读或快照）在 `commit 262` 落地前取面，取到的是空面；后续拍摄队列短，写入先于读取，成片正常。`waitForFence:`/`updateFence:` 在 compute 编码器上是空实现（`annibalemetal_compute_argencoder.inc`），若 iOS 用 MTLFence 跨编码器排序，这是一处已知未覆盖的原语。
+
+ubo12（探针升级为 4×8 块、带 `mx`/`sum` 真值）把上面的模型坐实了：冷会话首拍再次复现 emit 链——协调器交 `s221`（lum 161），引擎输出 `s218` emit 读 0，编码器读 0，成片黑。但 `VarianceSharpening` 写 `s218` 的 `commit 346` 完成后，面内中心块 `nz=32 mx=161 sum=5065`（均值约 79）——**面里有真照片，融合核写入正确**。同一面在同会话第二拍 emit 读 168、成片正常。两条决定路径的证据：emit 触发点位于 `cp333`（181.5 s）与 `cp335~338`（184.2 s，含 2.4~2.6 s 的排队）之间，即 emit 时仍有 20+ 个提交在飞；且 `s218` 全程只作 GPU 写目标（tex13），没有任何 GPU pass 把它绑定为输入——**编码器是 CPU 侧读 IOSurface**，其读数发生在写入提交落地之前。根因即「消费方 CPU 读面早于 GPU 写入完成」，与修复点 4/5 同属跨命令缓冲时序问题，但缺口在 CPU 读取一侧：iOS 依赖的「产出面→消费方读」之间的完成传递在我们栈里没有等效实现（候选落点是 IOSurface/CVPixelBuffer 锁路径或 Fig 样本缓冲就绪路径，待对照原生契约定）。
+
 「照片」网格空白（G25）与照片内容无关，仍按原待办跟踪。`mediaanalysisd` 的 `VTMTSComputeFunction1x1` 因没有设置线程组内存长度被拒，影响照片分析，仍未处理。
 
 ## 2. 对焦马达异响
