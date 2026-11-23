@@ -44,3 +44,18 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - 待确认：`standing` 的持久性漏洞仍存在理论风险——`ask_join`（`:399`）把 standing 移入 fallback 并清零，若排队的 join 被 `ask_leave`/`ask_power(0)` 取消（`:418-420` 清 asked_join 与 fallback），standing 永久归零，且 worker 的 `standing_checked` 只加载一次。当前真机未观察到 wifid 发 `sets 20`，该序列未触发，暂不改动。
 - 待确认：图标像素级验收。`sb26 layer` 的 `a=` 是图层透明度，无法区分实心/灰；本轮冻结（177.6 s）先于脚本收尾，需要截图轮判定。wifid 实况已正确，图标大概率随 CC 自身动作重评估而转实心。
 - 残留问题：显式 leave（`sets 22`，非电源周期）后 wifid 只扫不 join——type-1 observer 恒 `{()}` 使 auto-join 无候选。这是另一条断连路径，与 CC 电源路径分开。
+
+## 5. tgl12/tgl13：图标像素证据；WCL 事件实验证伪（证据目录 `kernel-12377-scanev-tgl13/`）
+
+- 像素证据（tgl12，帧解码为 PNG 裁状态栏）：基线关联中 Wi-Fi 图标实心白；`mwpower 0/1` 电源周期重连后（`join over,0`+`link,1` 已发 21 秒）图标仍灰——内核链路全通、wifid 实况查询全对，SpringBoard 仍显示「Wi-Fi 开、未关联」。图标灰 = wifid 不把内核代办的关联记为自己的「已关联」，与 type-1 observer 恒空同源：wifid 自己不发起 join，关联状态位无人置。
+- 所谓「~178 s 冻结」部分回合实为自动熄屏：`Notify Blanked: YES` 后无新帧被看门狗记为冻结，设备继续运行（后续 mwclient 仍返回重连后网络字典）。周期 `anntouch tap` 可点亮屏幕。
+- tgl13 实验：SCAN_DONE 时按 heard 逐条 post 事件 201（疑 WCL_SCAN_RESULT），载荷用与 gets-11 相同的 apple80211_scan_result 序列化（2272 字节）。结果：type-1 observer 仍全部 `results='{(\n)}'`，与实验前无差别。事件码、载荷布局、投递家族三项至少一项不符，已整体撤回该改动。
+- 附带确认：`WiFiSettlementObserver._handleScanResults` 的 `results` 是已过滤集合，不是原始扫描结果——即便数据进了 wifid，显示的也只是「对本次结算有用的网络」。
+
+## 6. tgl14：扫描请求 FIFO 生效，type-1 observer 仍空（证据目录 `kernel-12377-scanq2-tgl14/`）
+
+- 根因再收敛：wifid 在 link-up 后同一毫秒连发 `type 1(11ch) + type 2(3ch) + type 2(3ch,flags 0x2) + type 3(96ch)` 四个 SCAN_REQ，内核 `asked_scan` 只有一格，后到的覆盖先到的——只有 type-3 真跑，type-1 扫描从未执行。
+- 修复：`annibale_sta.c` 挂起扫描改 8 槽 FIFO，逐个执行、按序发 SCAN_DONE（内核 `53271fc3`）。tgl14 实测：type-1 的「11 channels, asking, 110 ms」扫描真实跑完（903 ms，15 AP），后续 type-2 扫描也各跑各的。
+- 但 type-1 observer 仍 `results='{(\n)}'`（13:19:05.669）——type-1 扫描真实执行并产出了 15 个网络，observer 集合依旧空。剩余差异收敛到 wifid 侧：要么是 ingest 前的过滤（结算观察者只保留「可作自动加入候选」的网络，`166666666_5G` 若不在 wifid 已知网络库则滤光），要么是 type-1 结果的分发路径与 type-2 不同。`ingestScanResults` 输入是 WiFiNetworkRef 数组，其调用方（扫描监视器按请求类型分发）待反汇编确认。
+- 旁证：type-2 observer 在 FIFO 后拿到全部 15 个真实网络对象，含 `166666666_5G` RSSI=-22——结果管道本身健康。
+- 状态：A7 的 CC 电源周期路径（链路、wifid 实况查询、约 330 ms 重连）已验证闭合；图标灰与显式 leave 后不复连仍开，根因收敛为 wifid 侧 type-1 结算观察者无候选网络——下一步查「已知网络库是否含 standing 网络」与 `ingestScanResults` 调用方的分发逻辑。
