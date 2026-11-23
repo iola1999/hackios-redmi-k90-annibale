@@ -89,3 +89,26 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - 下一步收窄为：反汇编队列泵 `sub_10006AA48`（0x748 字节，含 `__WiFiDeviceDispatchQueuedAssociationEvent` 引用）看它的放行条件（设备状态字 +52、pending 门、power 门），以及 `WiFiDeviceClientAssociateAsync` 的 XPC op 是否真的落到 `sub_10006594C` 入口。
 - 队列机制已查清：`sub_10006AA48` 实际是**关联完成回调**（os_log 输出 `Completed Apple80211AssociateAsync`/`%s Joined:`/`Failed to join`，完成时调 `device+4088` 存的完成函数）。执行侧是 `__WiFiCommandQueueCallback`（`sub_100029DBC`，10 KB 命令分发 switch）：associate 命令进 `__WiFiDeviceAssociateAsyncQueued` 分支（先打 level-3 `Starting %d second(s) timer`，再按 `sub_1000A4BE4`/`sub_10000A850` 网络检查选 EAP/普通路径）。tgl30 全程没出现完成回调的 os_log——**命令进了队列但从未执行**：`Enqueue` 只挂进 `device+176` 队列，靠 `__WiFiCommandQueueTimerCallback`（`sub_1001A61A0`）驱动；断开后队列泵可能因前一个关联挂起（`device+5320` in-flight 标志在完成回调里才清零）或 timer 未重新武装而停摆。
 - 剩余卡点（精确）：入队到 `sub_100029DBC` 分发之间——查 `sub_100029A58` 入队后谁武装 timer、`sub_1001A61A0` 的触发条件，以及 `device+5320` in-flight 清除时机。这是纯 wifid 用户态问题，与内核驱动无关；原生路径（设置里点选网络）在真机上可用，说明我们的请求缺了原生客户端会填的某个字段或顺序（比如先 `AssociateCancel` 清 in-flight）。
+
+## 10. tgl31/tgl32：灰图标的像素对照与事件载荷根因（内核侧）
+
+- **像素对照成立**（tgl31，say3 内核）：开机 standing 重连后桌面截图 `shot-00789` 的 Wi-Fi 扇形实心白；同一轮 `mwpower 0/1` 电源周期、内核 `the link, 1` 重连成功后，`shot-03689` 的扇形为半透明灰。两条路径内核状态相同，差别在 wifid 学到的关联状态。
+- **机制差异**：开机时 wifid 在 join 事件之后启动，靠 `gets` 主动查到当前网络；电源周期时 wifid 活着收到 kev 事件——而内核发 `EVENT_SSID_CHANGED`/`EVENT_BSSID_CHANGED` 的载荷是 `NULL, 0`，`EVENT_POWER_CHANGED` 同样空。wifid 按空 SSID 事件把「当前网络」清掉，图标转灰。
+- **修复（内核 `12377-say4`）**：`annibale_apple80211.c` 三处改——
+  - `ANNIBALE_STA_LINK` 分支：`SSID_CHANGED` 带 `apple80211_ssid_changed{version, ssid_length, ssid[32]}`，`BSSID_CHANGED` 带 `apple80211_bssid_changed{version, bssid[6]}`，link-up 时填 `state->bss`，link-down 时留空（原生语义：断开即清空）。
+  - `ANNIBALE_STA_POWER` 分支：`POWER_CHANGED` 带 `apple80211_power_changed{version, state}`。
+  - `sets 564`（FILTER_MONITOR_EVENTS）分支同样改填。
+- 验证轮 `tgl32`（say4）：开机 standing 重连 → `mwpower 0/1` → 查 `the link` 与 wifid `gets 1/9` → 截图判图标像素。
+- 遗留（未变）：`AssociateAsync` 入队不执行的服务端卡点仍是 §9 的状态——本修复针对「内核代办关联后 wifid 状态学不到」的图标灰，两者是同一症状的不同层面：图标转实心后 `AssociateAsync` 不通仍是独立待办。
+
+## 11. tgl32/tgl33：图标灰修复（say5：POWER 事件延迟到 standing join 完成）
+
+- **say4 实验结论（tgl32）**：SSID/BSSID/POWER 事件载荷填上后，关开 Wi-Fi、内核 `the link, 1` 重连成功，图标**仍灰**（shot-05695 同 say3 表现）。事件载荷完整化是原生对齐的改进（保留），但单独不置 wifid 的关联状态位。
+- **决定性实验（tgl32）**：关联状态下 `restart wifid` → wifid 重启枚举到 JOINED → 图标转实心（shot-07049）。与开机实心同一机制：wifid 只在其枚举设备状态的时机把「已关联」记进自己的状态机。
+- **根因定版**：`sets 19 power:on` 后 wifid 立即枚举设备状态（日志 8794–8827 一串 gets），而内核把 POWER(1) 事件在 `ops->power()` 返回时即发——枚举全部落在 standing join 完成之前（全部 error 6，STATE=0）。原生 iOS 的关联由 wifid 自己发起，本就不存在这个窗口；我们的 standing 重连是内核代办，POWER(1) 必须等 join 完才能让枚举查到 JOINED。
+- **修复（say5，`annibale_sta.c`）**：power-on 且 standing join 会排队时，POWER(1) 事件挂起（`power_report_pending`），在 join 完成时先于 JOIN_DONE/LINK 补发；`ask_power(0)` 取消排队 join 时丢弃该挂起（POWER(0) 照常），`ask_leave` 时补发（radio 仍开，事件不能再等）。
+- **tgl33 真机验收**：
+  - 时序：`sets 19 on` → `power, 1` 紧贴 `a join is over, 0` + `the link, 1` 出现（延迟生效）。
+  - wifid 枚举：`gets 103 CURRENT_NETWORK answered`、`gets 13 STATE=4`（JOINED）、`gets 1 SSID` 返回 12 字节（"166666666_5G"）、`gets 9 BSSID` answered；configd 同查同答。
+  - 像素：唤醒+解锁后 `shot-01435` 状态栏 Wi-Fi 扇形**实心白**，与 say3 灰图（tgl31 shot-03689）逐项对照成立。
+- **边界**：修复的是「内核代办关联对 wifid 可见性」的时机问题；wifid 自家 `AssociateAsync` 队列不执行（§9）与 type-1 observer `{()}`（§6）是独立待办，本修复不含它们。图标实心的机制是「枚举时关联已成立」，wifid 内部关联状态位的具体字段未逐字节核对。
