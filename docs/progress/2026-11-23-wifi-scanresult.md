@@ -68,3 +68,11 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - 卡点：`WiFiDeviceClientAssociateAsync(device, net, opts, cb)` 各形态都返回 0 但 wifid 从不发 `sets 20`：临时 net/持久化记录（tgl25 `stored 0x100c20ac0`）、opts=NULL/{password}、关联中/leave 后未关联、客户端退出（tgl22 日志证实退出触发 `__WiFiServerClientTerminationCallback ... cleanup state`，挂起关联被回收）vs 存活 30 s（tgl23/25 全程无 sets 20）。wifid 受理请求到发 Apple80211 ASSOCIATE 之间还有内部门槛（UnifiedAutoJoin 状态机或关联参数预填充），IDB 会话反复断线未取到该路径。
 - 图标因果链完整：内核 standing join 恢复链路但 wifid 关联状态位无人置 → 图标灰（tgl12 像素证实）；修复方向只剩「让 wifid 自己完成一次关联」或「找到 wifid 认定的等价关联登记入口」。
 - 下一步（待做）：反汇编 `WiFiDeviceClientAssociateAsync` 的服务端处理（wifid 内 `__WiFiDeviceManager*` 路径，含 `UnifiedAutoJoinIsStateSuitableForNetworkTransition` 判定），或试 `WiFiManagerClient` 层的 AutoJoin/JoinNetwork 入口；拿到服务端门槛后补齐 mwjoin 参数。
+
+## 8. tgl25 之后：AssociateAsync 为什么从不发 sets 20（wifid 反汇编，部分结论）
+
+- 实测：`WiFiDeviceClientAssociateAsync` 返回 0、客户端进程存活 30 s、已知网络表里有 `166666666_5G`（isWPA=1 enabled），wifid 仍然既不打 `[corewifi] __associate Manual Association Requestion` 也不打 `Attempting Apple80211AssociateAsync`——低层关联从未开始。
+- `-[WiFiXPCManager __associate:XPCConnection:]`（0x100105fd0）是手动关联的 XPC 入口：它要求请求参数里 `scanResult`→`scanRecord` 非空，合成关联字典后调低层 `sub_1000CFF3C`（= `WiFiDeviceManagerAssociateAsync` 本体，0x1000cff3c，内部含全部 policy/auto-join 判定与 WFLog）。我们的调用没走这条路。
+- `sub_1000CFF3C` 共 9 个调用点，其中 `0x1000e4bb8` 是一个 op=1026 的 block（队列任务），`0x1000c7c40` 是 ColocatedSSID 通知回调，`__associate` 是 op=手动；剩余 `sub_1000DB0A4`(0x28c)、`sub_1000F317C`、`sub_1000FF11C`、`sub_10018074C`、`sub_1001A2D38` 未展开。
+- 工作假设（待证）：`WiFiDeviceClientAssociateAsync` 走 `WiFiDeviceAssociateAsync`/`...WithCommand` 操作码，进 `__WiFiDeviceAssociateAsyncQueued` 排队器，由 auto-join 引擎在下一次自家扫描出匹配 scanResult 时才放行；我们传的是已知网络持久化记录（无 scanResult/BSSID/IE），且当时已是关联状态（`AutoHotspotStatusAlreadyAssociated` 分支）。引擎既无新扫描结果可用、又可能以「已关联同 SSID」跳过，于是请求挂起不报错。
+- 下一步：反汇编 `sub_1000DB0A4`（队列排空函数）看放行条件；并行试 `leave` + 由 wifid 自家扫描产生 scanResult 后再调 `AssociateAsync`（或改发 `WiFiDeviceAssociateAsyncWithCommand` / 同步 `Apple80211Associate`），让请求带得上 scanRecord。
