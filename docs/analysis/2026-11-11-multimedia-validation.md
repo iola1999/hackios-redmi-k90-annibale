@@ -194,6 +194,17 @@ SMMU 配置开始前记录 `smmu_owned` 和 CB／SMR 索引，setup 中途返回
 
 新 loader 已按该提交隔离构建，嵌入 EFI、XNUP 和 build-id 校验通过；参考镜像的 shim、FD、DTB 与 ramdisk 逐字节相同。临时启动在 31.583 秒内完成，重新枚举后立即执行 recovery，独立核验 build-id、`product=xnuloader`、`result=idle` 和空的常驻区；没有刷写分区。完整安全内核候选已构建，仍待真机复核。
 
+### 12.1 播放结束后的 VPU 停机（11-24）
+
+以前，即使 PAS 9 成功关闭固件且 SMMU 已清理，内核仍保留「VPU DMA 完成未确认」标记。`iris1` 硬解 H.264 后读取了四个处理管线的空闲寄存器，PAS 关闭前后均为 `0x7b07ff`，均有 DMA 空闲位。内存 NoC、CPU NoC 和控制 NoC 当时的状态分别为 0、4、0，两个电源域仍在供电，本轮返回 `returned-held`。
+
+现行实现沿用 SM8750 原厂 Iris 3.5 的停机顺序。PAS 关闭后，检查四条管线的 DMA 空闲位，等待内存 NoC 确认低功耗请求，复位 AHB 桥并关闭 MVS0。随后等待 CPU 和控制 NoC 确认，释放调试桥，关闭 MVS0C。两个电源域均须读回断电完成，SMMU 路由与 TLB 仍需通过各自的检查。无法确认的状态继续保留资源。原厂顺序见 [SM8750 视频驱动](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8750/blob/d50b305f7da9e14715a25120a4ac7b1a4b8b97c3/vendor/qcom/opensource/video-driver/driver/variant/iris35/src/msm_vidc_iris35.c)。
+
+- `off1` 和 `off2` 各硬解 H.264 30 帧，均收到 30 次有效回调。两次停机均记录四管线空闲、三个 NoC 确认和两个电源域断电，loader 返回 `returned`。两轮之间按测试工具的正常流程软件复位并重新启动。
+- `off2` 另用标准 Main 8 位、每帧内容变化的 HEVC 测试 320×192 及 322×194 两种尺寸。每种 8 次提交、8 次回调，均要求并实际使用硬件解码。按显示时间匹配，全部 16 帧的有效 NV12 像素哈希与 FFmpeg 软件解码一致。
+- 标准完整构建 `irisfinal1` 另行验证了 HEVC 8 帧硬解，停机再次确认四管线、三个 NoC 和两个电源域，返回 `returned`。
+- 以上 HEVC 样本未覆盖 Main 10、中途排空或分辨率动态切换。34 个宿主测试覆盖 PAS、SMMU、VPU 空闲、NoC 超时、断电超时和无效时钟读数。移除保护的 9 组变体均被测试捕获。
+
 ## 13. VideoToolbox 内部参数生命周期
 
 原生 `VTDecompressionSessionCreateWithOptions` 在 `0x1903b8b98` 将 context 内部地址传给 `start_session`；`decode_frame` 在 `0x19018eae0` 接收 context 计数器生成的整数帧 token。驱动原有 `CFRetain`／`CFRelease` 要求 CF 对象头，与这两类参数的调用契约冲突。
