@@ -38,7 +38,8 @@
 | `12377-s21-prdt1` 内核 | XNU 26 编译、链接成功 |
 | 主机参考文件 | 完整词典 14,906,940 字节，SHA-256 为 `1f46217be9fb55f7eae09e8081dcf91d665a6d097fe5b44bff293fbabf6d40c1` |
 | 压缩片内容 | 同步读出的 piece 113 解压后与参考文件对应区间逐字节相同 |
-| 修复后真机 | `kernel-12377-s21-prdt1-device1` 以 4 KiB 为单位读取完整词典，字节数与 SHA-256 均与主机参考文件相同 |
+| 修复后真机 | `kernel-12377-s21-prdt1-device1` 以 4 KiB 为单位读取完整词典，字节数与 SHA-256 均与主机参考文件相同。`pagein_test2` 对同一文件报告 `bad_blks=0 first=-1` |
+| `searchd` | 同轮两次进程查询均为 PID 221。CrashReporter 中最新一份 `searchd` 报告生成于 10:18:58，早于本轮 11:10 启动 |
 
 ## 5. locationd 写入异常
 

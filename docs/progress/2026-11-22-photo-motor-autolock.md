@@ -61,7 +61,17 @@ ubo15（钩子扩到 `IOSurfaceGetBaseAddress(OfPlane)` 并记调用方；emit �
 
 消费者的真实读路径仍未在任何被钩 API 上露面（静止面的 `pwrite call` 零记录）；预览面的钩子确实工作——`SuperResolutionV2.bundle` 走 `CVPixelBufferLockBaseAddress`+`IOSurfaceGetBaseAddress`，驱动内部取面指针走 `IOSurfaceGetBaseAddressOfPlane`。编码器侧走的应是缓存指针或更深私有路径，emit 交接点等待覆盖了它：面在移交编码器前内容已落地，之后任何读法都读到真值。
 
-「照片」网格空白（G25）与照片内容无关，仍按原待办跟踪。`mediaanalysisd` 的 `VTMTSComputeFunction1x1` 因没有设置线程组内存长度被拒，影响照片分析，仍未处理。
+### 1.1 真机复核与拼接函数（11-24）
+
+`ubo59` 拍出的首张 HEIC 为 4032×3024、440,758 字节。解码后全图平均 Y/Cb/Cr 为 169.93/123.45/134.92。相机插件报告的两张静态输入分别为 126/127/130 和 158/124/136。相机缩略图、图库最后一格与单张浏览均显示了拍摄的封面。单张浏览里还有零星彩点。
+
+Core Image 的 `ci_filters_stitchable.metallib` 包含 47 个 `_drr_*` 可见函数。检查这些函数的 AIR 均未发现函数常量声明。例如 `_drr_multiply` 将两个输入颜色逐分量相乘。旧驱动仍将按名称传入常量的请求送到 Metal 特化。相机日志记录了函数查找失败，并笼统报告所有常量取零。
+
+驱动从原库取得可见函数后，如果调用方只按名称请求特化，且反射字典明确显示声明了零个函数常量，就直接返回该函数。带描述符的请求可以指定新名称和编译选项，仍需处理描述符。
+
+在 `kernel-12377-s21-prdt1-device1` 上，用独立进程加载候选驱动，对 `_drr_multiply`、`_drr_specular`、`_drr_mmi` 调用同一个 Metal 接口。三个函数的反射字典均为空，查找均成功，返回类均为 `_MTLFunctionInternal`，与 Mac 原生 Metal 的结果一致。以上 HEIC 取自改动前的驱动。
+
+`mediaanalysisd` 的 `VTMTSComputeFunction1x1` 因没有设置线程组内存长度被拒，影响照片分析，仍未处理。
 
 ## 2. 对焦马达异响
 
