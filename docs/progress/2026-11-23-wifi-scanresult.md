@@ -56,22 +56,22 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 
 - 根因再收敛：wifid 在 link-up 后同一毫秒连发 `type 1(11ch) + type 2(3ch) + type 2(3ch,flags 0x2) + type 3(96ch)` 四个 SCAN_REQ，内核 `asked_scan` 只有一格，后到的覆盖先到的——只有 type-3 真跑，type-1 扫描从未执行。
 - 修复：`annibale_sta.c` 挂起扫描改 8 槽 FIFO，逐个执行、按序发 SCAN_DONE（内核 `53271fc3`）。tgl14 实测：type-1 的「11 channels, asking, 110 ms」扫描真实跑完（903 ms，15 AP），后续 type-2 扫描也各跑各的。
-- 但 type-1 observer 仍 `results='{(\n)}'`（13:19:05.669）——type-1 扫描真实执行并产出了 15 个网络，observer 集合依旧空。剩余差异收敛到 wifid 侧：要么是 ingest 前的过滤（结算观察者只保留「可作自动加入候选」的网络，`166666666_5G` 若不在 wifid 已知网络库则滤光），要么是 type-1 结果的分发路径与 type-2 不同。`ingestScanResults` 输入是 WiFiNetworkRef 数组，其调用方（扫描监视器按请求类型分发）待反汇编确认。
-- 旁证：type-2 observer 在 FIFO 后拿到全部 15 个真实网络对象，含 `166666666_5G` RSSI=-22——结果管道本身健康。
+- 但 type-1 observer 仍 `results='{(\n)}'`（13:19:05.669）——type-1 扫描真实执行并产出了 15 个网络，observer 集合依旧空。剩余差异收敛到 wifid 侧：要么是 ingest 前的过滤（结算观察者只保留「可作自动加入候选」的网络，`<SSID>` 若不在 wifid 已知网络库则滤光），要么是 type-1 结果的分发路径与 type-2 不同。`ingestScanResults` 输入是 WiFiNetworkRef 数组，其调用方（扫描监视器按请求类型分发）待反汇编确认。
+- 旁证：type-2 observer 在 FIFO 后拿到全部 15 个真实网络对象，含 `<SSID>` RSSI=-22——结果管道本身健康。
 - 状态：A7 的 CC 电源周期路径（链路、wifid 实况查询、约 330 ms 重连）已验证闭合；图标灰与显式 leave 后不复连仍开，根因收敛为 wifid 侧 type-1 结算观察者无候选网络——下一步查「已知网络库是否含 standing 网络」与 `ingestScanResults` 调用方的分发逻辑。
 
 ## 7. tgl15–tgl25：已知网络库为空；mwjoin 播种成功但 AssociateAsync 不发 sets 20
 
-- tgl15 根因确认：`restart wifid` 后读 `/private/var/db/wifi.plist`，`List of known networks: []`——wifid 已知网络库是空的（w81 时代该表有 `166666666_5G`，rootfs 重置后丢失）。auto-join 无候选（`relevant passes: ()`），type-1 observer 空集是候选过滤的结果，不是分发问题。
-- mwjoin 迭代（`a80211_test.c`）：读 standing 文件拿 SSID+PMK → `WiFiNetworkCreateWithSsid` → `WiFiNetworkSetPassword`（系统钥匙串写成功，PMK 编 64 位 hex 作为 WPA 口令，对应内核 cipher 6）→ `WiFiNetworkSetWPA`（不设则持久化记录 `isWPA=0`，wifid 按开放网络处理）→ `WiFiManagerClientAddNetwork`（返回指针型句柄而非错误码，回读 `CopyMutableNetworks` 确认 count 1：`166666666_5G` isWPA=1 enabled=true Channel=44）。
-- tgl21 正向结果：已知网络播种后 type-1 observer 输出真实结果（`RJ_166666666_5G`、`166666666_5G` RSSI=-21 等在集合内）——证实空集主因是「已知网络库为空时候选过滤滤光」，播种后过滤放行。
+- tgl15 根因确认：`restart wifid` 后读 `/private/var/db/wifi.plist`，`List of known networks: []`——wifid 已知网络库是空的（w81 时代该表有 `<SSID>`，rootfs 重置后丢失）。auto-join 无候选（`relevant passes: ()`），type-1 observer 空集是候选过滤的结果，不是分发问题。
+- mwjoin 迭代（`a80211_test.c`）：读 standing 文件拿 SSID+PMK → `WiFiNetworkCreateWithSsid` → `WiFiNetworkSetPassword`（系统钥匙串写成功，PMK 编 64 位 hex 作为 WPA 口令，对应内核 cipher 6）→ `WiFiNetworkSetWPA`（不设则持久化记录 `isWPA=0`，wifid 按开放网络处理）→ `WiFiManagerClientAddNetwork`（返回指针型句柄而非错误码，回读 `CopyMutableNetworks` 确认 count 1：`<SSID>` isWPA=1 enabled=true Channel=44）。
+- tgl21 正向结果：已知网络播种后 type-1 observer 输出真实结果（`RJ_<SSID>`、`<SSID>` RSSI=-21 等在集合内）——证实空集主因是「已知网络库为空时候选过滤滤光」，播种后过滤放行。
 - 卡点：`WiFiDeviceClientAssociateAsync(device, net, opts, cb)` 各形态都返回 0 但 wifid 从不发 `sets 20`：临时 net/持久化记录（tgl25 `stored 0x100c20ac0`）、opts=NULL/{password}、关联中/leave 后未关联、客户端退出（tgl22 日志证实退出触发 `__WiFiServerClientTerminationCallback ... cleanup state`，挂起关联被回收）vs 存活 30 s（tgl23/25 全程无 sets 20）。wifid 受理请求到发 Apple80211 ASSOCIATE 之间还有内部门槛（UnifiedAutoJoin 状态机或关联参数预填充），IDB 会话反复断线未取到该路径。
 - 图标因果链完整：内核 standing join 恢复链路但 wifid 关联状态位无人置 → 图标灰（tgl12 像素证实）；修复方向只剩「让 wifid 自己完成一次关联」或「找到 wifid 认定的等价关联登记入口」。
 - 下一步（待做）：反汇编 `WiFiDeviceClientAssociateAsync` 的服务端处理（wifid 内 `__WiFiDeviceManager*` 路径，含 `UnifiedAutoJoinIsStateSuitableForNetworkTransition` 判定），或试 `WiFiManagerClient` 层的 AutoJoin/JoinNetwork 入口；拿到服务端门槛后补齐 mwjoin 参数。
 
 ## 8. tgl25 之后：AssociateAsync 为什么从不发 sets 20（wifid 反汇编，部分结论）
 
-- 实测：`WiFiDeviceClientAssociateAsync` 返回 0、客户端进程存活 30 s、已知网络表里有 `166666666_5G`（isWPA=1 enabled），wifid 仍然既不打 `[corewifi] __associate Manual Association Requestion` 也不打 `Attempting Apple80211AssociateAsync`——低层关联从未开始。
+- 实测：`WiFiDeviceClientAssociateAsync` 返回 0、客户端进程存活 30 s、已知网络表里有 `<SSID>`（isWPA=1 enabled），wifid 仍然既不打 `[corewifi] __associate Manual Association Requestion` 也不打 `Attempting Apple80211AssociateAsync`——低层关联从未开始。
 - `-[WiFiXPCManager __associate:XPCConnection:]`（0x100105fd0）是手动关联的 XPC 入口：它要求请求参数里 `scanResult`→`scanRecord` 非空，合成关联字典后调低层 `sub_1000CFF3C`（= `WiFiDeviceManagerAssociateAsync` 本体，0x1000cff3c，内部含全部 policy/auto-join 判定与 WFLog）。我们的调用没走这条路。
 - `sub_1000CFF3C` 共 9 个调用点，其中 `0x1000e4bb8` 是一个 op=1026 的 block（队列任务），`0x1000c7c40` 是 ColocatedSSID 通知回调，`__associate` 是 op=手动；剩余 `sub_1000DB0A4`(0x28c)、`sub_1000F317C`、`sub_1000FF11C`、`sub_10018074C`、`sub_1001A2D38` 未展开。
 - 工作假设（待证）：`WiFiDeviceClientAssociateAsync` 走 `WiFiDeviceAssociateAsync`/`...WithCommand` 操作码，进 `__WiFiDeviceAssociateAsyncQueued` 排队器，由 auto-join 引擎在下一次自家扫描出匹配 scanResult 时才放行；我们传的是已知网络持久化记录（无 scanResult/BSSID/IE），且当时已是关联状态（`AutoHotspotStatusAlreadyAssociated` 分支）。引擎既无新扫描结果可用、又可能以「已关联同 SSID」跳过，于是请求挂起不报错。
@@ -80,14 +80,16 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 ## 9. tgl30：补上 `ScheduleWithRunLoop` 后扫描回调通，scanResult 记录仍不放行
 
 - **此前各轮还有一个更浅的客户端缺陷**：MobileWiFi 客户端要先 `WiFiManagerClientScheduleWithRunLoop(client, runloop, mode)` 把 XPC 连接挂到 runloop，异步回包才会派发。未调度时 `ScanAsync` 返回 0、wifid 侧确实扫描（`WiFiSettlementObserver ... client='a80211_test'`），但回调函数一次都没跑——tgl14–tgl25 里 `AssociateAsync` 的完成回调同理从未送达。
-- 修正后（`mwxjoin`：`ScheduleWithRunLoop` → `ScanAsync` → 在回调里取扫描结果记录 → `AssociateAsync(device, scanRecord)`）：扫描回调正常返回 8 个结果（`166666666_5G` 在 0/1 位），`AssociateAsync(scan-record 0x101459f70) -> 0`。
+- 修正后（`mwxjoin`：`ScheduleWithRunLoop` → `ScanAsync` → 在回调里取扫描结果记录 → `AssociateAsync(device, scanRecord)`）：扫描回调正常返回 8 个结果（`<SSID>` 在 0/1 位），`AssociateAsync(scan-record 0x101459f70) -> 0`。
 - 但 wifid 仍没打 `starting forced association scan`、没发 `sets 20`；16:03:14 只出现 `network session ended/started`（22 ms 间隔、无底层 ioctl，属会话记账事件）。即把记录换成真正的 scanResult 形态后，`AssociateAsync` 请求仍没到 `WiFiDeviceManagerUserForcedAssociation`——§8 的「记录形态门槛」假设被部分证伪，断点在 op-code 分发更上游。
 - 顺带观测：客户端退出仍触发 `cleanup state`；`mwxjoin` 全程存活已排除这条干扰。
 - 下一步：反汇编客户端 `_WiFiDeviceClientAssociateAsync`（0x264b62074）取它实际发出的 op-code 和参数字典键，再到 wifid 找对应 handler 的前置条件；不要再按「记录形态」猜参数。
 - 追加实验（同轮 cmd-20）：先 `WiFiDeviceClientDisassociate`（wifid 确实把链路断了，`the link, 0`），再用扫描记录调 `AssociateAsync`，仍无强制关联扫描、无 `sets 20`——「已关联短路」假设也证伪。注意 wifid 的 WFLog level-3（`Enqueuing command`、`starting forced association scan`、`Currently associated` 同属此级）在本日志里不显示，只能用副作用判定。
 - 服务端路径已定位：`WiFiDeviceAssociateAsync`/`WithCommand` → `sub_10006594C`/`sub_1000659DC` → `__WiFiDeviceCommandEnqueue`（`sub_1000297A0`，命令入设备队列，队列泵是 `__WiFiDeviceDispatchQueuedAssociationEvent`/`sub_10006AA48`）→ 执行时进 `WiFiDeviceManagerUserForcedAssociation`（`sub_1000DAD08`，先强制扫描，回调 `sub_1000DB0A4` 用 CFEqual 比对扫描结果再调 `sub_1000CFF3C`）。断点在「入队后队列泵是否放行」或更上游的 XPC 分发：断开后强制扫描连 `sets 10` 都没发，说明命令没排到执行或排在了一个不放行的状态。
 - 下一步收窄为：反汇编队列泵 `sub_10006AA48`（0x748 字节，含 `__WiFiDeviceDispatchQueuedAssociationEvent` 引用）看它的放行条件（设备状态字 +52、pending 门、power 门），以及 `WiFiDeviceClientAssociateAsync` 的 XPC op 是否真的落到 `sub_10006594C` 入口。
-- 队列机制已查清：`sub_10006AA48` 实际是**关联完成回调**（os_log 输出 `Completed Apple80211AssociateAsync`/`%s Joined:`/`Failed to join`，完成时调 `device+4088` 存的完成函数）。执行侧是 `__WiFiCommandQueueCallback`（`sub_100029DBC`，10 KB 命令分发 switch）：associate 命令进 `__WiFiDeviceAssociateAsyncQueued` 分支（先打 level-3 `Starting %d second(s) timer`，再按 `sub_1000A4BE4`/`sub_10000A850` 网络检查选 EAP/普通路径）。tgl30 全程没出现完成回调的 os_log——**命令进了队列但从未执行**：`Enqueue` 只挂进 `device+176` 队列，靠 `__WiFiCommandQueueTimerCallback`（`sub_1001A61A0`）驱动；断开后队列泵可能因前一个关联挂起（`device+5320` in-flight 标志在完成回调里才清零）或 timer 未重新武装而停摆。
+- 队列机制已查清：`sub_10006AA48` 实际是**关联完成回调**（os_log 输出 `Completed Apple80211AssociateAsync`/`%s Joined:`/`Failed to join`，完成时调 `device+4088` 存的完成函数）。
+- 执行侧是 `__WiFiCommandQueueCallback`（`sub_100029DBC`，10 KB 命令分发 switch）：associate 命令进 `__WiFiDeviceAssociateAsyncQueued` 分支（先打 level-3 `Starting %d second(s) timer`，再按 `sub_1000A4BE4`/`sub_10000A850` 网络检查选 EAP/普通路径）。
+- tgl30 全程没出现完成回调的 os_log——**命令进了队列但从未执行**：`Enqueue` 只挂进 `device+176` 队列，靠 `__WiFiCommandQueueTimerCallback`（`sub_1001A61A0`）驱动；断开后队列泵可能因前一个关联挂起（`device+5320` in-flight 标志在完成回调里才清零）或 timer 未重新武装而停摆。
 - 剩余卡点（精确）：入队到 `sub_100029DBC` 分发之间——查 `sub_100029A58` 入队后谁武装 timer、`sub_1001A61A0` 的触发条件，以及 `device+5320` in-flight 清除时机。这是纯 wifid 用户态问题，与内核驱动无关；原生路径（设置里点选网络）在真机上可用，说明我们的请求缺了原生客户端会填的某个字段或顺序（比如先 `AssociateCancel` 清 in-flight）。
 
 ## 10. tgl31/tgl32：灰图标的像素对照与事件载荷根因（内核侧）
@@ -109,6 +111,6 @@ A7（控制中心关开 Wi-Fi 后状态栏图标灰）排查记录。证据目�
 - **修复（say5，`annibale_sta.c`）**：power-on 且 standing join 会排队时，POWER(1) 事件挂起（`power_report_pending`），在 join 完成时先于 JOIN_DONE/LINK 补发；`ask_power(0)` 取消排队 join 时丢弃该挂起（POWER(0) 照常），`ask_leave` 时补发（radio 仍开，事件不能再等）。
 - **tgl33 真机验收**：
   - 时序：`sets 19 on` → `power, 1` 紧贴 `a join is over, 0` + `the link, 1` 出现（延迟生效）。
-  - wifid 枚举：`gets 103 CURRENT_NETWORK answered`、`gets 13 STATE=4`（JOINED）、`gets 1 SSID` 返回 12 字节（"166666666_5G"）、`gets 9 BSSID` answered；configd 同查同答。
+  - wifid 枚举：`gets 103 CURRENT_NETWORK answered`、`gets 13 STATE=4`（JOINED）、`gets 1 SSID` 返回 12 字节（"<SSID>"）、`gets 9 BSSID` answered；configd 同查同答。
   - 像素：唤醒+解锁后 `shot-01435` 状态栏 Wi-Fi 扇形**实心白**，与 say3 灰图（tgl31 shot-03689）逐项对照成立。
 - **边界**：修复的是「内核代办关联对 wifid 可见性」的时机问题；wifid 自家 `AssociateAsync` 队列不执行（§9）与 type-1 observer `{()}`（§6）是独立待办，本修复不含它们。图标实心的机制是「枚举时关联已成立」，wifid 内部关联状态位的具体字段未逐字节核对。
