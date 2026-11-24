@@ -71,6 +71,10 @@ Core Image 的 `ci_filters_stitchable.metallib` 包含 47 个 `_drr_*` 可见函
 
 在 `kernel-12377-s21-prdt1-device1` 上，用独立进程加载候选驱动，对 `_drr_multiply`、`_drr_specular`、`_drr_mmi` 调用同一个 Metal 接口。三个函数的反射字典均为空，查找均成功，返回类均为 `_MTLFunctionInternal`，与 Mac 原生 Metal 的结果一致。以上 HEIC 取自改动前的驱动。
 
+系统相机冷启动拍照也走到了这个接口。对比两轮日志，`vtcamera1` 拼接图中的 21 个不同 `_drr_*` 均为代理对象，换入修复后的驱动，`stitchcam1` 这 21 个函数均为 `_MTLFunctionInternal`。这一轮的首张 HEIC 为 4032×3024，解码平均 Y/Cb/Cr 为 234.83/125.52/130.20，插件交出的闪光主图为 231/126/131。相机缩略图、图库网格和单张都显示了书封面，单张有过曝和零散黑点。
+
+`cilookup1` 记录了两次按名称查询的过程。`_drr_extract_skin` 和 `_drr_specular` 均先在含 230 个函数的库里返回空值，再在含 563 个函数的库里取得原生函数。旧驱动在检查基础函数是否存在之前就记录了使用代理的消息，第一次查询因此留下误报。驱动现在向调用方保留该库的原始查询错误，仅在实际使用代理时记录回退。该轮拼接图中记录到 26 个不同的原生 `_drr_*` 函数。
+
 照片分析用的 `VTMTSComputeFunction1x1` 有多种特化版本。设备缓存中的一个版本保留了线程组参数 `subTotals`，但 AIR 将它标为 `air.arg_unused`，函数体也不访问它。旧 AIR 前端仍将它列为必需资源，导致零长度派发失败。修复后，前端只为活跃的线程组参数要求分配内存。
 
 在 `kernel-12377-s21-prdt1-g25diag1` 轮的 Adreno 830 上，独立测试进程从设备缓存读取两个特化版本。
@@ -78,7 +82,7 @@ Core Image 的 `ci_filters_stitchable.metallib` 包含 47 个 `_drr_*` 可见函
 - 无需线程组内存的版本：系统原库拒绝零长度派发。候选库成功转换一个红色像素，读回 Y/Cb/Cr/A 为 0.2126465/0.3874512/1.001953/1，与着色器的半精度系数相符。
 - 需要线程组内存的版本：着色器读取和写入 `subTotals`，候选库对零长度派发仍报告缺少 `setThreadgroupMemoryLength:atIndex:`。
 
-本次测试覆盖这两个系统着色器的派发。`mediaanalysisd` 处理整张照片的结果仍待复测。
+在 `vtcamera1` 和 `stitchcam1` 的系统 Camera 中均拍出了新照片。日志可核对这两张照片的编码和显示，尚未找到 `mediaanalysisd` 完成对应照片分析的记录。
 
 ## 2. 对焦马达异响
 
@@ -130,4 +134,4 @@ Core Image 的 `ci_filters_stitchable.metallib` 包含 47 个 `_drr_*` 可见函
 
 - 内核：`annibale_camera_clock.inc`（马达分步移动）；`tools/userland-driver` 的拆分派发与 imageblock 尺寸、commit 后立即写回拷贝纹理、计算管线被拒时的 AIRFAIL 转储（不计入每次开机 4 个的名额）。
 - 用户态：`tools/mesa/air` 的拆分派发（`air_grid_split`、`rwa_dispatch_split`、按拆分参数与 imageblock 尺寸缓存的编译结果）、`unwritten_pointer`、派发后的 `memory_barrier`、拷贝纹理上传前的读映射、`clipDistance` 数组输出；`inject_sb26_layers.c` 的 `idlelog=1` 探针；测试程序 `shm_test posix` 与 `attn_test`。
-- 未验证：马达声音（需要人听）；拆分派发和每次派发后的屏障对其他应用计算性能的影响；照片在白天和室外的颜色；自动锁定的原因（第 3 节）。
+- 未验证：马达声音（需要人听）；拆分派发和每次派发后的屏障对其他应用计算性能的影响；照片在白天和室外的颜色。自动锁定的后续实测见第 3 节。
