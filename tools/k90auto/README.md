@@ -194,6 +194,19 @@ python3 tools/k90auto/respin.py docs/progress/evidence/k90auto/kernel-NAME-LABEL
 - GPU 挂起后，12377-cmd4 起的内核打印 RBBM 与 CP 状态和各级 IB 在 CP 位置前后的命令字；`python3 tools/k90auto/cp-words.py ROUND_DIR` 把它们按 type 7／type 4 包头解成包名并标出 CP 位置。CP 会预取，停住的包可能在标记之前一两个。
 - SpringBoard 的图层树用 annsh 的 `notify com.annibale.layers.<过滤词>` 打到日志里（`all`、`Icon`、`Wallpaper`、`Poster`、`StatusBar`、`Battery`、`Widget`）。`animated` 改为列出所有挂着动画的图层：动画的键、类、时长、重复次数与帧率范围。过滤词在任意层级匹配图层类或所属视图类，向下再列 3 层；每行是层级、图层类、视图类、尺寸、位置、隐藏与透明度、内容类型和尺寸，用来区分「图层没有内容」和「有内容但没有画出来」。
 
+### 8.1 用 Mac 回放图库的顶点着色器
+
+Mac 需要 Xcode 的 Metal 编译工具、Meson、Ninja 和 LLVM。运行 `hackios-xnu-userland/tools/air/mk-host.sh --replay` 构建 `air2nir`、`air_run` 和两套顶点回放程序。脚本使用 Mesa 26.2.5 和用户态子模块当前的 AIR 前端。`AIR_HOST_DIR` 可指定构建目录，`MESA_ARCHIVE` 可指定本机的 Mesa 源码包。
+
+在持有真机的测试轮给 Photos 设置 `Photos:ANNIBALE_SYNC_MATCHED_DRAWS=2 Photos:ANNIBALE_THUMB_MATCH=vertex_main Photos:ANNIBALE_REPLAY_VERTEX=1`，重新打开图库。每次匹配后，驱动等之前提交的 GPU 工作完成，将实际送编译的顶点模块、从各绑定偏移到末尾的缓冲区字节和绘制参数写进应用临时目录。日志 `vertex capture: N bytes at PATH` 给出文件大小和路径。
+
+```sh
+python3 tools/k90auto/fetch.py "$ROUND" "$DEVICE_PATH" "$ROUND/run/vertex.plist"
+python3 hackios-xnu-userland/tools/air/replay-vertex.py "$ROUND/run/vertex.plist"
+```
+
+回放支持顶点与实例起点均为零、通过缓冲区取顶点的无索引三角形绘制。llvmpipe 和 Mac Metal 运行同一顶点模块，使用固定白色片段输出，在 128×128 的 RGBA8 图像上逐像素比较三角形覆盖。两边都画出像素且读回结果完全相同时，脚本返回 0。图库纹理、原片段着色器和混合效果仍通过真机截图验收。
+
 ## 9. 内核逐帧录屏与拼接检测
 
 `fb_filmstrip.py` 控制内核 `MiniIOMobileFramebuffer` 的 96 MiB 连续录制缓冲（`RWREC003`，`402×874` RGB24，最多连续保存 104 帧），把持续 1～3 帧的转场黑闪、多任务横带和隔帧闪烁录下来，与同源微秒级 `tl: rec`／`tl: s`／GPU 日志关联并拼接成序列帧长图 `filmstrip.png` 与 `report.json`。
