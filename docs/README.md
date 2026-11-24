@@ -5,6 +5,7 @@
 ## 1. 当前进展、任务与决策
 
 - [进度表](plan/2026-10-23-tracking.md)：项目状态与已完成阶段。
+- [11 月 24 日工作交接](progress/2026-11-24-handoff.md)。按用户报告复现画面错误、桌面手势卡顿、系统应用和相机故障，核对各项已有结果与复测条件。
 - [待办与候选](backlog/README.md)：按系统、图形、多媒体、外设、工程分类选择任务。
 - [v0.2.0 后续执行批次与待办汇总（2026-11-16）](plan/2026-11-16-followup.md)：相机、真机性能、调试工具链、存储与背光收尾及跨专题遗留事项。
 - [系统后续事项](plan/2026-11-12-system-followup.md)：当前系统批次的执行安排。
@@ -27,6 +28,7 @@
 - [真机调试手册](plan/device-test-playbook.md)。
 - [真机轮运行规则](plan/k90auto-run-protocol.md)。
 - [排查与协作手册](plan/debugging-and-collaboration.md)。
+- [性能、画面与基本功能故障排查 SOP](plan/debugging-sop.md)。从用户动作选指标、核对运行产物、设计对照和判断何时撤回候选。
 - [经验整理 Prompt](plan/experience-review-prompt.md)。
 
 ## 3. 构建、版本与工程维护
