@@ -59,7 +59,7 @@ FIXED_ARGS = " ".join([
     # the WCN7850, wifid joins the networks picked in Settings (wifi_station=1). The address is a locally
     # administered one of ours; the card's firmware carries none. package.py puts the firmware in.
     "pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1",
-    "pcie_rddm=1 wifi_mlo=1 wifi_mac=02:4b:39:30:00:01 wifi_station=1",
+    "pcie_rddm=1 wifi_mlo=1 wifi_station=1",
     # ANNFS001 writes /private/var to darwin_var; bt=4 selects SE14 UART / WCN7850.
     "ufs_write=1 bt=4",
 ])

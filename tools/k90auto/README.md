@@ -45,6 +45,7 @@ python3 tools/k90auto/frame-split.py docs/progress/evidence/k90auto/kernel-NAME-
 | 变量 | 默认值 | 作用 |
 |---|---|---|
 | `CPU_ARGS` | `cpus=2 bootcpu=7 small_cores_after=0` | CPU 部分的启动参数 |
+| `K90_WIFI_MAC_FILE` | 本机已有的 `hackios-xnu-kernel/fw-wifi/mac` | 指定从所选 Android 导出的出厂地址文件。个人载荷保存在该次测试记录目录的 `.device-payloads/`，manifest 保存参数占位符及完整参数的 SHA-256 |
 | `GPU_SPEED` | `3` | GPU 档位上限 `adreno8_speed` |
 | `GPU_STAGE` | `23` | `adreno8=`；`0` 不起 GPU，内核可以返回 loader |
 | `BOOT_IMAGE` | `hackios-xnu-userland/userland/flashboot.apfs` | 启动卷，大小上限 64 MiB（工作区相对路径） |

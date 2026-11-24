@@ -57,3 +57,5 @@ FairPlay 与 App Store 不列入项目目标。
 | [hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) | loader 镜像里的 annibale UEFI（Mu-Silicium 副本，单独克隆） | `k90-port` |
 
 本项目基于 [OOSEX GANG](https://github.com/oosexgang) 的 HackiOS 内核与用户态仓库，感谢原作者开放 XNU 移植、loader、用户态适配和图形工具。UEFI 基于 [Project Silicium](https://github.com/Project-Silicium) 的 Mu-Silicium。原有许可证和版权声明保留在各仓库中。仓库和 Release 都不含 iOS 文件与手机厂商固件，这些由使用者从自己的 IPSW 和手机中取得。
+
+顶层仓库的原创脚本和文档采用 MIT 许可证。分发副本或实质性部分时，须保留版权声明和许可声明。三个子模块和第三方材料的许可见各自的版权文件。[顶层许可证](LICENSE)

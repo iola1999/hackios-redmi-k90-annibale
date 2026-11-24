@@ -166,7 +166,17 @@ if {"rdimage", "rdfile", "rdres"} & entries.keys():
 if entries["ramdisk"] != {"bytes": ramdisk_path.stat().st_size, "sha256": manifest["ramdisk"]["sha256"]}:
     raise SystemExit("refusing to run: payload helper root does not match its manifest")
 cmdline = entries["cmdline"]["text"]
-if cmdline != manifest.get("cmdline"):
+expected_cmdline = manifest.get("cmdline")
+if "factory_wifi_cmdline_sha256" in manifest:
+    if hashlib.sha256(cmdline.encode()).hexdigest() != manifest["factory_wifi_cmdline_sha256"]:
+        raise SystemExit("refusing to run: personalized boot arguments differ from the approved payload")
+    prefix, sep, address = cmdline.rpartition(" wifi_mac=")
+    if not sep or not re.fullmatch(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}", address):
+        raise SystemExit("refusing to run: imported Wi-Fi address is missing from the payload")
+    matches_cmdline = prefix + sep + "@factory" == expected_cmdline
+else:
+    matches_cmdline = cmdline == expected_cmdline
+if not matches_cmdline:
     raise SystemExit("refusing to run: payload cmdline differs from its manifest")
 for key, value in (("rootdev", "md0"), ("root_apfs", "ufs_darwin"), ("ufs", "2"), ("ufs_native", "1")):
     if [arg for arg in cmdline.split() if arg.split("=", 1)[0] == key] != [f"{key}={value}"]:

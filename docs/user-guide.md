@@ -43,6 +43,7 @@ cd hackios-k90-vX.Y.Z
 - 包里有内核、loader 与启动卷，本项目的根盘文件，合成脚本、安卓端分区工具和数据盘工具；不含 iOS 文件和手机厂商固件。
 - `manifest.json` 记录版本号、构建日期、对应的 iOS 版本（目前是 iOS 26.6.2，23G90）和三个仓库的源码提交。
 - 下文命令都在解包后的目录里执行。
+- 顶层项目的原创脚本和本文采用 MIT 许可证。分发副本或实质性部分时，保留随包的 `LICENSES/hackios-redmi-k90-annibale.LICENSE`；其他组件按各自的许可分发。
 
 ## 4. 准备 iOS 系统镜像
 
@@ -60,6 +61,7 @@ GPU、Wi-Fi、蓝牙、Iris 视频固件、相机传感器模块与相机调校�
 
 ```sh
 mkdir -p fw/camera
+python3 tools/release/assemble.py wifi-mac --serial "$ANDROID_SERIAL" -o fw/wifi-mac.txt
 adb -s "$ANDROID_SERIAL" pull /odm/firmware/gen80000_zap.mbn fw/
 adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_sunny_ov20b40_front_i.bin fw/camera/
 adb -s "$ANDROID_SERIAL" pull /odm/lib64/camera/com.qti.sensormodule.annibale_aac_ovx8000_wide_i.bin fw/camera/
@@ -77,20 +79,19 @@ IRIS_FIRMWARE_PATH=<找到的固件路径>
 adb -s "$ANDROID_SERIAL" pull "$IRIS_FIRMWARE_PATH" fw/vpu35_4v.mbn
 ```
 
-这些文件属于手机厂商，只用于自己的手机，不要分享或提交到任何仓库。
+`wifi-mac` 从所选手机的原厂 Android 读取 `wlan0` 的永久地址，保存到仅当前用户可读写的文件。固件和地址文件只在本机用于这台手机。已下载的旧发布包若没有 `wifi-mac` 子命令，按包内同版本《体验说明》合成。
 
 ## 6. 合成引导镜像
 
 ```sh
 python3 tools/release/assemble.py build --ipsw ipsw --modem fw/modem_a.img.gz \
-  --bluetooth fw/bluetooth_a.img.gz --zap fw/gen80000_zap.mbn --iris fw/vpu35_4v.mbn --camera fw/camera -o out
+  --bluetooth fw/bluetooth_a.img.gz --zap fw/gen80000_zap.mbn --iris fw/vpu35_4v.mbn --camera fw/camera \
+  --wifi-mac-file fw/wifi-mac.txt -o out
 ```
 
-脚本从 IPSW 取出需要的系统配置，按 Release 记录的改动重新生成，再合并固件，得到 `out/root.apfs` 与 `out/boot-ios.img`。每个生成的文件都会和 Release 记录的 SHA-256 比对，不一致时脚本会停下并报出文件名。脚本最后会输出下面三种结论之一。
+脚本从 IPSW 取出系统配置并合并手机固件，生成 `out/root.apfs`。固件与发布参考相同时，脚本核对根盘文件；根盘字节也相同时，另行构建通用引导镜像并比对发布参考的 SHA-256。固件版本有差异时，输出列出具体文件。
 
-- 「both images are byte for byte the release's」：两个镜像与 Release 测试时的完全一致。
-- 「holds exactly the release's files」：根盘里的文件与 Release 完全一致；电脑上的 zlib 版本不同，压缩出的字节不同，不影响使用。
-- 「firmware differs from the tested version」：手机固件版本与测试机不同，其余文件与 Release 一致；这种组合没有测试过。
+最终的 `out/boot-ios.img` 包含这台手机导入的 Wi-Fi 出厂地址，供 Wi-Fi 固件未提供地址时使用。请将设备专用镜像保存在本机。升级时可复用这台手机的地址文件，更换手机则重新执行第 5 节。
 
 ## 7. 临时启动，检查屏幕
 
@@ -170,5 +171,4 @@ Android 系统更新对双系统的影响分三种情况。
 ## 14. 已知问题
 
 - 只在一台测试机上验证过；屏幕、存储容量或 HyperOS 版本不同的机器可能无法显示或启动，先按第 7 步检查。
-- 内核启动参数里的 Wi-Fi MAC 地址是固定值，所有人的手机相同；同一个网络里接入两台时会冲突。
 - 功能完成情况见 [README](../README.md) 的进展表，排查方法见[排查与协作手册](plan/debugging-and-collaboration.md)。

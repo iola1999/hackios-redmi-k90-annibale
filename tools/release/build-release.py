@@ -80,6 +80,7 @@ RELEASE_FIRMWARE = {"gen80000_aqe.fw", "gen80000_gmu.bin", "gen80000_sqe.fw", "L
 BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "tools/ipsw/fetch.py", "tools/ipsw/aea-key.py", "tools/ipsw/aea.py",
                  "hackios-xnu-kernel/xnuloader/mkstandalone.py", "hackios-xnu-kernel/xnuloader/mkpayload.py",
+                 "hackios-xnu-kernel/xnuloader/wifi_mac.py",
                  "hackios-xnu-kernel/xnuloader/loader-phone.efi",
                  "hackios-xnu-kernel/tools/reseal-loader-img.py", "hackios-xnu-kernel/prebuilt/uefi/mkbootimg.py",
                  "hackios-xnu-kernel/tools/mk-fw-wifi.py", "hackios-xnu-kernel/tools/mk-fw-bt.py",
@@ -90,7 +91,8 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
                  "hackios-xnu-kernel/prebuilt/avb/avbtool.py",
                  "hackios-xnu-userland/tools/apfs/annfs-to-apfs.py", "hackios-xnu-userland/tools/apfs/build-apfsck.sh",
                  "hackios-xnu-userland/tools/apfs/apfsprogs-host.patch"]
-LICENSES = {"hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
+LICENSES = {"hackios-redmi-k90-annibale.LICENSE": REPO / "LICENSE",
+            "hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
             "hackios-xnu-userland.LICENSE": REPO / "hackios-xnu-userland/LICENSE",
             "qualcomm-gpu-firmware.LICENSE.txt": REPO / "hackios-xnu-userland/firmware-gen8/LICENSE.qcom.txt"}
 ANDROID_TOOLS = ["f2fs-resize", "blkpg-tool"]
@@ -342,6 +344,7 @@ def main():
                 "ipsw": IPSW_SOURCE,
                 "dmg_bytes": {n: (IPSW / f"{n}.dmg").stat().st_size for n in ("os", "systemos", "appos")}},
         "volume": volume,
+        "requires_factory_wifi_mac": True,
         "root": {"entries": [list(e) for e in entries]},
         "expected": {"tree_sha256": localfiles.tree_digest(root), "root_sha256": digest(root_image),
                      "boot_sha256": boot_sha, "zlib": zlib.ZLIB_RUNTIME_VERSION,

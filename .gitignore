@@ -37,3 +37,4 @@ hackios-xnu-kernel/userland/*.apfs
 hackios-xnu-kernel/qemu/ram.img
 hackios-xnu-userland/userland/*.apfs
 hackios-xnu-kernel/xnu-annibale.img
+/fw/wifi-mac.txt

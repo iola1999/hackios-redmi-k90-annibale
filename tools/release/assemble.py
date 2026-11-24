@@ -4,8 +4,10 @@
 usage: assemble.py ipsw DIR
            downloads os.dmg, systemos.dmg and appos.dmg of the release's iOS build from Apple
            into DIR and decrypts them (about 10.4 GB of downloads, 15 GB on disk)
+       assemble.py wifi-mac --serial SERIAL -o FILE
+           saves wlan0's permanent address from the phone running Android
        assemble.py build --ipsw DIR --modem IMG --bluetooth IMG --zap FILE [--iris FILE] [--camera DIR]
-                         [-o DIR]
+                         [--wifi-mac-file FILE] [-o DIR]
            makes DIR/root.apfs and DIR/boot-ios.img (default DIR: ./out)
 
 Run it from the unpacked release (hackios-k90-vX.Y.Z/tools/release/assemble.py). --modem and
@@ -16,7 +18,7 @@ sensor modules (/odm/lib64/camera/com.qti.sensormodule.annibale_*.bin) and colou
 how to read them.
 
 Needs Python 3.10 or newer and 7-Zip 23 or newer (7zz or 7z) on PATH; `ipsw` also needs the
-Python package cryptography. Nothing here talks to the phone.
+Python package cryptography. The wifi-mac command uses adb to read wlan0 on stock Android.
 """
 import argparse
 import json
@@ -36,6 +38,7 @@ import localfiles  # noqa: E402
 from localfiles import file_sha256 as digest  # noqa: E402
 
 K = RELEASE / "hackios-xnu-kernel"
+sys.path.insert(0, str(K / "xnuloader"))
 U = RELEASE / "hackios-xnu-userland"
 DMGS = ("os", "systemos", "appos")
 # the firmware files each partition image gives (mk-fw-wifi.py / mk-fw-bt.py extract)
@@ -154,8 +157,76 @@ def firmware(args, recipes, work):
     return files
 
 
+def export_wifi_mac(serial, output):
+    from wifi_mac import normalize_factory_mac
+
+    if not serial.strip():
+        raise SystemExit("an Android device serial is required")
+    try:
+        result = subprocess.run(["adb", "-s", serial, "shell", "ethtool", "-P", "wlan0"],
+                                capture_output=True, timeout=20, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise SystemExit("could not query the selected Android device with adb") from None
+    if result.returncode:
+        raise SystemExit("could not read the permanent wlan0 address from the selected Android device")
+    try:
+        line = result.stdout.decode("ascii").strip()
+        prefix = "Permanent address: "
+        if not line.startswith(prefix) or len(line.splitlines()) != 1:
+            raise ValueError
+        address = normalize_factory_mac(line[len(prefix):])
+    except ValueError:
+        raise SystemExit("Android did not return one valid permanent wlan0 address") from None
+
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=output.parent, mode="w", encoding="ascii", delete=False) as f:
+            temporary = Path(f.name)
+            os.fchmod(f.fileno(), 0o600)
+            f.write(address + "\n")
+        os.replace(temporary, output)
+    except OSError:
+        raise SystemExit("could not save the factory address file") from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    say("saved the permanent wlan0 address")
+
+
+def seal_boot(root_image, payload, image, wifi_mac_file=None):
+    command = [sys.executable, K / "xnuloader/mkstandalone.py", "--kernel", RELEASE / "payload/kernel.bin",
+               "--ramdisk", root_image, "--boot-image", RELEASE / "payload/flashboot.apfs", "-o", payload, "--no-lz4"]
+    if wifi_mac_file is not None:
+        command.extend(["--wifi-mac-file", wifi_mac_file])
+    run(command, stdout=subprocess.DEVNULL)
+    reseal = [sys.executable, K / "tools/reseal-loader-img.py", RELEASE / "payload/loader-shell.img", payload, "-o"]
+    if wifi_mac_file is None:
+        run([*reseal, image], stdout=subprocess.DEVNULL)
+        return
+    with tempfile.TemporaryDirectory(dir=image.parent) as private:
+        staged = Path(private) / image.name
+        run([*reseal, staged], stdout=subprocess.DEVNULL, umask=0o077)
+        staged.chmod(0o600)
+        os.replace(staged, image)
+
+
+def check_wifi_mac_input(manifest, path):
+    if manifest.get("requires_factory_wifi_mac", False):
+        if path is None:
+            raise SystemExit("this release requires --wifi-mac-file FILE from the phone's Android installation")
+        from wifi_mac import read_factory_mac
+
+        try:
+            read_factory_mac(path)
+        except ValueError:
+            raise SystemExit("cannot read a single valid factory address from --wifi-mac-file") from None
+    elif path is not None:
+        raise SystemExit("this release predates factory Wi-Fi address import")
+
+
 def build(args):
     manifest, recipes = load_release()
+    check_wifi_mac_input(manifest, args.wifi_mac_file)
     seven = seven_zip()
     for name in DMGS:
         dmg = args.ipsw / f"{name}.dmg"
@@ -202,31 +273,40 @@ def build(args):
         run([sys.executable, U / "tools/apfs/mkapfs.py", "-z", "--plain", "fw", "-o", root_image,
              f"{manifest['volume']}={staging}"], stdout=subprocess.DEVNULL)
 
+        expected = manifest["expected"]
+        same_fw = all(localfiles.sha256(fw[n]) == h for n, h in expected["firmware_sha256"].items())
+        if same_fw and tree_sha != expected["tree_sha256"]:
+            raise SystemExit("the firmware is the release's, but the root image's files differ from the release's")
+        root_sha = digest(root_image)
         say("sealing the boot image")
         payload = work / "payload.bin"
-        run([sys.executable, K / "xnuloader/mkstandalone.py", "--kernel", RELEASE / "payload/kernel.bin",
-             "--ramdisk", root_image, "--boot-image", RELEASE / "payload/flashboot.apfs", "-o", payload, "--no-lz4"],
-            stdout=subprocess.DEVNULL)
         boot = args.output / "boot-ios.img"
-        run([sys.executable, K / "tools/reseal-loader-img.py", RELEASE / "payload/loader-shell.img", payload,
-             "-o", boot], stdout=subprocess.DEVNULL)
+        if root_sha == expected["root_sha256"]:
+            reference = work / "reference.img"
+            seal_boot(root_image, payload, reference)
+            if digest(reference) != expected["boot_sha256"]:
+                raise SystemExit("generic boot image SHA-256 differs from the release reference")
+            if args.wifi_mac_file is None:
+                shutil.copyfile(reference, boot)
+            else:
+                seal_boot(root_image, payload, boot, args.wifi_mac_file)
+        else:
+            seal_boot(root_image, payload, boot, args.wifi_mac_file)
 
-    expected = manifest["expected"]
-    same_fw = all(localfiles.sha256(fw[n]) == h for n, h in expected["firmware_sha256"].items())
-    if same_fw and tree_sha != expected["tree_sha256"]:
-        raise SystemExit("the firmware is the release's, but the root image's files differ from the release's; report this")
-    root_sha, boot_sha = digest(root_image), digest(boot)
     say(f"{root_image}: {root_image.stat().st_size} bytes, SHA-256 {root_sha}")
-    say(f"{boot}: {boot.stat().st_size} bytes, SHA-256 {boot_sha}")
+    say(f"{boot}: {boot.stat().st_size} bytes, SHA-256 {digest(boot)}")
     if not same_fw:
         changed = [n for n, h in expected["firmware_sha256"].items() if localfiles.sha256(fw[n]) != h]
-        say(f"the phone's firmware differs from the tested version in {', '.join(changed)}; "
-            "every other file of the root image is the release's")
-    elif root_sha == expected["root_sha256"] and boot_sha == expected["boot_sha256"]:
+        say(f"the phone's firmware differs from the tested version in {', '.join(changed)}")
+    elif root_sha != expected["root_sha256"]:
+        say(f"the root tree matches the release; this Python's zlib is {zlib.ZLIB_RUNTIME_VERSION}, "
+            f"the release used {expected['zlib']}")
+    elif args.wifi_mac_file is None:
         say("both images are byte for byte the release's")
     else:
-        say(f"the root image holds exactly the release's files; its bytes differ because this Python's zlib "
-            f"({zlib.ZLIB_RUNTIME_VERSION}) compresses differently from the release's ({expected['zlib']})")
+        say("the root image and generic boot image match the release reference")
+    if args.wifi_mac_file is not None:
+        say("boot-ios.img includes the phone's factory Wi-Fi address")
 
 
 def main():
@@ -234,8 +314,12 @@ def main():
     sub = ap.add_subparsers(dest="command", required=True)
     p = sub.add_parser("ipsw", help="download and decrypt the three iOS disk images")
     p.add_argument("dir", type=Path)
+    p = sub.add_parser("wifi-mac", help="save wlan0's factory address from stock Android")
+    p.add_argument("--serial", required=True, help="Android device serial for adb")
+    p.add_argument("-o", "--output", type=Path, required=True, help="local address file, created with mode 0600")
     p = sub.add_parser("build", help="make root.apfs and boot-ios.img")
     p.add_argument("--ipsw", type=Path, required=True)
+    p.add_argument("--wifi-mac-file", type=Path, help="file containing the phone's factory Wi-Fi address")
     p.add_argument("--modem", type=Path, required=True)
     p.add_argument("--bluetooth", type=Path, required=True)
     p.add_argument("--zap", type=Path, required=True)
@@ -248,6 +332,8 @@ def main():
         raise SystemExit("Python 3.10 or newer is needed")
     if args.command == "ipsw":
         fetch_ipsw(args.dir)
+    elif args.command == "wifi-mac":
+        export_wifi_mac(args.serial, args.output)
     else:
         build(args)
 

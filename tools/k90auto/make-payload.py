@@ -40,6 +40,16 @@ ramdisk = (root / ramdisk_arg if (root / ramdisk_arg).is_file()
            else Path("hackios-xnu-userland") / ramdisk_arg if (Path("hackios-xnu-userland") / ramdisk_arg).is_file()
            else Path(ramdisk_arg))
 payload = root / f"out/handoff-{name}-{label}.bin"
+mac_path = os.environ.get("K90_WIFI_MAC_FILE")
+if not mac_path and not any(arg.split("=", 1)[0] == "wifi_mac" for arg in extra.split()):
+    default_mac = root / "fw-wifi/mac"
+    if default_mac.is_file():
+        mac_path = str(default_mac)
+if mac_path:
+    private_dir = evidence / ".device-payloads"
+    private_dir.mkdir(mode=0o700, exist_ok=True, parents=True)
+    payload = private_dir / payload.name
+
 def digest(path):
     """Hash build inputs without keeping the whole file in memory."""
     result = hashlib.sha256()
@@ -111,7 +121,7 @@ assert not absent, f"boot-args lost {absent}: iOS 26's launchd will run with no 
 for key in ("rootdev", "root_apfs", "ufs", "ufs_native"):
     assert sum(arg.split("=", 1)[0] == key for arg in cmdline.split()) == 1, f"duplicate {key} boot-arg"
 assert not any(arg.split("=", 1)[0] == "rd" for arg in cmdline.split()), "rd= makes launchd boot as a restore environment"
-argv = ["python3", "xnuloader/mkpayload.py", "-o", str(payload.relative_to(root)),
+argv = ["python3", "xnuloader/mkpayload.py", "-o", os.path.relpath(payload, root),
         "kernel=" + str(kernel.relative_to(root)), "ramdisk=" + str(ramdisk.relative_to(root)),
         "--cmdline", cmdline, "--exact-cmd", cmdline, "--require", "kernel=" + digest(kernel),
         "--require", "ramdisk=" + digest(ramdisk), "--forbid-cmd", "loader_return_after",
@@ -122,6 +132,20 @@ if memsize:
 if identity:
     assert re.fullmatch(r"[a-z0-9]+", identity), identity
     argv += ["--identity", identity]
+if mac_path:
+    sys.path.insert(0, str(root / "xnuloader"))
+    from wifi_mac import read_factory_mac
+    try:
+        factory_mac = read_factory_mac(Path(mac_path))
+    except ValueError as error:
+        sys.exit(str(error))
+    if any(t.split("=", 1)[0] == "wifi_mac" for t in cmdline.split()):
+        sys.exit("choose the imported address file or an explicit wifi_mac boot argument")
+    private_cmdline = cmdline + " wifi_mac=" + factory_mac
+    record["factory_wifi_cmdline_sha256"] = hashlib.sha256(private_cmdline.encode()).hexdigest()
+    cmdline += " wifi_mac=@factory"
+    argv[argv.index("--exact-cmd") + 1] = cmdline
+    argv.extend(["--wifi-mac-file", str(Path(mac_path).resolve())])
 subprocess.run(argv, cwd=root, check=True)
 # The pack manifest beside the packed root says what that pack put in: whether the probe was added,
 # which skeleton lines had to be appended because the base root was older
