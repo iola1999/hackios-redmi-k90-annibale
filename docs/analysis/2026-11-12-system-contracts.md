@@ -72,7 +72,9 @@ BQ 的 `Temperature()` 返回 0.1 K，驱动转换为 0.01°C，经 `annibale_ba
 
 手电既有保护使用电池温度大于 45°C 的条件；移除 35°C 截断后，这项条件可接收真实高温读数。CPU／GPU 的独立温控保持原行为，`thermalmonitord` 服务接入另行研究。
 
-`test-battery-temperature.py` 编译实际采样、状态发布、IOKit 属性发布和手电温度保护函数，23 个场景通过；相同测试在 `a1c40aed` 上有 20 个场景失败。测试覆盖负温、高温、转换边界、读取中断、备用数据、充电控制、失败后恢复和旧值保留。macOS 的 `IOCFUnserialize` 与 `CFNumberGetValue` 验证 32 位负整数读取，内核 `OSNumber` 使用替身，设备上的属性读取仍待验证。
+`test-battery-temperature.py` 编译实际采样、状态发布、IOKit 属性发布和手电温度保护函数，23 个场景通过；相同测试在 `a1c40aed` 上有 20 个场景失败。测试覆盖负温、高温、转换边界、读取中断、备用数据、充电控制、失败后恢复和旧值保留。macOS 的 `IOCFUnserialize` 与 `CFNumberGetValue` 验证 32 位负整数读取，内核 `OSNumber` 使用替身，11 月 24 日已从设备直接读取这项属性。
+
+11-24 的 `fsync1` 轮结束后，同一进程读取 `IOPMPowerSource.Temperature=3275` 和 `kern.annibale.battery_temperature_c=33`，分别是 32.75 °C 和四舍五入后的整数。此前拍照结束后 sysctl 读到过 36 °C，该次没有同时采集 IOKit 数值。23 个宿主场景已通过，覆盖负值、无效读数、取整和手电的既有温度保护。
 
 缺少温度会暂停整份电池状态发布，首次成功采样前保持未知状态。已有采样循环在失败后立即重试一次；持续缺温度且备用电压有效时，每 5 秒周期可能执行两次采样与充电控制。此次沿用该循环，未新增独立重试状态。
 
