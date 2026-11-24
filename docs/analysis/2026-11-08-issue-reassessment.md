@@ -145,6 +145,8 @@ HAL 插件修正三项独立接口问题：重新启动 I/O 时间线后更新 t
 
 当前实现位于 `annibale_ufs_rw.inc` 的 `annibale_ufs_sync_rtc()`：从 PMK8550 读取秒计数，从 Android `persist` 分区读取 `/time/ats_2` 或 `/time/ats_1` 偏移，再调用 `PESetUTCTimeOfDay()` 与 `clock_initialize_calendar()`。本轮保留日志中有 RTC 同步成功记录；网络校时及跨重启精度的后续验证见[外设与电源待办](../backlog/platform.md)。
 
+11 月 24 日两次启动都从 PMK8550 与 Android 持久化偏移设置了 UTC。两轮硬件秒计数相差 102 秒，持久化偏移相同。第二轮进入 iOS 后，主机记录每次请求前后的 UTC，与同次设备 `gettimeofday()` 对照。六次测量的共同区间为设备比主机慢 0.281 秒至快 0.041 秒。第一轮的应用日志在手势测试前后出现约 4 秒的时间差，两个时段无法合并为单一区间。当前记录尚未确认网络校时服务的作用。
+
 ### 3.5 Iris 硬解接口
 
 静态分析确认原路径提交自造的 8-word 解码包、固定返回 session、忽略完成状态，并在 VideoToolbox 侧声明未注册的 callback 和不匹配的 Emit ABI。该路径会让上层看到注册或解码调用成功，无法证明硬件产生了帧。
