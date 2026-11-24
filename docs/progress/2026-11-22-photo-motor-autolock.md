@@ -71,7 +71,14 @@ Core Image 的 `ci_filters_stitchable.metallib` 包含 47 个 `_drr_*` 可见函
 
 在 `kernel-12377-s21-prdt1-device1` 上，用独立进程加载候选驱动，对 `_drr_multiply`、`_drr_specular`、`_drr_mmi` 调用同一个 Metal 接口。三个函数的反射字典均为空，查找均成功，返回类均为 `_MTLFunctionInternal`，与 Mac 原生 Metal 的结果一致。以上 HEIC 取自改动前的驱动。
 
-`mediaanalysisd` 的 `VTMTSComputeFunction1x1` 因没有设置线程组内存长度被拒，影响照片分析，仍未处理。
+照片分析用的 `VTMTSComputeFunction1x1` 有多种特化版本。设备缓存中的一个版本保留了线程组参数 `subTotals`，但 AIR 将它标为 `air.arg_unused`，函数体也不访问它。旧 AIR 前端仍将它列为必需资源，导致零长度派发失败。修复后，前端只为活跃的线程组参数要求分配内存。
+
+在 `kernel-12377-s21-prdt1-g25diag1` 轮的 Adreno 830 上，独立测试进程从设备缓存读取两个特化版本。
+
+- 无需线程组内存的版本：系统原库拒绝零长度派发。候选库成功转换一个红色像素，读回 Y/Cb/Cr/A 为 0.2126465/0.3874512/1.001953/1，与着色器的半精度系数相符。
+- 需要线程组内存的版本：着色器读取和写入 `subTotals`，候选库对零长度派发仍报告缺少 `setThreadgroupMemoryLength:atIndex:`。
+
+本次测试覆盖这两个系统着色器的派发。`mediaanalysisd` 处理整张照片的结果仍待复测。
 
 ## 2. 对焦马达异响
 
