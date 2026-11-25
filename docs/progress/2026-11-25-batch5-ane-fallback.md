@@ -67,3 +67,11 @@ b5r6 出片后打点采集（`kernel-12377-flipwd5-b5r6/RESULTS.md`）：峰值�
 ## 11. 权重部署通路定案：绑定挂载免写系统卷
 
 `weights-deploy-channel.md`：md1 辅助盘体积排除（余量不足 100MB vs 需求 411MB）；**bindfs+合成条目通路成立**——内核补丁仅两处一行级（已入库），暂存 /private/var（oem push/sftp 现存通道），绑定在 launchd 前完成时序安全。mubb 编译 harness 端到端打通（`e5-compile-harness.md`）：md7/md8×jit/universal×双入口 8 组合全编译成功且本机真实执行数值互证，jit 产物为部署首选（263MB、main_video 26ms）；universal 是合法编译目标、加载无清单平台校验、部署纯增量与 H18 无竞争。
+
+## 12. 绑定部署实现与前摄安装角（b5r6 后）
+
+用户实测定案前摄预览顺时针错 90°：MG `FrontCameraRotationForISP=270` 是 iPhone18,3 装机值，与 K90 物理安装角不符；turned 开/关差 180° 两端都不对，正确修正在 90/270 自由度。覆盖实现进行中（硬件描述修正语义）。
+
+权重绑定部署实现入库（userland `b685dac`、顶层 `9ec72c8`）：init 启动段 `bind_weights()` 在 restore_var 后、launchd 前执行，22 文件+2 目录共 24 条清单按尺寸校验，单条失败记账继续。annsh 新增 mv 内建（119 字节命令行限制下分片写入的两阶段落位所需）。push-weights.py 写入通道就绪，423MB 推送已先行上设备（与镜像验证解耦，幂等可重跑）。
+
+b5r7 组合轮变量清单：flipwd6 内核 + 权重绑定首验（L0 探针→全量）+ MG 前摄安装角候选试值 + 无闪光快门对照（出片后缺口）+ 提交修复/shader 预热/对焦/方向回归。

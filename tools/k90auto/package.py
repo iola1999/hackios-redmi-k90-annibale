@@ -423,7 +423,7 @@ USERLAND_FLAGS = ["-O1", "-framework", "CoreFoundation", "-framework", "IOKit"]
 MEDIA_SOURCES = ["userland/src/inject/inject_media.c", "userland/src/services/camera_device.c",
                  "userland/src/services/camera_isp.c"]
 MEDIA_FLAGS = ["-O2", "-framework", "CoreFoundation", "-framework", "CoreMedia", "-framework", "CoreVideo",
-               "-framework", "IOSurface"]
+               "-framework", "IOSurface", "-lMobileGestalt"]
 VT_SOURCES = ["userland/src/inject/videotoolbox_iris.c"]
 VT_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-Wno-four-char-constants", "-framework", "CoreFoundation",
             "-framework", "CoreMedia", "-framework", "CoreVideo", "-framework", "VideoToolbox", "-framework", "IOSurface"]
