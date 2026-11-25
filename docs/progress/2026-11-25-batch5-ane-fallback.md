@@ -37,3 +37,33 @@
 ## 5. 提交清单
 
 内核：`dd5ca201`（vmm 按进程应答）、`a07712d8`（compute 分片配速）、`340bee5c`（fence 打点）。userland：`f3a3d4e`（对焦元数据取值）、`950e7eb`（编码链打点）、`7a84913`（tl:t 修复）。分析文档：`out/goal-1124/batch5/` 下 ane-close/espresso-status/zresult-semantics/front-xf20-contract/fence-wait-probe/fence-respawn/photonic-gpu-plan/text-layout-cost/afstatus-semantics/af-metadata-fix。
+
+## 6. 结构性发现：espresso 模型权重被 Apple 发货剥离
+
+b5r3 的 io_error 反编译排查（`out/goal-1124/batch5/espresso-ioerror.md`）把嫌疑从 IOSurface 语义（已排除：拷贝路径不检查 lock 返回值、内存持续映射）转向模型文件读取。rootfs 全量盘点（`out/goal-1124/batch5/stripped-weights.md`）坐实：**93 个 espresso 条目缺 portable weights，只发 `.H18.espresso.hwx` ANE 预编译件**；err105 的 backbone（`mubb_md7/md8`）连 portable net/shape 都不存在，只有 `H18.bundle` 编译件。被剥清单恰与 mediaanalysisd 人脸/场景管线（SCL、facerec×2、landmarksflow、torso×3、pet×2、shotflow、anst）逐项重合。这解释了 macOS VM 照片分析从不工作的公开现象：CPU 回退代码路径存在，但模型资产不在系统里。
+
+含义：CPU 回退方向本身正确，但 iOS 资产内无解，weights 必须外部来源。首选路径=macOS 26.6.2 x86_64 安装包（Intel 无 ANE 必发 portable 权重，URL 实测有效），hwx 逆向还原为第二路径（权重重排/交织，成本高）。获取与版本核对进行中；`mubb_md7/md8` 在 macOS 侧的形态决定 U8 方向生死。
+
+## 7. 权重获取与部署路径（b5r4 后）
+
+macOS 26.6.2 x86_64 安装包（18.4GB，自研分段下载 9.9 分钟）提取核对完成（`out/goal-1124/batch5/macos-weights-verdict.md`）：**U8 方向闭环可行**。iOS 未剥的 12 个 Vision weights 与 macOS 同名文件逐字节一致率 12/12——Apple 对同版本模型跨平台发位相同权重。93 条被剥清单中 26 条 net 逐字节一致可直接部署；err105 链关键模型（facerec、SceneNet v5 共享权重、VisionCore 全套）均可恢复。**生死项 mubb_md7/md8 backbone 在 macOS 以便携 mlmodelc（MIL+完整权重）存在**，输出张量名与 iOS H18.e5 内嵌字符串逐一吻合。
+
+部署设计（`weights-deployment.md`）结论：Vision/场景/人脸权重属纯文件补位零争议，进行中；backbone 有架构障碍——iOS MediaAnalysis 硬编码 `precompiled=1` 无回退，便携 MIL 路径是活代码但 backbone 到不了。候选零分歧路径：macOS/iOS Espresso 均含 jit 平台编译能力（e5 manifest 编译命令原含 jit 目标但不分发），**离线把 mlmodelc 编译成 jit/CPU 平台 e5 产物部署为预编译件则运行时零改动**——可行性调研进行中。相机侧注意：全部 27 个 ImagingNetworks（deep_fusion/deep_transfer/nightmode 全系）同样只发编译件且 macOS 不存在同款，相机增强功能权重来源是更难的开放问题。
+
+## 8. 出片后缺口归因修正（b5r4 测量推翻 GPU 假说）
+
+`post-capture-gap-v2.md`：99/108ms 缺口在 PhotonicEngine GPU 链开始**之前**封账，GPU 配速从原理上无法影响它。主嫌疑改为两段约 100ms 静帧 CPU 渲染（24 片 USER_INTERACTIVE dispatch_apply 与预览渲染争 CPU）；编码段 2.7s 内平均帧处理升至 17.2ms。下一步先加逐帧采集/阶段日志再定修复（QoS 降级/限宽/合并双渲染候选）。
+
+## 9. 方向与对焦修复
+
+对焦：b5r4 真机验证通过（见第 5 节提交清单）。方向链（`camera-orientation.md`）：U19 前摄=像素域 180° 与 CMCapture 装机补偿双重叠加；U9=静帧 ExifOrientation=6 硬编码。userland `f1e6d74` 修复实现（帧传感器原生交付、DeviceOrientation 接通、对照开关保留），b5r5 真机验证进行中。
+
+## 10. b5r6 与性能线三项落地
+
+b5r6 出片后打点采集（`kernel-12377-flipwd5-b5r6/RESULTS.md`）：峰值帧间隔 4/4 由 W 段（等帧）主导且复发于闪光帧下一帧——**用户态 CPU 争抢对峰值不成立**，缺口落在内核捕获路径（CAMIOC_CAPTURE 内串行曝光 I2C 写+镜头步进+帧等待）。b5r4 的 60ms 间隙结案=闪光测光保持。下一步：内核侧 W 分解打点或零成本实验（无闪光快门对照）。
+
+性能修复两项入库：内核 `14a4dbf3`（提交深度等待目标快照固定——连锁重估缺陷修复 + WriteRead 四族打点 tl:D/d/L/S/I）、`a20bd189`（shader pipeline 进程内收割+预热，手势卡顿 air 侧 22% 的修复）。内核 `7bcfcd0b`（绑定挂载前置两补丁）已注册 flipwd6。归因文档：`kernel-submit-blocking.md`（饱和窗机制坐实、手势窗头号嫌疑=统计块持锁 IOLog）、`p-phase-attribution.md`（GPU 翻译层 44%+UI 对象图 39%）、`shader-compile-offpath.md`（预热机制设计与苹果 pipelinelib 对照）。
+
+## 11. 权重部署通路定案：绑定挂载免写系统卷
+
+`weights-deploy-channel.md`：md1 辅助盘体积排除（余量不足 100MB vs 需求 411MB）；**bindfs+合成条目通路成立**——内核补丁仅两处一行级（已入库），暂存 /private/var（oem push/sftp 现存通道），绑定在 launchd 前完成时序安全。mubb 编译 harness 端到端打通（`e5-compile-harness.md`）：md7/md8×jit/universal×双入口 8 组合全编译成功且本机真实执行数值互证，jit 产物为部署首选（263MB、main_video 26ms）；universal 是合法编译目标、加载无清单平台校验、部署纯增量与 H18 无竞争。
