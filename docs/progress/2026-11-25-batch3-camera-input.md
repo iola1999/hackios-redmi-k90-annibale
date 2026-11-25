@@ -35,3 +35,17 @@
 - 证据：`kernel-12377-flipwd-round6/7/8`、`kernel-12377-flipwd-u6verify`
 - 分析底稿（不入库）：`out/goal-1124/batch3/`（gesture-flipwd.md、
   p-segment.md、front-cam-fps.md、u6-maps.md、func-backlog.md）
+
+## 批 4 轮 1 追加（2026-11-25，详见 evidence/kernel-12377-flipwd-b4r1）
+
+- **EventTimingProfiles 根因坐实**：os.dmg 本就只发 V57 配置；批 3 手工
+  打包漏 `--identity v57 --memsize`（cycle.py 会传），设备以 D22AP
+  （iPhone X 身份）运行，UIKit 找 D22 文件不得而告警。批 3 测量身份的
+  影响面未评估；批 4 轮 2 重打正确身份验证。
+- **U8 根因深掘**：瓷贴黑因合集为空——48 个相册 ZCACHEDCOUNT 全 0、
+  Z_33ASSETS 0 行。mediaanalysisd 每天多次崩溃于
+  `MPSNeuralNetwork/MPSKey_Compile`（神经网络 Metal 着色器在本机 GPU
+  栈编译失败），分析产物从未生成；photolibraryd 在 iOS 26 已并入
+  assetsd。
+- **U21**：输入侧无 Cb/Cr 打点；旁证 WB 增益 B≈2.84~2.88 异常大。
+  待加 isp_stats mean[R,G,B] 打点。

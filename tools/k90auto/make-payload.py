@@ -13,8 +13,8 @@ env: K90_EVIDENCE (default docs/progress/evidence/k90auto), CPU_ARGS (default
 "cpus=2 bootcpu=7 small_cores_after=0"), GPU_SPEED (adreno8_speed, default 3: up to 342 MHz with load;
 kernels before 34209c1 need 1), GPU_STAGE (adreno8, default 23; 0 boots without the GPU),
 BOOT_IMAGE (workspace-relative flashboot APFS image, default hackios-xnu-kernel/userland/flashboot.apfs),
-MEMSIZE and IDENTITY (passed to mkpayload.py as --memsize and --identity; iOS 26 needs
-300000000 and v57).
+MEMSIZE and IDENTITY (required, passed to mkpayload.py as --memsize and --identity; the payloads made
+here are all iOS 26 ones, which need 300000000 and v57).
 """
 from pathlib import Path
 import hashlib
@@ -25,8 +25,31 @@ import struct
 import subprocess
 import sys
 
+if sys.argv[1:2] in (["-h"], ["--help"]):
+    print(__doc__.strip())
+    sys.exit(0)
+if len(sys.argv) < 5:
+    sys.exit(__doc__)
 name, label, ramdisk_arg, extra = sys.argv[1:5]
 assert re.fullmatch(r"[a-z0-9-]+", label) and re.fullmatch(r"[A-Za-z0-9_=.,: -]*", extra)
+memsize = os.environ.get("MEMSIZE", "")       # iOS 26 needs the RAM it is staged into: 300000000
+identity = os.environ.get("IDENTITY", "")     # and the loader identity of that iOS: v57
+# Refuse the batch-3 mistake before touching anything (2026-11-25-batch4-identity.md): every payload
+# this script makes is an iOS 26 one (the cmdline below is fixed to iOS 26's launchd and root volume,
+# and register-kernel.py only names 12377 kernels), and without the two entries the loader falls back
+# to its built-in iPhone X (d22) identity and a 6 GiB window (loader_01_base_log_dt.inc). cycle.py
+# always sets both; an experiment that wants other values still has to set them explicitly.
+missing = [var for var, value in (("MEMSIZE", memsize), ("IDENTITY", identity)) if not value]
+if missing:
+    effect = {"MEMSIZE": "without the memsize entry the loader gives the kernel a 6 GiB memory window "
+                         "instead of the 12 GiB iOS 26 runs in",
+              "IDENTITY": "without the identity entry the loader boots its built-in iPhone X (d22) identity, "
+                          "so every UIKit process raises \"Misconfigured Device\" at startup"}
+    sys.exit(f"missing {' and '.join(missing)}: {'; '.join(effect[var] for var in missing)} "
+             "(batch 3's manual packs had neither, see docs/progress/2026-11-25-batch4-identity.md). "
+             "Pack the way cycle.py does:\n"
+             "\n"
+             "    MEMSIZE=300000000 IDENTITY=v57 python3 tools/k90auto/make-payload.py NAME LABEL RAMDISK \"EXTRA BOOT-ARGS\"\n")
 evidence = Path(os.environ.get("K90_EVIDENCE", "docs/progress/evidence/k90auto"))
 record = json.loads((evidence / ("kernel-" + name) / "kernel.json").read_text())
 base = evidence / f"kernel-{name}-{label}"
@@ -98,8 +121,6 @@ gpu_speed = int(os.environ.get("GPU_SPEED", "3"))
 # GPU_STAGE=0 boots without the GPU: the kernel can then return to the loader (with the GPU it waits
 # for a cold reset, see adreno8_quiesce), which is what a file left in kern.annibale.outbox needs.
 gpu_stage = int(os.environ.get("GPU_STAGE", "23"))
-memsize = os.environ.get("MEMSIZE", "")       # iOS 26 needs the RAM it is staged into: 300000000
-identity = os.environ.get("IDENTITY", "")     # and the loader identity of that iOS: v57
 # rootdev=md0 keeps the initial root on the boot volume; rd=md0 would do the same for the kernel, but launchd
 # reads it as a restore environment and skips its boot tasks. root_apfs=ufs_darwin makes init mount
 # the iOS APFS volume from UFS and switch to it. launchd_unsecure_cache=1 lets iOS 26's launchd take its jobs

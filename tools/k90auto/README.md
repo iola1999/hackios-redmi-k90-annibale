@@ -32,7 +32,7 @@
 ## 3. 排队方式运行测试轮
 
 ```sh
-python3 tools/k90auto/make-payload.py NAME LABEL out/ROOT.apfs "EXTRA BOOT-ARGS"
+MEMSIZE=300000000 IDENTITY=v57 python3 tools/k90auto/make-payload.py NAME LABEL out/ROOT.apfs "EXTRA BOOT-ARGS"
 bash tools/k90auto/run-queue.sh docs/progress/evidence/k90auto/kernel-NAME-LABEL ...
 bash tools/k90auto/sheets.sh docs/progress/evidence/k90auto/kernel-NAME-LABEL/run    # 截图转 PNG 并删除原始数据，加缩略图拼图；cycle.py 在每轮结束时自动执行
 python3 tools/k90auto/summary.py --markdown docs/progress/evidence/k90auto/kernel-NAME-LABEL ...
@@ -49,9 +49,9 @@ python3 tools/k90auto/frame-split.py docs/progress/evidence/k90auto/kernel-NAME-
 | `GPU_SPEED` | `3` | GPU 档位上限 `adreno8_speed` |
 | `GPU_STAGE` | `23` | `adreno8=`；`0` 不起 GPU，内核可以返回 loader |
 | `BOOT_IMAGE` | `hackios-xnu-userland/userland/flashboot.apfs` | 启动卷，大小上限 64 MiB（工作区相对路径） |
-| `MEMSIZE`、`IDENTITY` | 无 | 传给 `mkpayload.py` 的 `--memsize`、`--identity` |
+| `MEMSIZE`、`IDENTITY` | 必填，无默认值 | 传给 `mkpayload.py` 的 `--memsize`、`--identity`；缺省时拒绝打包 |
 
-iOS 26 用 `MEMSIZE=300000000 IDENTITY=v57`，`cycle.py` 另把 `CPU_ARGS` 设为 `cpus=4 bootcpu=7 small_cores_after=0`。
+iOS 26 用 `MEMSIZE=300000000 IDENTITY=v57`。缺 memsize 的载荷只有 6 GiB 内存窗口（iOS 26 需要 12 GiB）；缺 identity 的载荷按 loader 内置的 iPhone X（d22）身份启动，每个 UIKit 进程启动各弹一次 Misconfigured Device 告警（批 3 事故，见[批 4 记录](../../docs/progress/2026-11-25-batch4-identity.md)）。`cycle.py` 另把 `CPU_ARGS` 设为 `cpus=4 bootcpu=7 small_cores_after=0`。
 
 GPU 档位：`1` 固定 160 MHz；`2`～`N` 时内核按负载和触摸在下限（`adreno8_floor`，默认第 3 档）与第 N 档之间切换。第 3～7 档为 342、389、443、525、607 MHz，8～10 档为 660、734、832 MHz，K90 这颗芯片（speed bin 232）另有 11～14 档 900、967、1050、1100 MHz（`adreno8_cx.c` 的 `adreno8_boot_speeds`，`12377-rate5` 起）。超过本芯片档位数的取值截到最高档（`12377-rate6` 起）；`34209c1` 之前的内核只支持 1。`make-payload.py` 默认 3、`cycle.py` 默认 14，对比轮次时要显式写档位。
 
