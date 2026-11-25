@@ -75,3 +75,29 @@ b5r6 出片后打点采集（`kernel-12377-flipwd5-b5r6/RESULTS.md`）：峰值�
 权重绑定部署实现入库（userland `b685dac`、顶层 `9ec72c8`）：init 启动段 `bind_weights()` 在 restore_var 后、launchd 前执行，22 文件+2 目录共 24 条清单按尺寸校验，单条失败记账继续。annsh 新增 mv 内建（119 字节命令行限制下分片写入的两阶段落位所需）。push-weights.py 写入通道就绪，423MB 推送已先行上设备（与镜像验证解耦，幂等可重跑）。
 
 b5r7 组合轮变量清单：flipwd6 内核 + 权重绑定首验（L0 探针→全量）+ MG 前摄安装角候选试值 + 无闪光快门对照（出片后缺口）+ 提交修复/shader 预热/对焦/方向回归。
+
+## 13. 权重推送完成与 b5r7 组合轮（进行中）
+
+权重暂存 423.4MB 全部就位（sftp 约一分钟 6~7MB/s，verify 32/32 尺寸匹配）。通路事实：USB fastboot 通道约 1.1MB/s 且当前启动态设备 annsh 无 mv 内建（新镜像自愈）；push-weights 的 mv 校验已改目录正面确认尺寸（工作树未提交）。sshd 留存作快通道（192.168.1.185）。
+
+安装角覆盖三层就绪：内核 frontcamrot= 启动参数、userland MGGetSInt32Answer interpose+缓存 watcher、mg_test 可查设备树路径。候选序 180（预测正确）→0→90，代数推导见 front-mg-rotation.md。
+
+b5r7 组合轮验证项：绑定 24 条计数、mediaanalysisd err105/ZRESULT 判据、安装角三值试拍、无闪光快门对照（出片后 W 段）、tl:D/d/L/S/I 首采+手势回归。git 历史已按阶段归并（顶层 18→7、内核 12→6、userland 11→8，内容逐字节一致，备份分支 backup-pre-squash-1125）。
+
+## 14. 前摄安装角定案 180（文字靶标终验）
+
+b5r7 截图矩阵因设备移动无法远程定案，改用文字靶标机器可判终验：用户持书于前摄，远程依次写 /private/var/tmp/annibale_front_cam_rotation_isp 四值并重启相机截图。结果单调旋转族：270 侧躺（故障态）、**180 横平正立（正确）**、0 倒立、90 族内另侧。证据 rotlive-f{90,180,0}.png 与 rotlive-front-base.png（270 基线）。代数含义：donor iPhone18,3 设备树 270 与 K90 物理安装角差 90°，与用户顺时针错 90° 实测吻合。设备已恢复 180。待办：mkidentity 源头固化 180（实验文件退役）、成片方向链随 -16808 修复回归、front-mg-rotation.md 的候选序预测（180 居首）实证正确但旋转方向推导符号需按实测复核。
+
+b5r7 其他结论：权重绑定机制端到端成立 10/24（APFS_SYNTH_MAX 64 余量仅 10，flipwd7 已放大 128 并注册，反汇编实证 5 字节差异）；mediaanalysisd 失败点后移（err102/Scene_Scenenet 新形态）；无闪光快门峰值不消失（闪光作案否定，指向渲染抢占）；shader 预热写入侧断头调查中；Wi-Fi 未入网原因待查。 已根因修复：打包手抄参数串漏 wifi_mac，fw-wifi/mac 默认文件机制因文件缺失未生效；已重建该文件（gitignored）。
+
+## 15. b5r8：权重 24/24 全量绑定落地，失败点移入执行期
+
+flipwd7（APFS_SYNTH_MAX 128）生效：启动日志 `24 entries: 24 bound, 0 failed`，mubb universal.bundle 完整目录树设备侧可见。mediaanalysisd 失败形态显著变化：`Espresso::handle_ex_plan status=-2` io_error 本轮零行（权重装载层打通的方向性证据），SceneNet 与 Vision Code=9 消失；残留 `E5RT op failed`×60、`Empty embedding results`，err105 缓增、ZRESULT/ZASSET 仍为 0。`<private>` 脱敏遮住执行期失败细节，明文抓取列为下一跳。
+
+前摄安装角 180 源头固化（loader 默认值，frontcamrot= 保留覆盖）首轮回归：启动日志两处 `front-cam-rotation-isp 180 (K90 mounting angle)`，覆盖文件本 boot 从未存在，预览截图房间端正。开放点：mg_test（MGCopyAnswer）读回 270 与设备树 180 分层不一致，相机链（MGGetSInt32Answer）行为正确，功能层面以实测为准。手势回归：静默窗翻页/控制中心/设置三组 92ms+ 全零，此前「92ms+ every 1.4s」坐实为启动 tour 混淆。shader harvest 目录意外已有文件增长（var.skel 修复未进本轮；推测曾有 root 进程建立过目录后持留），写入侧机制可用的实证但来路未定位，记开放点。
+
+## 16. b5r9：oslog 明文解锁，E5RT getattrlist EINVAL 判决
+
+oslogwatch 私有字节补丁生效（首行 `oslog: trace privacy byte set; private payloads serialize`），mediaanalysisd 明文首捕。失败链闭合为两条严格 1:1 交替日志：`E5RT op failed: getattrlist failed with error = 22`×54 + `Invalid Function Argument: handle is NULL`×54（级联）。`Error loading file:`/`Error mapping file:`/`handle_ex_plan` 全部零行——**权重文件读不进的 io_error 假设证伪**。失败位置锁定在 `e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options` 算子创建的文件系统探测环节（getattrlist 返 EINVAL），早于 Espresso plan 执行；消费端确实按绑定路径找到算子包并进入创建流程。相机链旁证：`BWE5InferenceProvider.m:263` 同一创建 API 同样失败——**该文件系统探测缺口同时阻塞 mediaanalysisd 与相机两条链，修一处解两链**。候选根因两个：合成绑定条目不支承 getattrlist 部分属性位，或 HackiOS APFS 对该属性组合返 EINVAL；idalib 反编译与内核属性位审计双路调查已派（`e5rt-getattrlist-reversing.md`/`kernel-getattrlist-audit.md` 产出中）。SQLite：err105 64→66（两张新片进失败积压），ZRESULT/ZASSET 仍 0。
+
+其余：Wi-Fi 恢复入网（192.168.1.185 DHCP 新租约），sshd/sftp 快通道实测 11MB/s 逐字节一致，后续轮次取证速率量级提升。shader harvest 双路通畅：写入 `128 pipelines recorded`、回放 SpringBoard 70+cameracaptured 205+backboardd 342 replayed，`cannot mkdir` 零计数——预热机制端到端成立。新开放点：SpringBoard/backboardd 启动早期各重启一次（pid 29→313、38→309，wifid termination 回调+ReportCrash CPU 增长），死因未定位。前摄方向复核通过；明暗场帧率测量连续两轮缺手段（需注入或外设计帧）。遗留：boot_a 未刷写（临时 fastboot boot 载体），t1 Photos.sqlite 未拉取（可用 sftp 快通道补）。

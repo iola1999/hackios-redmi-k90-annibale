@@ -175,9 +175,13 @@ def push_oem(round_dir, staging, files, force):
             if f"to {TEMP} at {at}" not in answer or ": " in answer.split(f"at {at}", 1)[1].split("\n", 1)[0]:
                 print(f"push-weights: the phone did not write the piece at {at} of {rel}:\n{answer[-300:]}")
                 return False
-        answer = rshv("mv", TEMP, remote)
-        if any(line.startswith("mv ") for line in answer.splitlines()):
-            print(f"push-weights: the phone did not move {rel} into place:\n{answer[-300:]}")
+        rshv("mv", TEMP, remote)
+        # positive confirmation: the annsh mv builtin says nothing either way, and a spawnp
+        # failure's wording has already once slipped past a prefix check -- ask the directory
+        parent = str(Path(rel).parent) if "/" in rel else ""
+        present = remote_sizes(rshv, {parent})
+        if present.get(rel) != size:
+            print(f"push-weights: {rel} is {present.get(rel, 'absent')} after the move, not {size}")
             return False
         done += 1
     rate = sum(s for r, s in files if existing.get(r) != s or force) / 1e6 / max(time.monotonic() - started, 1)
