@@ -346,6 +346,18 @@ def run_rsh(round_arg: str, command: str) -> str:
     return res.stdout.strip()
 
 
+def stage_window(pa_hex: str, used_hex: str, dest: Path) -> bytes:
+    """Stage DEST = [PA, PA+USED) from the kernel memory window; return the file's first 8 bytes."""
+    st = subprocess.run(["fastboot", "-s", "xnuloader", "oem", "stage", pa_hex, used_hex], capture_output=True, text=True)
+    if st.returncode != 0 or "FAILED" in st.stdout + st.stderr:
+        raise RuntimeError(f"oem stage {pa_hex} {used_hex} failed: {st.stdout}{st.stderr}")
+    dl = subprocess.run(["fastboot", "-s", "xnuloader", "get_staged", str(dest)], capture_output=True, text=True)
+    if dl.returncode != 0 or not dest.is_file():
+        raise RuntimeError(f"get_staged {dest.name} failed: {dl.stdout}{dl.stderr}")
+    with dest.open("rb") as fh:
+        return fh.read(8)
+
+
 def capture_live(args, out_dir: Path):
     round_arg = str(args.round_dir) if args.round_dir else "-"
     arm_val = -abs(args.arm) if args.scanout else abs(args.arm)
@@ -367,14 +379,21 @@ def capture_live(args, out_dir: Path):
     rec_bin = out_dir / "recording.bin"
     log_file = out_dir / "loader.log"
     out_dir.mkdir(parents=True, exist_ok=True)
-    st = subprocess.run(["fastboot", "-s", "xnuloader", "oem", "stage", pa_hex, used_hex], capture_output=True, text=True)
-    if st.returncode != 0 or "FAILED" in st.stdout + st.stderr:
-        raise RuntimeError(f"oem stage failed: {st.stdout}{st.stderr}")
-    dl = subprocess.run(["fastboot", "-s", "xnuloader", "get_staged", str(rec_bin)], capture_output=True, text=True)
-    if dl.returncode != 0 or not rec_bin.is_file():
-        raise RuntimeError(f"get_staged recording failed: {dl.stdout}{dl.stderr}")
     subprocess.run(["fastboot", "-s", "xnuloader", "oem", "log"], capture_output=True, text=True)
     subprocess.run(["fastboot", "-s", "xnuloader", "get_staged", str(log_file)], capture_output=True, text=True)
+    head = stage_window(pa_hex, used_hex, rec_bin)
+    if head != b"RWREC003" and log_file.is_file():
+        # rec_info's PA is loader_recording[0], a slot the kernel's outbox channel also reuses; the
+        # boot-time "reserved ... at 0x.." line in the loader log still names the real buffer.
+        reserved = re.findall(r"runtime recording buffer at (0x[0-9a-fA-F]+)", log_file.read_text(errors="replace"))
+        if reserved and reserved[-1].lower().removeprefix("0x") != pa_hex:
+            pa_hex = reserved[-1].lower().removeprefix("0x")
+            head = stage_window(pa_hex, used_hex, rec_bin)
+    if head != b"RWREC003":
+        raise RuntimeError(
+            f"staged data at {pa_hex} has no RWREC003 header (magic {head!r}): "
+            f"rec_info PA {vals[0]} does not hold the recording (loader_recording repointed by an outbox write?)"
+        )
     return rec_bin, (log_file if log_file.is_file() else None)
 
 
