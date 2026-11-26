@@ -2,6 +2,8 @@
 
 HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 REDMI K90（SM8750，代号 `annibale`）的顶层工作区。代码在两个 submodule（`hackios-xnu-kernel/`、`hackios-xnu-userland/`，工作分支均为 `k90-port`），本仓库只放文档、脚本、配置。背景速览见 [README.md](README.md)，文档入口见 [docs/README.md](docs/README.md)，未完成事项与候选方向见[待办目录](docs/backlog/README.md)。
 
+> **严厉禁令**：全工作区禁用内置 `grep` 工具，禁止在 shell 中执行目录级递归 `grep`，严禁对 `out/` 等大目录做任何递归内容检索；违规会直接耗尽主机内存并引发系统大面积查杀进程，细则见 [§8](#8-检索与大目录访问禁令必须遵守)。
+
 ## 1. 文档写作约定（必须遵守）
 
 1. **禁止按字符宽度硬换行**。一个段落 = 一行物理行；一个列表项（含有序/无序/嵌套项）= 一行；引用块的一段 = 一行（`> ` 开头，段内不断行）。写新文档、改旧文档时都不要为了"行不太长"而中途折行。理由：硬换行会让 diff 噪音大、段落级修改互相冲突，且渲染前后行为不一致。
@@ -10,12 +12,12 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 4. 中英文混排连接处遵循原文风格：西文/数字/反引号片段与中文之间可留一个空格；中文与中文、中文与全角标点之间不加空格。
 5. 存量文件若发现硬换行，用本仓库脚本批量修复，不要手工逐行改：`python3 tools/unwrap_md.py [--check] <file.md> ...`（`--check` 只出 diff 不写文件；脚本会保护代码块/表格/标题/列表结构，把续行合并进所属段落或列表项）。
 6. 二级标题按每篇文档从上到下连续编号，格式为 `## 1. 标题`、`## 2. 标题`。增删或移动章节后检查编号，并同步修改受影响的页内链接。
-7. 仓库文件引用使用项目相对路径；具体设备由 `ANDROID_SERIAL` 或脚本的设备参数选择，备份位置通过本地配置提供。可复用 Prompt 的来源会话由执行者填写。
+7. 仓库文件引用使用项目相对路径；具体设备与备份参数按第 3 节通过环境变量或本地配置提供，可复用 Prompt 的来源会话由执行者填写。
 8. **禁止巨型段落与堆砌长句**。一个段落只说一件事，控制在 3～5 句以内；正文单段超过约 500 字符即视为需要拆分。一段里有两个以上独立事实点（判据、时刻、哈希、计数、归属、待办）时，必须拆成列表、表格或子小节，一项一行。不要用逗号、分号、破折号把多个独立事实串成一个长句。理由：巨型单行段落无法扫读、无法定位、无法按点引用，diff 审阅也读不出改了什么。
 9. **事实分层存放**。哈希链、mtime、grep 计数、命令原文这类取证细节写进所属小节或专门的实测数据小节，正文只留结论加指针（文档路径或提交哈希）。同一事实只在一份文档展开，其余位置引用，不重复抄写。
 10. **过程记录即时清理**。已撤销的结论、已被取代的排期、已结案的待核，删除其过程叙述，只留一行结果与出处。「谁在何时说了什么、后来发现不对」这类日记式往来不入库；确有留存价值的教训提炼成规则写进对应手册，原始往来留在提交说明或不入库的本地记录里。
 11. **文档按用途分类，不混装**。backlog 集中未完成事项、候选方向与验收条件，plan 放已选批次的执行安排、架构决策与常设规则，analysis 放结论与实测数据，progress 放一轮一事的记录。progress 文档不得膨胀成跨轮取证档案；跨轮共用的判据、身份规则与校验记录写进 analysis 或归档文档，progress 只留本轮结果与指针。
-12. **入口与职责明确。** 全项目专题入口维护在 [docs/README.md](docs/README.md)，AGENTS.md 只保留工作约束与必读操作入口。工具用法放在工具旁的 README，跨仓流程放在顶层开发指南；同一事实只在负责它的文档展开。
+12. **入口与职责明确。** 全项目专题入口维护在 [docs/README.md](docs/README.md)，AGENTS.md 只保留工作约束与必读操作入口。工具用法放在工具旁的 README，跨仓流程放在顶层开发指南。
 13. **区分现行说明与历史记录。** 操作手册引用当前脚本和参数来源，阶段分析注明适用版本、日期及验证范围。新结果更新当前专题和进度摘要，历史记录保留当轮事实并链接后续结果；可变默认值与源码哈希优先引用来源。
 14. **新增与移动先核对现有用途。** 同主题内容优先更新已有文档，独立问题再新建并加入文档入口。移动文件或修改标题前，检查顶层及子模块中的链接、脚本和章节引用；导入的上游资料保留原格式与来源，生成文档通过对应脚本更新。
 15. **提交前运行文档检查。** `python3 tools/check-docs.py` 只读检查顶层及两个代码子模块的跟踪 Markdown：检查 Markdown 内联链接、引用式链接的本地目标和锚点，以及从顶层 README 到各文档的可达性；顶层另检查二级标题编号、硬换行和长段落。支持范围见[文档入口](docs/README.md#11-放置与检查)。显式传入文件可检查新文档。事实、命令适用范围、隐私与变更归属仍需人工审阅；改动启动参数来源后另运行 `python3 tools/bootargs.py --check`。
@@ -44,6 +46,8 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - 同一问题的连续排查、实现和复测归为一个阶段。工作中可以持续更新工作树，原始日志和过渡记录保存在 Git 忽略的本地目录，阶段结束后整理必要结论入库。
 - 文件数、记录条数、经过时间、一次会话或一轮测试结束，都不能单独作为提交理由。短时间内连续产生的同类小提交必须在推送前合并。
 - 验证耗时较长（真机测试轮、容器构建）也必须遵守上述标准。已完成的实现若已形成可独立审阅和回退的阶段成果，可以先提交，并写清未验证范围；后续零散读数继续累积，形成验收结论后再提交。
+- 量化下限：单次提交通常应包含五个以上文件的变更；不足五个文件时先累积到同一阶段的代码、文档与指针齐备再提。禁止只改一两份文档就提交，文档更新随对应实现与验收合并入库。提交信息按仓库历史风格：中文批次或主题开头的完整句，写清完成了什么与验证结论，不写逐文件清单。
+- 提交信息不写工具署名、生成标记或协作署名行，只写改动内容与验证结论，风格对齐仓库已有历史提交。
 - 两项成果各自完整、能独立审阅和回退，才分开提交。达到阶段完成条件后及时提交；提交说明写清实际改动、验证范围、阶段结论和剩余事项。
 
 ## 5. 真机无人值守约束（必须遵守）
@@ -60,11 +64,11 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 - **连续诊断轮设上限。** 一个批次最多 3 轮，之后停下复盘：读完这一批的读数，改测法或换变量，再启动下一批，不等用户回复。上一批没拿到结论就先改测法，不靠加轮次堆读数。只有设备进入需要人按键的状态，或下一步需要用户授权时，才停下等指令。
 - **一轮一个变量，探针合并。** 相关的观测点装进同一份库、同一轮取完；不允许一轮只回答一处小问题，也不允许同一轮换两个变量。
 - **设备命令只由 device 成员执行。** lead 只做枚举与只读查询，其余角色不碰 `fastboot`／`adb`。对设备发命令一律带序列号。执行 `fastboot -s xnuloader oem "sh ..."` 时单条命令正文不得超过 119 字节（优先使用 `tools/k90auto/rsh.py`），严禁发送超过 511 字节的 Fastboot 命令以免触发 DWC3 `CompleteError` 导致 `usb_out_lost = 1` 端点隔离（见[USB 恢复与减少人工按键的调试经验 §6.6](docs/analysis/2026-10-25-usb-recovery-lessons.md#66-oem-sh-超长命令导致-usb_ep_out-端点永久隔离与五指退回问题)）。
-- **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需使用 `idalib-mcp` 的 `idb_open`／`decompile`／`analyze_function`）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
+- **设备离线时转入静态分析与盲写编译。** 设备不在手边或处于等待人工按键复位状态时，不空等设备：立即通过静态反汇编与反编译（工具入口见第 7 节）和源码分析完成根因修复、内核与用户态编译打包验证（`xnu26/build-macos.sh`、`userland/build.sh`、`tools/k90auto/package.py`）并提交推送，待设备恢复上线后集中执行真机复核。
 
 ## 6. 根因定位与原生对齐约定（必须遵守）
 
-- **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编与反编译（`hackios-xnu-kernel/tools/dsc/dsc.py` 或按需调用 `idalib-mcp` 做伪代码反编译、交叉引用与调用流分析）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
+- **严禁表象绕过（Workaround）与硬编码掩盖。** 遇到功能异常、权限重复弹窗、UI 黑底／白框、图标空白、守护进程退出、主线程卡死或文件操作失败时，必须通过反汇编与反编译（`dsc.py` 与 `idalib-mcp` 入口见第 7 节）、内核／驱动源码与日志查明苹果 iOS 原生框架期望的底层契约（VFS 属性与 vnode 操作、IOKit 服务树与属性、BSD／Mach 系统调用语义、launchd 守护进程与 XPC 服务、系统 Bundle／字体／本地化资源、GPU 着色器 IR 与寄存器语义），在内核、驱动或构建层补齐对应底层能力。
 - **明确禁止的做法。** 不得用方法交换（swizzling）强改 UI 视图背景色或伪造通知／权限授权返回值；不得在渲染管线编译失败时回退为固定纯色管线掩盖着色器错误；不得针对单个应用硬编码环境变量绕过通用容器目录初始化；不得用用户态定时轮询打包脚本代替内核块设备直写持久化。
 - **存储、分区与设备节点对齐 iPhone 真机拓扑。** 双系统部署采用 UFS LUN 0 独立分区，见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。
   - `darwin`（默认 16 GiB，`/dev/ufs_darwin`）承载只读 APFS 系统卷与 Cryptex，支持原版未裁剪 `os.dmg + systemos.dmg + appos.dmg` 或 `system26.apfs`。
@@ -77,24 +81,13 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
 
 ## 7. 其他
 
-- 未完成事项集中写[待办目录](docs/backlog/README.md)，已选批次的安排与常设手册写 `docs/plan/`，调研／实测数据写 `docs/analysis/`，过程记录写 `docs/progress/`（按日期命名）。原分析与实测保留，来源文档链接到对应待办主题。
-- `annibale-backup/` 是分区备份数据说明，内容勿删。备份与恢复方法见[分区备份与恢复](docs/backup/README.md)。
-- 真机操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节和[引导目标切换 SOP](docs/plan/device-boot-target-sop.md) 中的常见问题与注意事项。
-- 从源码构建与生成 Release 见[开发指南](docs/development.md)，每次发版按 [Release 执行清单](docs/plan/release-checklist.md) 执行，发版中遇到的新问题写回该清单；Release 用户的合成与安装步骤见[体验说明](docs/user-guide.md)，入口 README 只放进展与入口链接。
-- 双系统分区规划、在线缩容、写入系统盘、刷入双启动 `xnuloader`、Android／iOS 切换及 Android 系统内 OTA 影响见[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md)。引导目标切换细节见[引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。
-  - `xnuloader` 启动时按 `boot_a`／`boot_b` 镜像识别自身槽位（`loader_slot`）和另一侧 Android 槽位（`android_slot`），判据见 `hackios-xnu-kernel/xnuloader/slot_choice.h`。
-  - 只有一侧是 loader 镜像时才维护或切换槽位；切槽同步交换 LUN 4 与 LUN 0 上 `_a`／`_b` 分区的 `PartitionTypeGUID`。
-  - 从 LK 用 `fastboot boot` 启动完整 loader 镜像可以临时进入 loader，单独的 handoff 载荷不行。枚举只用 `fastboot devices`，不要对未枚举的序列号发命令。
-- loader 镜像与其中 UEFI 的构建见 [annibale UEFI 与 loader 镜像构建](docs/analysis/annibale-uefi-build.md)，UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支，克隆到 `hackios-xnu-kernel/Mu-Silicium/`。
-- USB 命令超时、内核停止或重启后身份变化，先看[USB 恢复与减少人工按键的调试经验](docs/analysis/2026-10-25-usb-recovery-lessons.md)。判断无应答前检查 stdout、stderr 与实际耗时，区分驻留 loader、LK 与 Android；请求按键前记录当前轮软件恢复失败的结果，同一待用户动作合并提示。同一设备的命令串行执行，异常后的资源保留规则继续遵守。
-- Android 通知栏、手势条消失或 SystemUI 反复崩溃时，先看 [系统界面修复记录](docs/analysis/2026-10-23-android-systemui-recovery.md)。该文档也记录早期 userdata 尾部暂存的风险、备份边界和 loader USB 日志读取方法；系统卷从 UFS `darwin` 按需读取，启动卷和辅助盘的职责、当前验证范围见[根文件系统](docs/analysis/rootfs-strategy.md)。设备上的实际启动路径需结合 loader、载荷和切根日志确认。
-- 接手、排查、构建和真机操作前阅读 [项目排查与协作手册](docs/plan/debugging-and-collaboration.md)，按其中的前提、操作、成功条件和失败处理执行。旧文档与新结果有差异时核对源码、产物和实测时间，设备当前状态重新读取。
-- 反汇编与反编译分析：查 iOS 26 `dyld_shared_cache` 框架反汇编与虚表槽位用 `hackios-xnu-kernel/tools/dsc/dsc.py`（用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)）；需要查看 Hex-Rays 伪代码、函数级数据流或分析系统守护进程（如 `wifid`、`lsd`、`backboardd`、`coreaudiod`）、`dyld_shared_cache` 分片、引导程序（如 `LinuxLoader.efi`）与固件模块时，按需使用 `idalib-mcp`（先 `idb_list`／`idb_open` 打开目标二进制，再用 `decompile`、`analyze_function`、`xrefs_to`、`lookup_funcs` 做反编译分析）。
-- 硬件、图形、桌面、性能和系统服务的专题见[文档入口](docs/README.md)。硬件调试文件的读取也可能访问寄存器，操作前核对范围及恢复方式。
-- 经验文档优先记录排查方法、底层原理、判断依据和验收边界；已由代码或工具链解决的问题简短提及，具体命令集中在当前操作手册。
-- 从会话整理经验的可复用指令见 [经验整理 Prompt](docs/plan/experience-review-prompt.md)，整理方式调整后同步更新该文档。
-- 原始日志、截图、转储和本轮产物清单保存在 `.gitignore` 覆盖的本地调试目录，文字结论与必要的日志摘录写进 Markdown；提交前检查父仓库及各子模块的变更归属。
-- 每批调试、构建或发布结束后及时清理已不用的临时文件、重复镜像和中间产物，容器卷与独立发布目录同样适用。清理前核对脚本引用、符号链接、挂载和运行进程；保留当前调试输入、可复现基线、未结问题的崩溃报告与转储、分区备份，以及下次发布所需的源码、工具链和原始输入。用途无法确认的文件先保留；按实际占用核算清理结果，硬链接和稀疏文件单独核对。
+- **协作、进度与备份**：接手、排查、构建和真机操作前阅读 [项目排查与协作手册](docs/plan/debugging-and-collaboration.md)；旧文档与新结果有差异时核对源码、产物和实测时间，设备状态重新读取。项目状态集中维护在[进度表](docs/plan/2026-10-23-tracking.md)，待办在[待办目录](docs/backlog/README.md)，上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)，经验整理复用 [经验整理 Prompt](docs/plan/experience-review-prompt.md)。`annibale-backup/` 为分区备份说明，内容勿删，备份与恢复见[分区备份与恢复](docs/backup/README.md)。
+- **构建、发版与引导镜像**：从源码构建与生成 Release 见[开发指南](docs/development.md)，发版按 [Release 执行清单](docs/plan/release-checklist.md) 执行并把新问题写回该清单，用户安装见[体验说明](docs/user-guide.md)。loader 与 UEFI 构建见 [annibale UEFI 与 loader 镜像构建](docs/analysis/annibale-uefi-build.md)，UEFI 源码在 [iola1999/hackios-mu-silicium](https://github.com/iola1999/hackios-mu-silicium) 的 `k90-port` 分支（克隆到 `hackios-xnu-kernel/Mu-Silicium/`）。
+- **真机操作与故障恢复**：操作前后先看 `docs/plan/device-test-playbook.md` 的「故障定位与恢复」一节、[双系统分区与持久化部署手册](docs/plan/dual-boot-setup.md) 与 [引导目标切换 SOP](docs/plan/device-boot-target-sop.md)。`xnuloader` 槽位判据见 `hackios-xnu-kernel/xnuloader/slot_choice.h`；从 LK 用 `fastboot boot` 只能临时启动完整 loader 镜像，不能启动单独 handoff 载荷。硬件调试文件的读取也可能访问寄存器，操作前核对范围与恢复方式。
+- **USB 异常与系统恢复**：USB 命令超时、内核停止或重启后身份变化，先看 [USB 恢复与减少人工按键的调试经验](docs/analysis/2026-10-25-usb-recovery-lessons.md)；判断无应答前检查 stdout、stderr 与实际耗时，同一设备命令串行执行，请求按键前先记录软件恢复失败结果并合并提示。Android 通知栏、手势条消失或 SystemUI 反复崩溃先看 [系统界面修复记录](docs/analysis/2026-10-23-android-systemui-recovery.md)；系统卷按需读取与启动卷职责见[根文件系统](docs/analysis/rootfs-strategy.md)。
+- **反汇编与反编译入口**：查 iOS 26 `dyld_shared_cache` 框架反汇编与虚表槽位用 `hackios-xnu-kernel/tools/dsc/dsc.py`（用法与已知槽位见 [QuartzCore 静态分析](docs/analysis/2026-10-29-quartzcore-vtable-26.md)）；需要 Hex-Rays 伪代码、交叉引用或调用流分析时使用 `idalib-mcp`（先 `idb_list`／`idb_open` 打开目标二进制，再用 `decompile`、`analyze_function`、`xrefs_to`、`lookup_funcs`）。
+- **内核构建与日志重定向约束**：XNU 26 内核构建（`hackios-xnu-kernel/xnu26/build-macos.sh`）通过 `RC_NONARCH_CFLAGS` 传入 `-Wno-reserved-identifier -Wno-reserved-macro-identifier` 屏蔽保留标识符告警；执行构建时必须将标准输出与标准错误全量重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止未重定向输出倾入终端或工具管道造成缓冲区反压阻塞编译进程。
+- **批次与本地产物清理**：每批调试、构建或发布结束后及时清理已不用的临时文件、重复镜像和中间产物，容器卷与独立发布目录同样适用。清理前核对脚本引用、符号链接、挂载和运行进程；保留当前调试输入、可复现基线、未结问题的崩溃报告与转储、分区备份，以及下次发布所需的源码、工具链和原始输入。用途无法确认的文件先保留；按实际占用核算清理结果，硬链接和稀疏文件单独核对。
   - 复制源码树、根目录和镜像时用 APFS 克隆（`cp -c`、`ditto --clone`）或硬链接；候选根目录只放本轮改动的文件，其余引用基线。
   - 轮次证据分两类处理。结论材料保留：`RESULTS.md`、`render-report.txt`、`manifest.json`、`commands.jsonl`、结果 JSON、崩溃报告、截图。原始串口流（`s###.log`、`device-*.log` 等快照序列）在轮次总结写完且批次提交后删除：一轮长测试的串口流可达数 GiB，是全工作区最大的积累来源；evidence 目录被 Git 忽略，有长期价值的内容必须摘录进跟踪的 Markdown，不依赖原始日志留存。
   - 一批工作提交后删除这一批的源码副本、构建目录（`BUILD/`、`build/`）和中间根目录，保留结果 JSON 与截图。清理由跑批的角色在批次收尾时执行，不推到事后。开新一批前先测量 `du -sh docs/progress/evidence out hackios-xnu-kernel/out`，合计超过 20 GiB 时先清理再开批。
@@ -103,5 +96,11 @@ HackiOS（XNU + 未修改的 iOS 用户态，当前为 iOS 26.6.2）移植到 RE
   - 超过 50 MB 的构建日志在这一批结束后用 `zstd -19 --rm` 压缩。
   - `/tmp` 下挂载的镜像用完即用 `diskutil eject` 卸载；镜像文件删除后，挂载期间仍占用磁盘空间。
   - 每次清理的删除、压缩和克隆清单记录在 `out/cleanup-<日期>/`。
-- 内核构建与日志重定向约束：XNU 26 内核构建（`hackios-xnu-kernel/xnu26/build-macos.sh`）通过 `RC_NONARCH_CFLAGS` 传入 `-Wno-reserved-identifier -Wno-reserved-macro-identifier` 屏蔽保留标识符告警；执行构建时必须将标准输出与标准错误全量重定向至磁盘日志文件（如 `bash xnu26/build-macos.sh > out/xnu26-build.log 2>&1`），防止未重定向输出倾入终端或工具管道造成缓冲区反压阻塞编译进程。
-- 项目状态与已完成阶段集中在[进度表](docs/plan/2026-10-23-tracking.md)，选任务与未完成事项集中在[待办目录](docs/backlog/README.md)。进度表保持简练，待办按主题记录下一步与验收，技术分析和实测只在专题文档展开。上游参考见[近期对照](docs/analysis/2026-11-12-upstream-review.md)。
+
+## 8. 检索与大目录访问禁令（必须遵守）
+
+- **全面禁用内置 `grep` 工具与目录级递归 `grep`**：严禁调用 IDE／Agent 内置 `grep` 或全文搜索工具；严禁在 shell 中执行 `grep -r`、`grep -R`、`grep -rl`、`grep -rn`、`egrep -r`、`fgrep -r` 等任何目录级递归检索命令。
+- **严禁扫描大目录与产物目录**：严禁对 `out/`、`docs/progress/evidence/`、`docs/analysis/local/`、`hackios-xnu-kernel/out/`、`hackios-xnu-kernel/xnu-src/`、`hackios-xnu-kernel/BUILD/`、`hackios-xnu-userland/out/`、`hackios-xnu-userland/build/`、`annibale-backup/` 以及工作区根目录 `.` 执行任何递归内容检索或宽泛通配正则（如 `.`、`.*`、`^`、`\S`）。严禁以 `glob` 或 `find_file_by_name` 找不到被 `.gitignore` 忽略的文件为由改用 `grep` 扫目录。
+- **唯一允许的检索与列举方式**：查已跟踪源码或文档只用 `git grep`（在目标仓库内指定具体子目录与字面关键词，例如 `git -C hackios-xnu-kernel grep -n '<关键词>' -- xnu/files/iokit/Kernel/`）或先用 `git ls-files` 取文件清单；查 `out/` 等未跟踪目录只用 `ls` 或 `find <已知子目录> -maxdepth 2` 按路径列举，禁止不限深度扫描。
+- **单文件读取与大文件边界**：检索日志或文本必须点名具体文件路径，先确认单文件体积，再用 `rg -F --max-count`、Python 流式按行读取或 `sed`／`head`／`tail` 提取；对超过 50 MB 的二进制或镜像文件只用 `strings` 管道或流式 `bytes.find`，严禁把整文件读入内存。
+- **子代理强制继承**：主 Agent 派发任何子代理或并行任务时，必须在任务说明中明确附带本节禁令，禁止子代理自行调用内置 `grep` 或递归扫描上述目录。

@@ -38,3 +38,6 @@ hackios-xnu-kernel/qemu/ram.img
 hackios-xnu-userland/userland/*.apfs
 hackios-xnu-kernel/xnu-annibale.img
 /fw/wifi-mac.txt
+
+# 本地分析中间产物与临时脚本工作区（结论入 Markdown，原始产物不进 git）
+/scratch/
