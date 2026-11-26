@@ -168,6 +168,13 @@
 - [基带离开 OFFLINE 与定位注册（2026-11-20）](progress/2026-11-20-modem-tftp.md)：MPSS 经 TFTP 读写文件的定位、服务端实现与 GLINK intent 续传，`DMS` 进入 ONLINE；`QMI_LOC` 注册补上客户端标识后成功并收到位置上报；`UIM` 报告卡不存在。
 - [手势帧率现状、亮度缓降、宿主测试修复与手动解锁（2026-11-20）](progress/2026-11-20-perf-and-leftovers.md)：三类手势与应用启闭的帧率读数和长帧归因、开机后亮度单向缓降的核对、四个宿主测试的桩修复、关闭自动解锁后的主屏。
 - [11-20 交接：相机、基带、图标与性能一批的状态](progress/2026-11-20-handoff.md)：七项的结果与依据、设备与仓库状态、未解决事项和需要人在场的验证。
+- [11-21 用户实测问题对照与处理](progress/2026-11-21-user-test-issues.md)：U1~U21 逐项对照、根因分布与验收状态。
+- [11-24 批 1 三轮测量](progress/2026-11-24-batch1-measurement.md)：手势帧时间、转场停顿与功能回归的第一批定量基线。
+- [11-25 批 2 flip 停顿修复](progress/2026-11-25-batch2-flip-stall.md)：U21 F1 修复验机与 flip 看门狗内核回归。
+- [11-25 批 3 相机输入](progress/2026-11-25-batch3-camera-input.md)：相机输入链路的定位与修复记录。
+- [11-25 批 5 ANE 回退](progress/2026-11-25-batch5-ane-fallback.md)：E5RT 权重部署、APFS getattrlist 契约修复与图库分析链验证。
+- [11-26 批 6 停顿判决](progress/2026-11-26-batch6-stall-verdict.md)：出片后停顿终局归因、蜂群治理验证、air 0024 风暴审计与相机线封存。
+- [11-27 批 7 用户可感知问题](progress/2026-11-27-batch7-user-visible.md)：ring 双重销毁诊断链、ALS 修复与 USB 回归、亮度抖动机制、翻页与 Safari 多标签性能测量。
 
 ## 10. 代码仓库中的说明
 

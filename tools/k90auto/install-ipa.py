@@ -215,6 +215,65 @@ def sign_binary(path, ent_path):
     return adhoc_sign_python(path, ent_path)
 
 
+def macho_slices(data):
+    """The slices of a Mach-O as separate byte strings (one for a thin binary)."""
+    if len(data) < 8:
+        return []
+    magic_be = struct.unpack_from(">I", data, 0)[0]
+    if magic_be not in (0xcafebabe, 0xcafebabf):
+        return [data]
+    wide = magic_be == 0xcafebabf
+    count = struct.unpack_from(">I", data, 4)[0]
+    out = []
+    for i in range(count):
+        if wide:
+            _, _, offset, size, _, _ = struct.unpack_from(">IIQQII", data, 8 + i * 32)
+        else:
+            _, _, offset, size, _ = struct.unpack_from(">IIIII", data, 8 + i * 20)
+        if offset + size <= len(data):
+            out.append(data[offset:offset + size])
+    return out
+
+
+def embedded_entitlements(data):
+    """The entitlement plist embedded in a Mach-O's existing signature, or {} when unsigned."""
+    for slc in macho_slices(data):
+        if len(slc) < 32 or struct.unpack_from("<I", slc, 0)[0] != 0xfeedfacf:
+            continue
+        ncmds = struct.unpack_from("<I", slc, 16)[0]
+        at = 32
+        cs_off = 0
+        for _ in range(ncmds):
+            if at + 16 > len(slc):
+                break
+            cmd, size = struct.unpack_from("<II", slc, at)
+            if cmd == 0x1d:  # LC_CODE_SIGNATURE
+                cs_off = struct.unpack_from("<I", slc, at + 8)[0]
+                break
+            if size < 8:
+                break
+            at += size
+        if not cs_off or cs_off + 12 > len(slc):
+            continue
+        magic, _, count = struct.unpack_from(">III", slc, cs_off)
+        if magic != 0xfade0cc0:
+            continue
+        for i in range(count):
+            stype, soff = struct.unpack_from(">II", slc, cs_off + 12 + i * 8)
+            if stype != 5 or cs_off + soff + 8 > len(slc):
+                continue
+            emagic, elen = struct.unpack_from(">II", slc, cs_off + soff)
+            if emagic != 0xfade7171 or elen < 8 or cs_off + soff + elen > len(slc):
+                continue
+            try:
+                parsed = plistlib.loads(slc[cs_off + soff + 8:cs_off + soff + elen])
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+    return {}
+
+
 def prepare_ipa(ipa_path):
     """Unpack IPA, recursively sign all Mach-O binaries with entitlements, and return repacked IPA bytes."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -222,7 +281,12 @@ def prepare_ipa(ipa_path):
         with zipfile.ZipFile(ipa_path, "r") as z:
             z.extractall(tmp)
 
-        ent_dict = {
+        # The base set is a floor, not a replacement: keys a binary already carries
+        # (application-identifier, tcc.allow, platform-application, ...) survive the
+        # re-signing, because the kernel's entitlement chain is what reads them and a
+        # clobbered signature would silently drop them. The base keys win a conflict,
+        # which is what the pre-merge behaviour produced for them anyway.
+        base_entitlements = {
             "get-task-allow": True,
             "com.apple.private.security.no-sandbox": True,
             "com.apple.security.application-groups": [
@@ -230,9 +294,6 @@ def prepare_ipa(ipa_path):
                 "group.com.rileytestut.AltStore",
             ]
         }
-        ent_path = tmp / "entitlements.plist"
-        with open(ent_path, "wb") as f:
-            plistlib.dump(ent_dict, f)
 
         payload_dir = tmp / "Payload"
         if not payload_dir.is_dir():
@@ -244,9 +305,17 @@ def prepare_ipa(ipa_path):
                 p = Path(root) / f
                 if is_macho(p):
                     p.chmod(0o755)
+                    merged = embedded_entitlements(p.read_bytes())
+                    merged.update(base_entitlements)
+                    ent_path = tmp / f"entitlements-{p.name}.plist"
+                    with open(ent_path, "wb") as ef:
+                        plistlib.dump(merged, ef)
                     if sign_binary(p, ent_path):
                         signed += 1
-                        print(f"install-ipa: signed {p.relative_to(payload_dir)}")
+                        kept = sorted(set(merged) - set(base_entitlements))
+                        print(f"install-ipa: signed {p.relative_to(payload_dir)}" +
+                              (f" (kept embedded: {', '.join(kept)})" if kept else ""))
+                    ent_path.unlink(missing_ok=True)
 
         print(f"install-ipa: prepared {signed} Mach-O binary/binaries with AppGroup entitlements")
 
@@ -255,7 +324,7 @@ def prepare_ipa(ipa_path):
             for root, _, files in os.walk(tmp):
                 for f in files:
                     file_path = Path(root) / f
-                    if file_path == ent_path:
+                    if f.startswith("entitlements-") and f.endswith(".plist"):
                         continue
                     arcname = file_path.relative_to(tmp).as_posix()
                     zout.write(file_path, arcname)

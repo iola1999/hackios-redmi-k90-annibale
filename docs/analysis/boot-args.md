@@ -2,7 +2,7 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 174 个参数。
+共 178 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
@@ -27,6 +27,7 @@
 | `adreno8_touch_ms` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_watch` | `bsd/dev/adreno8/adreno8.c` |
 | `als_lux` | `bsd/dev/annibale/annibale_sensors.c` |
+| `ane_vmm_procs` | `bsd/kern/hvg_sysctl.c` |
 | `annibale_adsp` | `bsd/dev/annibale/annibale_adsp.c` |
 | `annibale_reboot_lk` | `bsd/dev/annibale/annibale_reboot_probe.inc` |
 | `apfs_cheap` | `bsd/miscfs/apfs/apfs_vfsops_mount.inc` |
@@ -142,6 +143,9 @@
 | `return_panic` | `osfmk/arm64/loader_return.c` |
 | `rootdev` | `bsd/kern/bsd_init.c`、`iokit/bsddev/IOKitBSDInit.cpp` |
 | `sensors_hw_i2c` | `bsd/dev/annibale/annibale_sensors.c` |
+| `sensors_probe` | `bsd/dev/annibale/annibale_sensors.c` |
+| `sensors_rails` | `bsd/dev/annibale/annibale_sensors.c` |
+| `sensors_scan` | `bsd/dev/annibale/annibale_sensors_scan.inc` |
 | `small_cores_after` | `iokit/Kernel/GenericARMPE.cpp` |
 | `surftrace_of` | `iokit/Kernel/MiniIOSurface.cpp` |
 | `syssleep` | `iokit/Kernel/IOPMrootDomain.cpp` |
@@ -151,7 +155,7 @@
 | `torch_secs` | `bsd/dev/annibale/annibale_torch.c` |
 | `touch_flip` | `bsd/dev/annibale/annibale_goodix.c` |
 | `touch_hv_steps` | `bsd/dev/annibale/annibale_goodix.c` |
-| `touch_lat` | `bsd/dev/annibale/annibale_goodix.c`、`bsd/dev/annibale/annibale_input.c`、`bsd/dev/annibale/annibale_threads.c` |
+| `touch_lat` | `bsd/dev/annibale/annibale_camera_native.inc`、`bsd/dev/annibale/annibale_goodix.c`、`bsd/dev/annibale/annibale_input.c`、`bsd/dev/annibale/annibale_threads.c` |
 | `touch_poll_us` | `bsd/dev/annibale/annibale_goodix.c` |
 | `touch_rate` | `bsd/dev/annibale/annibale_goodix.c` |
 | `touch_spi_hz` | `bsd/dev/annibale/annibale_goodix.c` |

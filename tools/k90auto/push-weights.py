@@ -7,9 +7,10 @@ usage: tools/k90auto/push-weights.py [--assemble-only] [--verify-only] [--force]
 Two phases:
 
   assemble   hardlink the staging tree out of the batch's assets: the 22 weights of
-             deploy/copy-map-final.json and the two mubb jit compile products, the latter
+             deploy/copy-map-final.json, the two mubb jit compile products, the latter
              laid out as universal.bundle (jit.e5 renamed universal.e5, e5-compile-harness.md
-             section 6). The tree mirrors userland/weights.list, the same manifest init binds by.
+             section 6), and the overlay deploy candidates of the o entries copied whole.
+             The tree mirrors userland/weights.list, the same manifest init binds by.
              Default staging dir: out/goal-1124/batch5/staging/annibale-weights.
 
   transfer   oem push mode (default): every file goes in pieces of at most 15 MB through the
@@ -40,8 +41,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 WORKSPACE = HERE.parent.parent
 BATCH = WORKSPACE / "out/goal-1124/batch5"
+BATCH7 = WORKSPACE / "out/goal-1124/batch7"
 USERLAND = WORKSPACE / "hackios-xnu-userland/userland"
 STAGING = BATCH / "staging/annibale-weights"
+CANDIDATES = BATCH7 / "personsemantics-deploy/deploy-candidate"
 REMOTE_ROOT = "/private/var/annibale-weights"
 TEMP = "/private/var/tmp/annibale-wpiece"
 PIECE = 15 << 20
@@ -56,7 +59,7 @@ def load_manifest():
     entries = []
     for line in (USERLAND / "weights.list").read_text().splitlines():
         fields = line.split("\t")
-        if len(fields) >= 4 and fields[0] in ("f", "d"):
+        if len(fields) >= 4 and fields[0] in ("f", "d", "o"):
             entries.append((fields[0], int(fields[1]), fields[2], fields[3]))
     return entries
 
@@ -106,8 +109,12 @@ def assemble(staging, only=None):
                 return False
             made += 1
         else:
-            md = "md7" if "md7" in rel else "md8"
-            tree = BATCH / "e5-build" / md / "jit.bundle"
+            # directory trees: the mubb jit products renamed to universal.e5, and the overlay
+            # candidates laid out in deploy-candidate exactly as they sit in the staging tree
+            if kind == "o":
+                tree = CANDIDATES / rel
+            else:
+                tree = BATCH / "e5-build" / ("md7" if "md7" in rel else "md8") / "jit.bundle"
             dst = staging / rel
             if dst.exists() and sum(f.stat().st_size for f in dst.rglob("*") if f.is_file()) == size:
                 skipped += 1
@@ -115,7 +122,8 @@ def assemble(staging, only=None):
             if dst.exists():
                 shutil.rmtree(dst)
             shutil.copytree(tree, dst)
-            (dst / "jit.e5").rename(dst / "universal.e5")
+            if kind == "d":
+                (dst / "jit.e5").rename(dst / "universal.e5")
             made += 1
     total = sum(f.stat().st_size for f in staging.rglob("*") if f.is_file())
     print(f"assemble: {staging}: {made} entries staged, {skipped} already correct, {total / 1e6:.1f} MB total")
