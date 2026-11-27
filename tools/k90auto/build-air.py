@@ -37,18 +37,30 @@ TARGET = "src/gallium/drivers/freedreno/libannibaleair.dylib"
 # Copied into the build tree and recorded by digest. air_to_nir.c is here because a change to it is
 # what fixes the refused fragment pipeline: any file the build reads from this directory that is not
 # listed would be copied by hand and silently left out of the library.
-FILES = ["air_metal.c", "air_metal.h", "air_clear_plan.h", "air_metal_clear.inc", "air_to_nir.c", "air_globals.inc", "air_instruction.inc", "air_entry.inc", "air_private.h", "air_metal_copy.inc", "air_metal_copy.h",
-         "air_metal_compute.inc", "air_intrinsics.c", "air_math_private.h", "air_metal_lowering.inc",
-         "air_metal_resource_private.h", "air_link.inc", "air_stitch.inc", "air_stitch_test.c",
-         "air_stitch_test.metal", "air_stitch_link_test.c", "nir_air.h", "air_call.inc",
+FILES = ["air_metal.c", "air_metal.h", "air_metal_render.h", "air_clear_plan.h", "air_metal_clear.inc",
+         "air_to_nir.c", "air_globals.inc", "air_instruction.inc", "air_entry.inc", "air_private.h",
+         "air_cfg.inc", "air_interface.inc", "air_ops.inc", "air_sampler.inc",
+         "air_bitcode.c", "air_bitcode.h", "air_layout.c", "air_metallib.c",
+         "air_module.c", "air_module.h", "air_module_function.inc", "air_module_metadata.inc", "air_print.c",
+         "air_metal_copy.inc", "air_metal_copy.h", "air_metal_compute.inc", "air_intrinsics.c",
+         "air_math_private.h", "air_metal_lowering.inc", "air_metal_resource_private.h",
+         "air_link.inc", "air_stitch.inc", "air_stitch_test.c", "air_stitch_test.metal",
+         "air_stitch_link_test.c", "nir_air.h", "air_call.inc",
+         "air_metal_purgeable.h", "air_metal_purgeable.inc",
          "air_metal_texture.inc", "air_metal_texels.inc", "air_metal_fence.inc", "air_metal_state.inc",
-         "air_metal_dispatch.inc", "air_texture.inc", "air_llvm.inc", "air_argbuf.inc",
-         "air_metal_depth_stencil.inc", "air_ptr_slot.inc", "air_ptr_phi.inc", "air_debug.inc", "air_run_gallium.inc", "air_run.c",
+         "air_metal_dispatch.inc", "air_metal_diag.inc", "air_metal_argbuf.inc", "air_metal_bind.inc",
+         "air_metal_sampler.inc", "air_metal_reflect_vertex.inc", "air_metal_render_create.inc",
+         "air_metal_render_draw.inc", "air_texture.inc", "air_llvm.inc", "air_argbuf.inc",
+         "air_metal_depth_stencil.inc", "air_ptr_slot.inc", "air_ptr_phi.inc", "air_debug.inc",
+         "air_run_gallium.inc", "air_run_compute.inc", "air_run.c",
          "air_metal_vertex_cache.inc", "air_metal_yuv.h", "air_metal_yuv.inc",
          "air_metal_formats.inc", "air_metal_allocation.inc", "air_yuv_test.c", "air_gep.inc",
          "air_metal_rgb2p.h", "air_metal_rgb2p.inc", "air_metal_rgb2p_private.h", "air_metal_bicubic.inc",
-         "air_reflection.c", "air_reflection.h", "air_metal_reflection.h",
+         "air_metal_nircache.inc", "air_reflection.c", "air_reflection.h", "air_metal_reflection.h",
          "air_simd.inc", "air_imageblock.inc", "air_metal_blend.inc",
+         "air_metal_test.c", "air_metal_test_argbuf.inc", "air_metal_test_attrib.inc",
+         "air_metal_test_blend.inc", "air_metal_test_depth.inc", "air_metal_test_draw.inc",
+         "air_metal_test_index.inc", "air_metal_test_ms.inc",
          "air_reflection_test.c", "air_copy_test.c", "air2nir.c", "meson.build"]
 
 # The toolchain: a venv with meson 1.12.1 and the ninja from homebrew, with bison ahead of the

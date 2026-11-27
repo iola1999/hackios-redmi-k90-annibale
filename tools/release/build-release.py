@@ -94,7 +94,45 @@ BUNDLED_TOOLS = ["tools/release/assemble.py", "tools/release/localfiles.py",
 LICENSES = {"hackios-redmi-k90-annibale.LICENSE": REPO / "LICENSE",
             "hackios-xnu-kernel.LICENSE": K / "LICENSE", "hackios-xnu-kernel.NOTICES.md": K / "NOTICES.md",
             "hackios-xnu-userland.LICENSE": REPO / "hackios-xnu-userland/LICENSE",
-            "qualcomm-gpu-firmware.LICENSE.txt": REPO / "hackios-xnu-userland/firmware-gen8/LICENSE.qcom.txt"}
+            "TrollStore.LICENSE": REPO / "TrollStore/LICENSE",
+            "qualcomm-gpu-firmware.LICENSE.txt": REPO / "hackios-xnu-userland/firmware-gen8/LICENSE.qcom.txt",
+            "qualcomm-gpu-firmware.NOTICE.txt": REPO / "hackios-xnu-userland/firmware-gen8/NOTICE.qcom.txt"}
+# Provenance and license summary written into LICENSES/THIRD_PARTY_PROVENANCE.json for release review (ENG-19).
+THIRD_PARTY_PROVENANCE = {
+    "hackios-xnu-kernel/prebuilt/uefi/mkbootimg.py": {
+        "origin": "Android Open Source Project (system/tools/mkbootimg)",
+        "license": "Apache-2.0",
+        "license_note": "Inline header in mkbootimg.py",
+    },
+    "hackios-xnu-kernel/prebuilt/avb/avbtool.py": {
+        "origin": "Android Open Source Project (external/avb)",
+        "license": "MIT",
+        "license_note": "Inline header in avbtool.py",
+    },
+    "TrollStore": {
+        "origin": "TrollStore submodule (https://github.com/opa334/TrollStore, k90-port)",
+        "license": "MIT / BSD-4-Clause (RootHelper/uicache.m)",
+        "license_file": "LICENSES/TrollStore.LICENSE",
+    },
+    "qualcomm-gpu-firmware": {
+        "files": ["gen80000_aqe.fw", "gen80000_gmu.bin", "gen80000_sqe.fw"],
+        "origin": "Qualcomm Adreno 8xx firmware redistribution (firmware-gen8/)",
+        "license": "Qualcomm firmware redistribution license",
+        "license_file": "LICENSES/qualcomm-gpu-firmware.LICENSE.txt",
+        "notice_file": "LICENSES/qualcomm-gpu-firmware.NOTICE.txt",
+    },
+    "apfs-tool": {
+        "files": ["apfs-tool-Darwin", "apfs-tool-Linux-x86_64", "apfs-tool-Linux-aarch64"],
+        "origin": "Built from hackios-xnu-userland/tools/apfs/apfs-tool.c and hackios-xnu-kernel/xnu/files/bsd/miscfs/apfs/apfs_lib.c",
+        "license": "Project kernel/userland licenses",
+        "license_file": "LICENSES/hackios-xnu-userland.LICENSE",
+    },
+    "vendor-firmware-local-extract": {
+        "files": sorted(VENDOR_FIRMWARE),
+        "origin": "Extracted locally from the user's own device partitions by assemble.py (not distributed in release)",
+        "license": "Device vendor proprietary (not redistributed)",
+    },
+}
 ANDROID_TOOLS = ["f2fs-resize", "blkpg-tool"]
 # annfs-to-apfs.py runs these from tools/apfs/prebuilt/ (made by build-all.sh into out/apfs-tool/)
 APFS_TOOLS = ["apfs-tool-Darwin", "apfs-tool-Linux-x86_64", "apfs-tool-Linux-aarch64"]
@@ -109,7 +147,8 @@ def sources(allow_dirty):
     """The commits the build came from; a dirty tree is refused unless asked for."""
     trees = {"workspace": (REPO, ["git", "-C", str(REPO)]),
              "hackios-xnu-kernel": (K, ["git", "-C", str(K)]),
-             "hackios-xnu-userland": (REPO / "hackios-xnu-userland", ["git", "-C", str(REPO / "hackios-xnu-userland")])}
+             "hackios-xnu-userland": (REPO / "hackios-xnu-userland", ["git", "-C", str(REPO / "hackios-xnu-userland")]),
+             "TrollStore": (REPO / "TrollStore", ["git", "-C", str(REPO / "TrollStore")])}
     commits = {}
     for name, (cwd, cmd) in trees.items():
         run = lambda *a: subprocess.run([*cmd, *a], cwd=cwd, check=True, capture_output=True, text=True).stdout
@@ -332,7 +371,11 @@ def main():
         os.chmod(prebuilt / path.name, 0o755)
     (bundle / "LICENSES").mkdir()
     for name, path in LICENSES.items():
+        if not path.is_file():
+            raise SystemExit(f"{path}: missing required license/notice file for {name}")
         shutil.copyfile(path, bundle / "LICENSES" / name)
+    (bundle / "LICENSES/THIRD_PARTY_PROVENANCE.json").write_text(
+        json.dumps(THIRD_PARTY_PROVENANCE, indent=2) + "\n")
     (bundle / "local-files.plist").write_bytes(plistlib.dumps(
         {"format": localfiles.FORMAT, "files": [recipes[rel] for rel in sorted(recipes)]}, fmt=plistlib.FMT_BINARY))
 

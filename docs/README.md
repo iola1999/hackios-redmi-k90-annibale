@@ -180,6 +180,8 @@
 - [11-27 批 8 性能归因](progress/2026-11-27-batch8-opening.md)：xfm 运动真值穷尽分类、ioctl 放大器修复、背光去重验证、黑窗机制判别、sensors bitbang 扫描终结。
 - [11-27 批 9 收官与批 10 开局](progress/2026-11-27-batch9-opening.md)：keep 池扩容、Mesa `0030` 导出位与 `reap` 锁外释放、`MiniFramebuffer` 10 Hz 内联优化、Reminders 黑闪与 `G18` 定案、ADSP `IPCRTR` 发现 `QMI SNS_CLIENT`（`0x190`）及 Mesa `0031` 首轮实测。
 - [11-27 批 14 与批 15a 真机实测记录](progress/2026-11-27-batch14-results.md)：`b5r42`（`BT_EN` `20 ms` 硬复位通过、FastRPC GLINK 建立）、`b5r43`（`modem=3` 映射定因）、`b5r44`（`psci_idle=1 + adreno8_ifpc=1` 联合省电验收）、`b5r45`（`flipwd25` `adreno8_preempt=1` 阶段 1 验收）与 `b5r46`（`flipwd25` `modem=3` `MPSS node 0` + 双槽 `QMI_UIM` 验收）。
+- [11-27 批 16 真机实测、代码储备与只读定案记录](progress/2026-11-27-batch16-results.md)：`b5r48`（`S16` 验收）、`b5r49b`（`S15` 字节一致与 `M1`/`S14` 阻断定位）、`b5r50`（`flipwd26` 验收 `S4`/`S14`、`G8`、`G9`、`G15` 建全 `256` 桶）及 `S13`/`M9`/`P15`/`P24` 闭环定案。
+- [11-27 批 17 阶段实测、根因定位与修复记录](progress/2026-11-27-batch17-results.md)：`b5r51`（`G30` 阶段 2 + `nircache` 跨重启验证）、`G15` 量化（`air_to_nir` 采样 `6/7 -> 0`、峰值 `712/417 ms -> 59/49 ms`）、`b5r52`（`S6` `'l10r'` 24/24 全过、`ENG-09`/`G3` 16/18 通过、2 项材质差异及 `S7`/`G31` 采样）、`b5r53` `apps_smmu` panic 修复（`flipwd28` `#650`/`#651`）与 `b5r54`（`P14` `compute-cb@2` 零 panic 推至 `adsp_mem_heap`、`M1` `dsz == 2*bsz` 诊断、`P21` `cwjoin`）。
 
 ## 10. 代码仓库中的说明
 

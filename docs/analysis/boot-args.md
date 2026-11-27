@@ -2,7 +2,7 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 181 个参数。
+共 182 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
@@ -91,6 +91,7 @@
 | `gpu_coherent` | `bsd/dev/adreno8/adreno8.c`、`iokit/Kernel/AnnibaleGPU.cpp` |
 | `gpu_irq` | `bsd/dev/adreno8/adreno8_hfi.c` |
 | `gpu_log` | `bsd/dev/annibale/annibale_gpu_dispatch.c` |
+| `gpu_recover` | `bsd/dev/adreno8/adreno8.c` |
 | `gpu_tl` | `bsd/dev/adreno8/adreno8_hfi.c` |
 | `haptic` | `bsd/dev/annibale/annibale_haptic.c` |
 | `haptic_amp` | `bsd/dev/annibale/annibale_haptic.c` |

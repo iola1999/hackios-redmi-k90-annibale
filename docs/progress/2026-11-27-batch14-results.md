@@ -1,11 +1,11 @@
-# 2026-11-27 批 14 与批 15a 真机实测记录（b5r42～b5r46 / flipwd24～flipwd25）
+# 2026-11-27 批 14 与批 15 真机实测记录（b5r42～b5r47 / flipwd24～flipwd25）
 
-本记录汇总批 14 内核 `xnu12377-flipwd24.bin`（sha256 `b94a722905769c84336ed301ebfd53e983cbd2588efc2fda0076777461e10d02`，`21053864` 字节）与批 15a 内核 `xnu12377-flipwd25.bin`（sha256 `fe9d12ab00208188c1ed352e0b96eba524e9adcb428bae5730b623fd0a4a0251`，`21053944` 字节）配合用户态 `c0c7ebda...`（`rwa_lock` 收窄）的五轮真机单变量实测结果。
+本记录汇总批 14 内核 `xnu12377-flipwd24.bin`（sha256 `b94a722905769c84336ed301ebfd53e983cbd2588efc2fda0076777461e10d02`，`21053864` 字节）与批 15 内核 `xnu12377-flipwd25.bin`（sha256 `fe9d12ab00208188c1ed352e0b96eba524e9adcb428bae5730b623fd0a4a0251`，`21053944` 字节）配合用户态 `c0c7ebda...`（`rwa_lock` 收窄）的六轮真机测试与诊断采证结果。
 
 ## 1. 轮次与产物总览
 
 - **批 14（`flipwd24`）**：`b5r42`（`adreno8_preempt=1`）验收 `P6` `BT_EN` `20 ms` 复位脉冲与 `P14` FastRPC GLINK 建立，并查明 `AnnibaleGPU.cpp:1140` 拦截用户态抢占队列；`b5r43`（`modem=3`）查明 `annibale_ipa.c:1011` 整段 `ml_io_map_unmappable()` 触发 `KERN_NO_SPACE`；`b5r44`（`psci_idle=1 adreno8_ifpc=1`）验收 `P23` 联合全功能省电态。
-- **批 15a（`flipwd25`）**：合入 `AnnibaleGPU.cpp:1140` 优先级放行（`#476`/`#479`）与 `annibale_ipa.c:1011` 分段/分块页对齐映射（`#498`/`#500`）后，`b5r45` 验收 `G30` 第一阶段（`adreno8_preempt=1`），`b5r46` 验收 `P13` `MPSS` `node 0` 与双槽 `QMI_UIM`。
+- **批 15（`flipwd25`）**：合入 `AnnibaleGPU.cpp:1140` 优先级放行（`#476`/`#479`）与 `annibale_ipa.c:1011` 分段/分块页对齐映射（`#498`/`#500`）后，`b5r45` 验收 `G30` 第一阶段（`adreno8_preempt=1`），`b5r46` 验收 `P13` `MPSS` `node 0` 与双槽 `QMI_UIM`，`b5r47` 完成 `P21`/`M3`/`S11` 现场诊断采集（经核对 `EVNTEN+WFE` 临时 loader 存在 EL2/USB 人工按键复位风险后按安全分支执行）。
 
 ## 2. b5r42：蓝牙硬复位、FastRPC 与 GPU 抢占拦截
 
@@ -35,3 +35,9 @@
 - **`MPSS` `node 0` 与双槽 `QMI_UIM` 就绪**：`MPSS SMP2P slave-kernel READY in 2450 ms`，`IPCRTR` 上线（`node 0`）并注册 `QMI` `0x09`/`0x03`/`0x0b`/`0x01`/`0x05`/`0x02`/`0x10`，`rmtfs`（`modemst1`/`modemst2`）与 `tftp`（`mcfg_sw.mbn`）读写通过；`QMI DMS` 切入 `ONLINE`（`operating_mode=0`），`QMI UIM` 正确解析双槽（`slots=2`，`phys_slot0/1` 与 `slot0/1` `apps=0`，当前未插物理 SIM 卡），`QMI NAS` `reg=2 mcc=460 mnc=11`、`QMI LOC` `fixes=17`。
 - **交互与进程稳定性**：`cycle.py` `12` 步通过（`rc=0`，`4574784 bytes`, `0 merge gaps`），`CommCenter`（67）、`CommCenterMobileHelper`（99）、`backboardd`（38）、`SpringBoard`（29）持续存活；`locationd[73]` 于 `19:45:42` 出现 `1` 次 `userabort` 后自动重启为 PID `268` 稳定运行。
 - **存储巡检与退回**：`run/s020.log` 录得 `1` 次用户态指针 `apfs: write ... failed: 14`（`EFAULT`，已正常回滚），`docs/progress/evidence/k90auto/loader-recover-b5r46/returned-held.log`（`46` 份日志，`50,873` 唯一行）全零 `gpu_fault`/`submissions closed`/`AnnibaleGPU client refused`/`ufshc`/`kmem_alloc`，并干净退回空闲 `xnuloader`。
+
+## 7. b5r47：flipwd25 P21 / M3 / S11 诊断采集
+
+- **`P21`（`a80211_test` 实测）**：`sets 22` `CopyCurrentNetwork -> 0`（Channel `44`、width `80`、RSSI `-29`、SNR `66`）；`mwxjoin` 在 `ScanAsync -> 0`（`scan results 22`）、`Disassociate -> 0` 与 `AssociateAsync -> 0` 后回调返回 `0xffffff9c`；`cwjoin` 发出 `scan request sent`；`leave` `set disassociate(22) -> 0`（内核 `2` 次）后 `CopyCurrentNetwork -> -3903`（未自动重连）。
+- **`M3`（`sound_test route` + `anntouch button voldown 100`）**：`sound_test route` 输出 `1 output, volume 0.50` 与乱码设备名 `Speaker "f\t,e#0e ("`（系统输出上下文 `1 device ((none))`）；触发 `voldown` 后 `input26` 送达 `backboardd[38]` `VolumeDecrement page:0xC usage:0xEA down/up`，环形日志未出现 `audio_plugin unknown()` 或 `MediaExperience`/`audiomxd` 音量回调（仅启动期 `audiomxd[65]` `IAPAudioCopyDeviceStates: audioDeviceStates == NULL`）。
+- **`S11`（`fhw_test` 与 `b5r46` `locationd[73]` 栈）**：`/annibale/bin/fhw_test` `4/4` 通过（`rc=0`，4 组冷页/追加写入均 `writeData: threw nothing ok`）；`b5r46` `render-report.txt` 记录 `locationd[73]` 于 `19:45:42` `userabort`（`shared cache slide 0x1b034000; called from: 0x1aa10efcc 0x19b1fefd4 0x19b200b90`）；`docs/progress/evidence/k90auto/loader-recover-b5r47` 收敛至空闲 `xnuloader`。
