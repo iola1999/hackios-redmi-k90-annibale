@@ -90,3 +90,4 @@
 | v0.2.1 | 在新克隆里运行 `test_annfs.py` 报找不到 `apfsck` | 在日常工作区运行或先编译 `apfsck`（第 4 节） |
 | v0.2.2 | 新克隆的内核与真机验证的 `12377-lens` 有 16 字节不同，位置是 LC_UUID：日常构建每次换 `KERNEL_UUID`，发布构建用固定值 | 把真机内核的 LC_UUID 改成默认值后比 SHA-256（第 4 节） |
 | v0.2.2 | `camtuning.py` 改为按传感器模式的读出区域映射镜头阴影表（内核 `aa069aef`），多了模块文件和模式号两个参数；`assemble.py` 仍只传调校文件，用户合成的 `camera-*.isp` 与根盘里的不同，合成时报「the phone's firmware differs」 | `CAMERA_TUNINGS` 同时记录模块文件和模式号，`assemble.py` 一并传给 `camtuning.py`。`build-release.py` 不重新生成手机固件，这类差异只在第 6 节合成时出现；生成固件的脚本参数有变化时，对照 `userland/build.sh` 检查发布配方 |
+| v0.2.3 | 新克隆 `xnu26/apply.sh` 因 `30-iokit%conf%files.patch` 块头行数未随新增 `+iokit/Kernel/AnnibaleSMC.cpp` 更新（`+80,25` 实际 `+80,26`）报错退出；`TrollStore` 新提交 `582b283` 未推送到远端导致 `git clone --recurse-submodules` 中止 | 改动 `xnu26/patches/*.patch` 后用 `git apply --check` / `patch --dry-run` 校验块头行数；新克隆或发版前先核对包括 `TrollStore` 在内的全部子模块指向提交均已推送远端 |
