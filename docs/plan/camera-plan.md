@@ -1,6 +1,6 @@
 # 相机路线：annibale（REDMI K90 / SM8750 `sun`）
 
-本文保留早期相机栈设计与设备树资源分析。当前传感器身份、原生会话和真机结果见[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)，未完成事项集中在[多媒体待办](../backlog/multimedia.md)。CAMSS 各块基址与 sensor 连接见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
+本文保留早期相机栈设计与设备树资源分析（文中 `D22` 格式表与 `rc.jobs.camera` 属于早期基线，当前已改用 V57AP 格式表与 `camera_formats_ios26.inc`）。当前传感器身份、原生会话和真机结果见[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)与[批 5/批 6 进展](../progress/2026-11-26-batch6-stall-verdict.md)，未完成事项集中在[多媒体待办](../backlog/multimedia.md)。CAMSS 各块基址与 sensor 连接见[硬件资源图谱](../analysis/annibale-hw-map.md) §12。
 
 ## 1. 结论
 

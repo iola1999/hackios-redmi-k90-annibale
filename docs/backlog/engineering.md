@@ -1,6 +1,6 @@
 # 工程、构建与系统版本待办
 
-2026-11-12 按当前文档与源码整理。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。本轮只核对文件与脚本，没有重新运行构建、测试或真机轮次。其他主题见[待办入口](README.md)。
+2026-11-27 同步批 1～批 10 实测更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
 
 ## 1. 构建、发布与测试环境
 
@@ -9,20 +9,19 @@
 | ENG-01 | 后续正式 Release 的干净克隆验证 | 待下一次发布执行 | 从已提交的顶层仓库及子模块重新克隆，按开发指南重建内核、用户态、AIR、UEFI、loader 和 Android 分区工具；记录源码与工具链版本。`build-release.py` 的根盘重建、loader 封装、隐私检查通过，再在 Linux 或容器按体验说明完成合成校验。 | [开发指南 §10](../development.md#10-生成-release)、[发布脚本](../../tools/release/build-release.py) |
 | ENG-02 | adreno8 与 ir3 的外部输入对照测试 | 2026-11-16 统一运行主机测试：mic、payload、mkpayload 等全部成功；13 个 `test-adreno8-*.py` 与 `test-ir3-output-contracts.py` 缺少外部输入时跳过，尚未在提供输入的环境中运行 | 按脚本里的版本与 SHA-256 准备 graphics-kernel 源码、`msm_kgsl.ko`、厂商内核时钟源码、MiCode 内核与上游 adreno 源码，设置环境变量后运行 `python3 tools/run-host-tests.py adreno8 ir3`；验收为这 14 项全部成功，或逐项记录失败位置并区分输入版本、源码断言与环境错误 | [合入前检查](../plan/debugging-and-collaboration.md#10-合入前检查)、[主机测试入口](../../tools/run-host-tests.py) |
 | ENG-03 | AIR 参考编译的 LLVM 基线 | 候选验证未完成 | 固定可解析 opaque `ptr` 的参考工具链，重跑 FMA 与 argument-buffer 对照；单独定位仍拒绝的跨成员 phi。验收记录要区分参考编译器错误与 AIR 语义差异，再决定是否更新生产检查规则。 | [多媒体验证 §9](../analysis/2026-11-11-multimedia-validation.md#9-air-常规检查与缓存) |
-| ENG-21 | Wi-Fi 下的 SSH 调试 | 11-23 tgl40 真机验证通过：`tools/mk-jb.sh` 现取 Procursus 1800 bootstrap（含 openssh-server 9.7p1）生成 `jb/root/var/jb`（127M，仓库外）；jb 前缀装进 `flashboot.apfs` 后 79MB 超过载荷 64MB 常驻启动镜像上限，验证改走运行期落盘——`oem push` + `annsh pull` 把 sshd、5 个 rpath 依赖、passwd/master.passwd/group、`pwd_mkdb`、zsh 等 10 件写入 `/var/jb`（ramfs），`mkdirtool`（无签名即可执行）建目录。设备 en0 得 `<DEVICE_IP>` 后 `/var/jb/usr/sbin/sshd` 后台常驻：宿主密钥认证登入成功、远端命令执行（`ps -A` 进程表）、交互 zsh（`localhost#` 提示符）、sftp 子系统双向传输、`kill` 后 22 端口关闭全部实测 | annsh 新增 `mkdir -p`/`chmod` 内建已提交；落地为持久路径需把 jb 装进 UFS 系统镜像（`/jb`）再刷机一次，或每次开机重复运行期落盘；zsh 缺模块（zle 行编辑）未推送；SSH 不能替代 loader 通道做恢复 | [SSH 真机验证记录](../progress/2026-11-23-ssh-over-wifi.md)、[USB 与调试方式核查 §4](../analysis/2026-11-12-usb-debugging.md#4-现有调试方式的可用范围) |
-| ENG-24 | k90auto 的环境检查、恢复超时与日志质量 | 11-22 三轮遇到：解释器缺 NumPy 时 `tour.py` 报错而轮次照常进行；`tests/test-tools.py` 的 52 项里 43 项因 `run-auto.py` 导入 `screenrec` 而不通过；`recover-loader.py` 在 loader 重新枚举期间 8 秒超时退出；日志行成对重复、不同来源的行串在一行；`prof.py` 没有共享缓存偏移时符号归属错误；`annsh` 的 `sysctl` 不支持前缀。11-22 晚已处理：`test-tools.py` 复制 `screenrec.py` 后 52 项全部通过；`recover-loader.py` 在重新枚举期间继续等待；`cycle.py` 开头检查 numpy；`prof.py` 没有偏移时不再给共享缓存地址命名。剩余：日志成对重复（各驱动的输出同时写 loader 日志并 `printf`，控制台输出开启时 `printf` 也进 loader 日志）与 `annsh` 的 `sysctl` 前缀。11-23 晚：各驱动的 `say()`/`traceLine`/`ustacks_say` 统一改为互斥写法——`printf` 能跑时不再显式写 loader 日志（`console_write` 无条件 `loader_log_putc`），跑不了时用 `loader_log_line` 整行写；say3 内核真机 `kernel-12377-say3-tgl28` 相邻重复行 1308→82，内核驱动前缀全部归零，剩余重复消息含用户态输出和连续事件。11-24 在原始快照中找到全部带时间戳的相邻重复行，独立的 16 个控制台标记各出现一次，见[用户态输出复核](../progress/2026-11-23-log-dedup.md#5-用户态输出复核11-24)。11-23 晚收尾：`sysctl NAME` 为节点时按 `{0,3}`/`{0,2}`/`{0,1}` 原生 SPI 枚举整棵子树（userland `9146fd0`），tgl29 真机 `sysctl kern.annibale` 枚举成功、普通叶子与 `NAME=NUMBER` 写入不变 | 按[全局现状分析 §6](../analysis/2026-11-22-global-review.md#6-工具链)的表逐项处理；验收为新环境按说明一次跑通一轮、`test-tools.py` 全部通过、恢复脚本在重新枚举期间重试成功、合并后保留原始事件数，每条带序号的测试消息只出现一次 | [全局现状分析 §6](../analysis/2026-11-22-global-review.md#6-工具链) |
-| ENG-25 | 宿主侧着色器回放 | 11-24 在 macOS 构建 air2nir、air_run 与顶点回放程序。g25capture1 取回图库两次绘制的特化顶点 AIR 及各自的 7 个输入缓冲区。llvmpipe 与 Mac Metal 逐像素比较，两个样本的覆盖差异均为 0/16,384 | 已验收 G25 顶点几何。图库纹理与混合效果见 G25 真机记录 | [构建与回放步骤](../../tools/k90auto/README.md#81-用-mac-回放图库的顶点着色器) |
+| ENG-21 | Wi-Fi 下的 SSH 调试 | 11-23 `tgl40` 验证运行期落盘（`oem push` + `annsh pull` 写入 `/var/jb`，sshd、zsh、sftp 均实测可用）；持久化需装进 UFS 系统镜像再刷机一次或每次开机脚本化落盘 | 按需补齐 `zsh/zle` 模块并决定是否编入后续系统盘或 `rc.jobs` 脚本；SSH 仍依赖 iOS 网络栈，不作恢复通道 | [SSH 真机验证记录](../progress/2026-11-23-ssh-over-wifi.md)、[USB 与调试方式核查 §4](../analysis/2026-11-12-usb-debugging.md#4-现有调试方式的可用范围) |
+| ENG-24 | k90auto 的环境检查、恢复超时与测试清理 | `test-tools.py` 52 项、`recover-loader.py` 等待、`cycle.py` NumPy 检查、`prof.py` 共享缓存过滤、内核日志互斥去重（`say3` `1308->82`）、`annsh sysctl` 子树枚举（`9146fd0`）、`trollstorehelper open` 误报修复（`582b283`）、`test-annibale-gpu-dispatch.py`（6 组及 7 项变异全过）、`test-annibale-apple80211-events.py`（`say4`/`scants` 桩修复，`PASS`）及 `make-payload.py` `--memsize`/`--identity` 强制校验（`test-make-payload.py` `6/6`、`test-tools.py` `52/52` 成功，兼容环境变量并写入 `manifest.json`）均已验证通过。仍余一项：真机缺 `/usr/bin/log` 与 `uuidtext` 导致宿主 `log show` 无法解码 `tracev3`（批 6 §8） | 补齐 `tracev3` 解码或 `oslogwatch` 落盘覆盖（需保留还原系统日志文本的能力） | [全局现状分析 §6](../analysis/2026-11-22-global-review.md#6-工具链)、[批 4 进展 §1](../progress/2026-11-25-batch4-identity.md#1-身份修正轮-b4r2-已验)、[批 6 进展 §8](../progress/2026-11-26-batch6-stall-verdict.md#8-残余问题与下轮输入) |
 
 ## 2. Mesa、AIR 与代码维护
 
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
-| ENG-04 | Mesa 补丁按支持版本严格应用 | 待整理 | 为支持的基线保留各自补丁集合，清理 26.x 已失效的 hunk，刷新 `ir3-ssbo-subdword` 上下文；核对 25.0.7 消费者后处理 `ir3-shift-split`。从干净 tarball 应用时要求零 reject、零 skip、零 fuzz，并完成主机与 iOS 交叉构建。 | [Mesa 分析 §2](../analysis/mesa-rebase-2026-10.md#2-fork-补丁在-2625-上的应用结果)、[§8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[mk-mesa.sh](../../hackios-xnu-userland/tools/mk-mesa.sh) |
+| ENG-04 | Mesa 补丁按支持版本严格应用 | 补丁已扩至 `0001`–`0031`（`0024`–`0029` ring 引用修复、`0030` 导出位、`0031` heap 与 cache 复用待 `v2`） | 为支持的基线保留各自补丁集合，清理 26.x 已失效的 hunk，刷新 `ir3-ssbo-subdword` 上下文。从干净 tarball 应用时要求零 reject、零 skip、零 fuzz，并完成主机与 iOS 交叉构建 | [Mesa 分析 §2](../analysis/mesa-rebase-2026-10.md#2-fork-补丁在-2625-上的应用结果)、[§8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[mk-mesa.sh](../../hackios-xnu-userland/tools/mk-mesa.sh) |
 | ENG-05 | OSMesa 恢复补丁与平台适配分开维护 | 待整理 | 将 OSMesa 恢复从 `0003` 的其他 26.x 适配中拆出，按职责整理 `freedreno-darwin.patch`。运行现有 GL、GLES smoke 程序，核对当前导出符号集合、上下文创建与像素读回；更换 Mesa 后复核 EAGL 消费路径。 | [Mesa 分析 §3](../analysis/mesa-rebase-2026-10.md#3-osmesa-恢复)、[§8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[smoke-osmesa.c](../../hackios-xnu-userland/tools/mesa/rebase-26/smoke-osmesa.c)、[smoke-osmesa-es.c](../../hackios-xnu-userland/tools/mesa/rebase-26/smoke-osmesa-es.c) |
-| ENG-06 | AIR 主文件与测试文件继续按职责拆分 | 部分拆分，剩余项见下表 | 在对应文件发生大改前，沿现有资源、翻译阶段和测试职责继续拆分；保留接口与资源生命周期约束，避免新增转发层。新文件和本次大改文件满足行数约定，相关宿主测试及 arm64e 构建通过。 | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[§16](../analysis/2026-11-08-architecture-review.md#16-工程流程)、[AGENTS.md §2](../../AGENTS.md#2-代码行数约定必须遵守) |
+| ENG-06 | AIR 主文件与超长文件按职责拆分 | 批 9/10 新增与调整的内核文件均守住 1200 行上限（`MiniFramebufferRows.inc` 388、`AnnibaleGPU.cpp` 1194、`AnnibaleGPUMemory.inc` 832、`annibale_adsp_ipcrtr.inc` 187、`annibale_adsp.c` 1191、`annibale_sensors_ssc.inc` 685、`MiniIOMobileFramebuffer.cpp` 保持 1248 净增 0）；下表用户态超长文件仍待逐步拆分 | 在对应文件发生大改前，沿现有资源、翻译阶段和测试职责继续拆分；新文件和本次大改文件满足行数约定，相关宿主测试及 arm64e 构建通过 | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[§16](../analysis/2026-11-08-architecture-review.md#16-工程流程)、[AGENTS.md §2](../../AGENTS.md#2-代码行数约定必须遵守) |
 | ENG-07 | 剩余注入钩子逐项核对原生契约 | 待逐项评估 | 按实际消费者检查关机、激活状态、图标、AirDrop、显示名、WebKit 偏好和状态栏布局；记录原生调用要求与底层缺口，完成内核、驱动或构建层修复后移除对应钩子。每项验收覆盖原消费者与未注入进程；诊断和测试用途单独确认。 | [注入钩子 §2](../analysis/2026-11-09-injection-hooks.md#2-逐项归类)、[§3](../analysis/2026-11-09-injection-hooks.md#3-结论) |
 
-ENG-06 的行数取自 2026-11-12 工作树。AIR 已有 `air_metal_*.inc`、指针槽、argument buffer、GEP、调用、phi 和采样器分片，后续拆分沿这些职责进行。
+ENG-06 的行数基线取自 2026-11-12 工作树。AIR 已有 `air_metal_*.inc`、指针槽、argument buffer、GEP、调用、phi 和采样器分片，后续拆分沿这些职责进行。
 
 | userland 仓库文件 | 当前行数 |
 |---|---:|
@@ -61,3 +60,9 @@ ENG-06 的行数取自 2026-11-12 工作树。AIR 已有 `air_metal_*.inc`、指
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
 | ENG-19 | 后续 Release 的第三方内容分发核对 | 随发布内容复核 | 逐项核对预构建固件、设备提取资料与其他第三方文件的来源和分发许可；许可或来源未确认的内容使用本地提取流程。验收包含发布清单与 `build-release.py` review 输出中各文件的来源说明。 | [开源准备记录](../analysis/2026-10-23-open-source-readiness.md)、[开发指南 §10](../development.md#10-生成-release) |
+
+## 6. 已解决归档
+
+| 编号 | 事项 | 解决结论与验证范围 | 来源 |
+|---|---|---|---|
+| ENG-25 | 宿主侧着色器回放 | 11-24 在 macOS 重建 `air2nir`、`air_run` 与顶点回放程序（内核 `fdf59ad4`、用户态 `ab2eb6c`），使用 `g25capture1` 两次图库绘制的特化顶点 AIR 在 `llvmpipe` 与 Mac Metal 逐像素对比，差异均为 `0/16,384`，已验收 `G25` 顶点几何 | [构建与回放步骤](../../tools/k90auto/README.md#81-用-mac-回放图库的顶点着色器) |

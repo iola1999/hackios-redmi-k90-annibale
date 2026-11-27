@@ -172,11 +172,12 @@
 - [11-24 批 1 三轮测量](progress/2026-11-24-batch1-measurement.md)：手势帧时间、转场停顿与功能回归的第一批定量基线。
 - [11-25 批 2 flip 停顿修复](progress/2026-11-25-batch2-flip-stall.md)：U21 F1 修复验机与 flip 看门狗内核回归。
 - [11-25 批 3 相机输入](progress/2026-11-25-batch3-camera-input.md)：相机输入链路的定位与修复记录。
+- [11-25 批 4 身份修正与 MPS](progress/2026-11-25-batch4-identity.md)：V57AP 身份修正验收与 `mediaanalysisd` 分析链逐层闭环记录。
 - [11-25 批 5 ANE 回退](progress/2026-11-25-batch5-ane-fallback.md)：E5RT 权重部署、APFS getattrlist 契约修复与图库分析链验证。
 - [11-26 批 6 停顿判决](progress/2026-11-26-batch6-stall-verdict.md)：出片后停顿终局归因、蜂群治理验证、air 0024 风暴审计与相机线封存。
 - [11-27 批 7 用户可感知问题](progress/2026-11-27-batch7-user-visible.md)：ring 双重销毁诊断链、ALS 修复与 USB 回归、亮度抖动机制、翻页与 Safari 多标签性能测量。
 - [11-27 批 8 性能归因](progress/2026-11-27-batch8-opening.md)：xfm 运动真值穷尽分类、ioctl 放大器修复、背光去重验证、黑窗机制判别、sensors bitbang 扫描终结。
-- [11-27 批 9 需求侧治理](progress/2026-11-27-batch9-opening.md)：keep 池扩容验证、Mesa bo cache 需求侧根因、0030 导出位修复、空闲定时器测量基础设施修复。
+- [11-27 批 9 收官与批 10 开局](progress/2026-11-27-batch9-opening.md)：keep 池扩容、Mesa `0030` 导出位与 `reap` 锁外释放、`MiniFramebuffer` 10 Hz 内联优化、Reminders 黑闪与 `G18` 定案、ADSP `IPCRTR` 发现 `QMI SNS_CLIENT`（`0x190`）及 Mesa `0031` 首轮实测。
 
 ## 10. 代码仓库中的说明
 

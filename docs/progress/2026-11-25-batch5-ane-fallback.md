@@ -98,19 +98,27 @@ flipwd7（APFS_SYNTH_MAX 128）生效：启动日志 `24 entries: 24 bound, 0 fa
 
 ## 16. b5r9：oslog 明文解锁，E5RT getattrlist EINVAL 判决
 
-oslogwatch 私有字节补丁生效（首行 `oslog: trace privacy byte set; private payloads serialize`），mediaanalysisd 明文首捕。失败链闭合为两条严格 1:1 交替日志：`E5RT op failed: getattrlist failed with error = 22`×54 + `Invalid Function Argument: handle is NULL`×54（级联）。`Error loading file:`/`Error mapping file:`/`handle_ex_plan` 全部零行——**权重文件读不进的 io_error 假设证伪**。失败位置锁定在 `e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options` 算子创建的文件系统探测环节（getattrlist 返 EINVAL），早于 Espresso plan 执行；消费端确实按绑定路径找到算子包并进入创建流程。相机链旁证：`BWE5InferenceProvider.m:263` 同一创建 API 同样失败——**该文件系统探测缺口同时阻塞 mediaanalysisd 与相机两条链，修一处解两链**。候选根因两个：合成绑定条目不支承 getattrlist 部分属性位，或 HackiOS APFS 对该属性组合返 EINVAL；idalib 反编译与内核属性位审计双路调查已派（`e5rt-getattrlist-reversing.md`/`kernel-getattrlist-audit.md` 产出中）。SQLite：err105 64→66（两张新片进失败积压），ZRESULT/ZASSET 仍 0。
+oslogwatch 私有字节补丁生效（首行 `oslog: trace privacy byte set; private payloads serialize`），mediaanalysisd 明文首捕。失败链闭合为两条严格 1:1 交替日志：`E5RT op failed: getattrlist failed with error = 22`×54 + `Invalid Function Argument: handle is NULL`×54（级联）。
+
+`Error loading file:`/`Error mapping file:`/`handle_ex_plan` 全部零行，权重文件读不进的 io_error 假设证伪。失败位置锁定在 `e5rt_execution_stream_operation_create_precompiled_compute_operation_with_options` 算子创建的文件系统探测环节（getattrlist 返 EINVAL），早于 Espresso plan 执行；消费端确实按绑定路径找到算子包并进入创建流程。
+
+相机链旁证：`BWE5InferenceProvider.m:263` 同一创建 API 同样失败，该文件系统探测缺口同时阻塞 mediaanalysisd 与相机两条链。候选根因两个：合成绑定条目不支承 getattrlist 部分属性位，或 HackiOS APFS 对该属性组合返 EINVAL。idalib 反编译与内核属性位审计双路调查已派（`e5rt-getattrlist-reversing.md`/`kernel-getattrlist-audit.md` 产出中）。SQLite：err105 64→66（两张新片进失败积压），ZRESULT/ZASSET 仍 0。
 
 其余：Wi-Fi 恢复入网（192.168.1.185 DHCP 新租约），sshd/sftp 快通道实测 11MB/s 逐字节一致，后续轮次取证速率量级提升。shader harvest 双路通畅：写入 `128 pipelines recorded`、回放 SpringBoard 70+cameracaptured 205+backboardd 342 replayed，`cannot mkdir` 零计数——预热机制端到端成立。新开放点：SpringBoard/backboardd 启动早期各重启一次（pid 29→313、38→309，wifid termination 回调+ReportCrash CPU 增长），死因未定位。前摄方向复核通过；明暗场帧率测量连续两轮缺手段（需注入或外设计帧）。遗留：boot_a 未刷写（临时 fastboot boot 载体），t1 Photos.sqlite 未拉取（可用 sftp 快通道补）。
 
 ## 17. getattrlist 根因闭合与 flipwd8（提交待 b5r10 验证）
 
-双路独立调查（`e5rt-getattrlist-reversing.md` + `kernel-getattrlist-audit.md`）收敛同一根因：E5RT `FileUpdateIdentifier` 用 `ATTR_CMN_CRTIME|GEN_COUNT|FILEID` 三元组做编译缓存指纹，自研 APFS 磁盘层 write_generation_counter 早已解析（apfs_lib.c:1545）但 `apfs_vnop_getattr` 漏报 va_write_gencount；E5RT 未请求 RETURNED_ATTRS，VFS 对未支承属性统一返 EINVAL——无 fallback 直穿 API 边界，全系统 E5RT 加载全灭（batteryintelligenced 同日志命中）。修复=`apfs_vnops.c` 一行 VATTR_RETURN（ramfs 已有同款先例），bindfs 与部署形态零改动。已构建注册 **flipwd8**（反汇编实证：+5 指令，write_gen 装入 vap 并置 supported bit42）。b5r10 判决轮进行中：err105/ZRESULT/ZASSET 三判据+相机链同 API 观察。附带：`boot-respawn/BRIEF.md`——backboardd 早期死亡=SIGSEGV 于 libannibaleair（Mesa/Freedreno 资源路径，16 份历史报告两族签名），SpringBoard 系被 RunningBoard 级联；崩溃报告管道被 1357 份积存 .ips 配额堵塞（b5r10 起预清）。write_gen 写路径递增与 VOL_CAP 声明列为可选补强未做。
+双路独立调查（`e5rt-getattrlist-reversing.md` + `kernel-getattrlist-audit.md`）收敛同一根因：E5RT `FileUpdateIdentifier` 用 `ATTR_CMN_CRTIME|GEN_COUNT|FILEID` 三元组做编译缓存指纹，自研 APFS 磁盘层 write_generation_counter 早已解析（apfs_lib.c:1545）但 `apfs_vnop_getattr` 漏报 va_write_gencount；E5RT 未请求 RETURNED_ATTRS，VFS 对未支承属性统一返 EINVAL——无 fallback 直穿 API 边界，全系统 E5RT 加载全灭（batteryintelligenced 同日志命中）。
+
+修复=`apfs_vnops.c` 一行 VATTR_RETURN（ramfs 已有同款先例），bindfs 与部署形态零改动。已构建注册 **flipwd8**（反汇编实证：+5 指令，write_gen 装入 vap 并置 supported bit42）。b5r10 判决轮进行中：err105/ZRESULT/ZASSET 三判据+相机链同 API 观察。附带：`boot-respawn/BRIEF.md`——backboardd 早期死亡=SIGSEGV 于 libannibaleair（Mesa/Freedreno 资源路径，16 份历史报告两族签名），SpringBoard 系被 RunningBoard 级联；崩溃报告管道被 1357 份积存 .ips 配额堵塞（b5r10 起预清）。write_gen 写路径递增与 VOL_CAP 声明列为可选更新未做。
 
 ## 18. compute device types 掩码归因（相机链分层结论）
 
 b5r10 与 flipwd8 判决（`kernel-12377-flipwd8-b5r10/RESULTS.md`）：getattrlist EINVAL 与 handle NULL 各 54→0，err105 积压 66→59（7 资产完成处理移出失败表），W/H 武装 7 窗口×15 行验证，崩溃报告通道疏通。ZRESULT 未填充——房间测试片无人脸属合理空，人脸样片终验专项进行中。
 
-`e5rt-compute-units.md`：`none allowed compute device types` 唯一宿主是 Quagga 推理 flags mapper（usesANEOnly 跳过 CPU/GPU；mask 位 1=CPU 2=GPU 4=ANE）。分层结论：**mediaanalysisd 的生死在我们部署的 universal/jit CPU 产物**（isPrecompiled=1 分支无 mask 覆盖，stock H18-only bundle 必空；离线编译 CpuInference/JitCall 产物才有活路——这正是已部署形态，终验看人脸样片轮）；**相机链 smartcam/personsemantics 只有 H18/hwx 编译件且无 MIL/espresso.net 可重编译源资产**，CPU 化无料，长期解只有 hwx 逆变换路线（3~10 人日判决见 hwx-weights-feasibility.md）——前摄 -16808 若与此同源，同受其制。air-crash-families.md：backboardd 早期死亡=内核 BO 分配失败+用户态 Mesa/Freedreno 全链无 NULL 防护（0020 补丁部分防护无降级策略且可能未入构建树），死亡延迟到首用时刻；修复优先级与错误码拆分取证配套已列，批 6 立项。
+`e5rt-compute-units.md`：`none allowed compute device types` 唯一宿主是 Quagga 推理 flags mapper（usesANEOnly 跳过 CPU/GPU；mask 位 1=CPU 2=GPU 4=ANE）。分层结论：**mediaanalysisd 依赖已部署的 universal/jit CPU 产物**（isPrecompiled=1 分支无 mask 覆盖，stock H18-only bundle 必空；离线编译 CpuInference/JitCall 产物才有活路）；**相机链 smartcam/personsemantics 只有 H18/hwx 编译件且无 MIL/espresso.net 可重编译源资产**，CPU 化无料，长期解只有 hwx 逆变换路线（3~10 人日判决见 hwx-weights-feasibility.md）——前摄 -16808 若与此同源，同受其制。
+
+`air-crash-families.md`：backboardd 早期死亡=内核 BO 分配失败+用户态 Mesa/Freedreno 全链无 NULL 防护（0020 补丁部分防护无降级策略且可能未入构建树），死亡延迟到首用时刻；修复优先级与错误码拆分取证配套已列，批 6 立项。
 
 ## 19. U8 核心链终验通过（人脸样片，b5r10 运行态）
 
@@ -120,7 +128,9 @@ b5r10 与 flipwd8 判决（`kernel-12377-flipwd8-b5r10/RESULTS.md`）：getattrl
 
 ## 20. NV12 格式修复与批 6 开局（未提交待验）
 
-`nv12-metal-format.md`：488 行拒绝归因闭合——VideoToolbox VTMetalTransferSession 对 NV12 plane 请求 R32Uint(plane0)/R16Uint(plane1) 整数别名直绑，`ann_surface_plane` 校验缺口在自家翻译层。修复实施完成未提交：`annibaledrawable.m` +8/-3 行接受两别名（view_bpp 语义：R32Uint texel=4 luma 字节、R16Uint texel=1 个 CbCr element），主机红绿 harness 与 arm64e 编译通过。b5r11 终验轮进行中：拒绝行清零、import 行出现、ZDETECTEDFACE/ZFACEANALYSISVERSION 非零为人脸链打通判据；触发须用图库变更（dasd 空闲调度不起作用）。批 6 排队：libannibaleair 崩溃族治理（air-crash-families.md §7 四级修复+错误码拆分取证）、前摄 -16808 定因、U21 偏色待用户中性面、zresult-validation.sql 口径修正（成功信号在 Photos.sqlite 侧）。
+`nv12-metal-format.md`：488 行拒绝归因闭合——VideoToolbox VTMetalTransferSession 对 NV12 plane 请求 R32Uint(plane0)/R16Uint(plane1) 整数别名直绑，`ann_surface_plane` 校验缺口在自家翻译层。修复实施完成未提交：`annibaledrawable.m` +8/-3 行接受两别名（view_bpp 语义：R32Uint texel=4 luma 字节、R16Uint texel=1 个 CbCr element），主机成功/失败测试与 arm64e 编译通过。
+
+b5r11 终验轮进行中：拒绝行清零、import 行出现、ZDETECTEDFACE/ZFACEANALYSISVERSION 非零为人脸链打通判据；触发须用图库变更（dasd 空闲调度不起作用）。批 6 排队：libannibaleair 崩溃族治理（air-crash-families.md §7 四级修复+错误码拆分取证）、前摄 -16808 定因、U21 偏色待用户中性面、zresult-validation.sql 口径修正（成功信号在 Photos.sqlite 侧）。
 
 ## 21. NV12 修复验证与 -16808 起源闭合（批 5 收官）
 

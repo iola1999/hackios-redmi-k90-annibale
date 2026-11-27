@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Make a desktop payload (kernel + root image + boot-args) for an unattended run.
 
-usage: tools/k90auto/make-payload.py NAME LABEL RAMDISK "EXTRA BOOT-ARGS"
+usage: tools/k90auto/make-payload.py [--memsize HEX] [--identity NAME] NAME LABEL RAMDISK "EXTRA BOOT-ARGS"
 
 NAME is a registered kernel build; RAMDISK a root image under hackios-xnu-kernel/ (for an
 unattended run one whose etc/rc.jobs is rc.jobs.desktop); EXTRA BOOT-ARGS are added after the fixed
@@ -13,8 +13,8 @@ env: K90_EVIDENCE (default docs/progress/evidence/k90auto), CPU_ARGS (default
 "cpus=2 bootcpu=7 small_cores_after=0"), GPU_SPEED (adreno8_speed, default 3: up to 342 MHz with load;
 kernels before 34209c1 need 1), GPU_STAGE (adreno8, default 23; 0 boots without the GPU),
 BOOT_IMAGE (workspace-relative flashboot APFS image, default hackios-xnu-kernel/userland/flashboot.apfs),
-MEMSIZE and IDENTITY (required, passed to mkpayload.py as --memsize and --identity; the payloads made
-here are all iOS 26 ones, which need 300000000 and v57).
+MEMSIZE and IDENTITY (required via env or --memsize/--identity, passed to mkpayload.py; the payloads
+made here are all iOS 26 ones, which need 300000000 and v57).
 """
 from pathlib import Path
 import hashlib
@@ -25,31 +25,109 @@ import struct
 import subprocess
 import sys
 
-if sys.argv[1:2] in (["-h"], ["--help"]):
-    print(__doc__.strip())
-    sys.exit(0)
-if len(sys.argv) < 5:
-    sys.exit(__doc__)
-name, label, ramdisk_arg, extra = sys.argv[1:5]
+VALID_IDENTITIES = ("v57", "d22")
+MEMSIZE_ALIGN = 0x02000000       # 32 MiB (xnuloader BASE_ALIGN)
+MEMSIZE_MIN = 0x180000000        # 6 GiB (minimum iOS memory window)
+MEMSIZE_MAX = 0x380000000        # 14 GiB (xnuloader MAX_MEM_SIZE_LIMIT)
+
+
+def parse_cli(argv, env):
+    """Parse optional leading --memsize/--identity flags before positional arguments."""
+    cli_memsize = None
+    cli_identity = None
+    pos = []
+    idx = 0
+    while idx < len(argv):
+        arg = argv[idx]
+        if pos:
+            pos.append(arg)
+            idx += 1
+            continue
+        if arg in ("-h", "--help"):
+            print(__doc__.strip())
+            sys.exit(0)
+        if arg == "--":
+            pos.extend(argv[idx + 1:])
+            break
+        if arg == "--memsize":
+            if idx + 1 >= len(argv):
+                sys.exit("--memsize requires a hex value (e.g. 300000000)")
+            cli_memsize = argv[idx + 1]
+            idx += 2
+            continue
+        if arg.startswith("--memsize="):
+            cli_memsize = arg.split("=", 1)[1]
+            idx += 1
+            continue
+        if arg == "--identity":
+            if idx + 1 >= len(argv):
+                sys.exit(f"--identity requires a value ({', '.join(VALID_IDENTITIES)})")
+            cli_identity = argv[idx + 1]
+            idx += 2
+            continue
+        if arg.startswith("--identity="):
+            cli_identity = arg.split("=", 1)[1]
+            idx += 1
+            continue
+        if arg.startswith("-"):
+            sys.exit(f"unknown option: {arg}")
+        pos.append(arg)
+        idx += 1
+
+    if len(pos) < 4:
+        sys.exit(__doc__)
+
+    env_memsize = env.get("MEMSIZE", "")
+    env_identity = env.get("IDENTITY", "")
+    if cli_memsize is not None and env_memsize and cli_memsize != env_memsize:
+        sys.exit(f"conflicting memsize: --memsize={cli_memsize!r} vs MEMSIZE={env_memsize!r}")
+    if cli_identity is not None and env_identity and cli_identity != env_identity:
+        sys.exit(f"conflicting identity: --identity={cli_identity!r} vs IDENTITY={env_identity!r}")
+
+    memsize = cli_memsize if cli_memsize is not None else env_memsize
+    identity = cli_identity if cli_identity is not None else env_identity
+    return pos[0], pos[1], pos[2], pos[3], memsize, identity
+
+
+def validate_runtime_params(memsize, identity):
+    """Enforce required and loader-valid MEMSIZE/IDENTITY before reading build inputs."""
+    # Refuse the batch-3 mistake before touching anything (2026-11-25-batch4-identity.md): every payload
+    # this script makes is an iOS 26 one (the cmdline below is fixed to iOS 26's launchd and root volume,
+    # and register-kernel.py only names 12377 kernels), and without the two entries the loader falls back
+    # to its built-in iPhone X (d22) identity and a 6 GiB window (loader_01_base_log_dt.inc). cycle.py
+    # always sets both; an experiment that wants other values still has to set them explicitly.
+    missing = [var for var, value in (("MEMSIZE", memsize), ("IDENTITY", identity)) if not value]
+    if missing:
+        effect = {"MEMSIZE": "without the memsize entry the loader gives the kernel a 6 GiB memory window "
+                             "instead of the 12 GiB iOS 26 runs in",
+                  "IDENTITY": "without the identity entry the loader boots its built-in iPhone X (d22) identity, "
+                              "so every UIKit process raises \"Misconfigured Device\" at startup"}
+        sys.exit(f"missing {' and '.join(missing)}: {'; '.join(effect[var] for var in missing)} "
+                 "(batch 3's manual packs had neither, see docs/progress/2026-11-25-batch4-identity.md). "
+                 "Pack the way cycle.py does:\n"
+                 "\n"
+                 "    MEMSIZE=300000000 IDENTITY=v57 python3 tools/k90auto/make-payload.py NAME LABEL RAMDISK \"EXTRA BOOT-ARGS\"\n")
+
+    if identity not in VALID_IDENTITIES:
+        sys.exit(f"invalid IDENTITY {identity!r}: must be one of {', '.join(VALID_IDENTITIES)} "
+                 "(iOS 26 uses v57)")
+
+    if not re.fullmatch(r"[0-9a-fA-F]+", memsize):
+        sys.exit(f"invalid MEMSIZE {memsize!r}: expected bare hex bytes without 0x prefix "
+                 "(e.g. 300000000 for 12 GiB)")
+    mem_bytes = int(memsize, 16)
+    if mem_bytes < MEMSIZE_MIN or mem_bytes > MEMSIZE_MAX:
+        sys.exit(f"invalid MEMSIZE {memsize!r} ({mem_bytes:#x}): must be within "
+                 f"{MEMSIZE_MIN:#x}..{MEMSIZE_MAX:#x} (6 GiB..14 GiB)")
+    if mem_bytes & (MEMSIZE_ALIGN - 1):
+        sys.exit(f"invalid MEMSIZE {memsize!r} ({mem_bytes:#x}): must be aligned to "
+                 f"{MEMSIZE_ALIGN:#x} (32 MiB)")
+    return memsize.lower(), identity
+
+
+name, label, ramdisk_arg, extra, memsize, identity = parse_cli(sys.argv[1:], os.environ)
 assert re.fullmatch(r"[a-z0-9-]+", label) and re.fullmatch(r"[A-Za-z0-9_=.,: -]*", extra)
-memsize = os.environ.get("MEMSIZE", "")       # iOS 26 needs the RAM it is staged into: 300000000
-identity = os.environ.get("IDENTITY", "")     # and the loader identity of that iOS: v57
-# Refuse the batch-3 mistake before touching anything (2026-11-25-batch4-identity.md): every payload
-# this script makes is an iOS 26 one (the cmdline below is fixed to iOS 26's launchd and root volume,
-# and register-kernel.py only names 12377 kernels), and without the two entries the loader falls back
-# to its built-in iPhone X (d22) identity and a 6 GiB window (loader_01_base_log_dt.inc). cycle.py
-# always sets both; an experiment that wants other values still has to set them explicitly.
-missing = [var for var, value in (("MEMSIZE", memsize), ("IDENTITY", identity)) if not value]
-if missing:
-    effect = {"MEMSIZE": "without the memsize entry the loader gives the kernel a 6 GiB memory window "
-                         "instead of the 12 GiB iOS 26 runs in",
-              "IDENTITY": "without the identity entry the loader boots its built-in iPhone X (d22) identity, "
-                          "so every UIKit process raises \"Misconfigured Device\" at startup"}
-    sys.exit(f"missing {' and '.join(missing)}: {'; '.join(effect[var] for var in missing)} "
-             "(batch 3's manual packs had neither, see docs/progress/2026-11-25-batch4-identity.md). "
-             "Pack the way cycle.py does:\n"
-             "\n"
-             "    MEMSIZE=300000000 IDENTITY=v57 python3 tools/k90auto/make-payload.py NAME LABEL RAMDISK \"EXTRA BOOT-ARGS\"\n")
+memsize, identity = validate_runtime_params(memsize, identity)
 evidence = Path(os.environ.get("K90_EVIDENCE", "docs/progress/evidence/k90auto"))
 record = json.loads((evidence / ("kernel-" + name) / "kernel.json").read_text())
 base = evidence / f"kernel-{name}-{label}"
@@ -146,13 +224,8 @@ argv = ["python3", "xnuloader/mkpayload.py", "-o", os.path.relpath(payload, root
         "kernel=" + str(kernel.relative_to(root)), "ramdisk=" + str(ramdisk.relative_to(root)),
         "--cmdline", cmdline, "--exact-cmd", cmdline, "--require", "kernel=" + digest(kernel),
         "--require", "ramdisk=" + digest(ramdisk), "--forbid-cmd", "loader_return_after",
-        "--forbid-entry", "rdimage", "--forbid-entry", "rdfile", "--forbid-entry", "rdres"]
-if memsize:
-    assert re.fullmatch(r"[0-9a-fA-F]+", memsize), memsize      # mkpayload.py reads hex bytes
-    argv += ["--memsize", memsize]
-if identity:
-    assert re.fullmatch(r"[a-z0-9]+", identity), identity
-    argv += ["--identity", identity]
+        "--forbid-entry", "rdimage", "--forbid-entry", "rdfile", "--forbid-entry", "rdres",
+        "--memsize", memsize, "--identity", identity]
 if mac_path:
     sys.path.insert(0, str(root / "xnuloader"))
     from wifi_mac import read_factory_mac
@@ -197,6 +270,7 @@ if pack["gpu_speed"] is not None:
         f"the pack ran adreno8_speed={pack['gpu_speed']} but this payload boots adreno8_speed={gpu_speed}")
 record.update({"ramdisk": {"path": str(ramdisk), "bytes": ramdisk.stat().st_size, "sha256": digest(ramdisk)},
                "cmdline": cmdline, "boot_cmdline": cmdline, "gpu_speed": gpu_speed,
+               "memsize": memsize, "identity": identity,
                "cpu_args": cpu_args, "extra_boot_args": extra, "argv": argv,
                "required_cmdline": list(REQUIRED),
                "root_apfs": "ufs_darwin",
