@@ -101,6 +101,7 @@
 - [应用安装的签名](analysis/2026-11-09-ipa-codesign.md)。
 - [Safari 下载与「我的 iPhone」：FileProvider 对文件系统的要求](analysis/2026-11-09-safari-download-fileprovider.md)。
 - [持久化、温度与应用管理核查（2026-11-12）](analysis/2026-11-12-system-contracts.md)。
+- [FairPlay 与 App Store 可行性及第三方仓库调研（2026-11-27）](analysis/2026-11-27-fairplay-appstore-feasibility.md)。
 
 ## 7. 硬件、网络与多媒体
 
