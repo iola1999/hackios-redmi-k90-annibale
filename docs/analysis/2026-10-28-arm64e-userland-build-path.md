@@ -70,7 +70,7 @@ codesign --force --sign - <目录>/libannibalemetal.dylib
 
 ## 6. 构建树从仓库重建
 
-arm64e 构建树 `out/ios26-resume/mesa-arm64e/mesa-26.2.5` 的源码等于 Mesa 26.2.5 的源码包，打上用户态仓库的 `tools/mesa/*.patch` 与 `tools/mesa/rebase-26/*.patch`，再放入 `tools/mesa/annibale-drm` 和 `tools/mesa/air`。真机库里的 shadow 修复、诊断探针与 perf 探针是 `rebase-26/0011`～`0014`，说明见用户态仓库的 `tools/mesa/rebase-26/README.md`。
+arm64e 构建树 `out/ios26-resume/mesa-arm64e/mesa-26.2.5` 的源码等于 Mesa 26.2.5 的源码包，以 `--fuzz=0` 打上用户态仓库的共用 `tools/mesa/*.patch`（11 份）与 `tools/mesa/rebase-26/*.patch`（含 `0000a`～`0000e` 与 `0001`～`0031`，零 reject/skip/fuzz），再放入 `tools/mesa/annibale-drm` 和 `tools/mesa/air`。真机库里的 shadow 修复、诊断探针与 perf 探针是 `rebase-26/0011`～`0014`，说明见用户态仓库的 `tools/mesa/rebase-26/README.md`。
 
 从零建树：
 

@@ -105,6 +105,8 @@ SpringBoard 的状态栏是 SystemStatusUI.framework 的 `STUIStatusBar`，库�
 
 第一步是核实面板分辨率。dtbo 里 P11 面板节点给出的 DSI 时序是 1156×2510（[硬件图](annibale-hw-map.md) §4），与上面的读数一致，物理像素数还没有出处。
 
+- **2026-11-27 实查结案（归档 `G21`）**：核对 K90 设备树 `dtbo` P11 节点（`qcom,mdss_dsi_p11_42_0d_0a_p10_dsc_cmd`，`0x484×0x9ce`，120 Hz DSC slice `578×10`）、Mu-Silicium 面板 XML、Goodix 触摸坐标（`panel-max-x=115600 / panel-max-y=251000`）、`xnuloader/loader_06_usb_entry.inc:1117-1122` 回退参数（`1156×2510`，`stride=4624`）及 DPU `vig0`/`vig1`+`lm0`/`lm1` 寄存器读数（合计 `1156×2510` 零缩放）均确认物理输出为 `1156×2510`；上文 `1200×2608` 仅来自社区非官方设备树文本传述，实际本机硬件描述均无该分辨率，iOS 逻辑画布维持 `1206×2622`（`MiniIOMobileFramebuffer` `0.9585×` 缩放）。
+
 ## 7. 静态数据
 
 ### 7.1 `sb_displayShapeForScreenType:` 的切口表

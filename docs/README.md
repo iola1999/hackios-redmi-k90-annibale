@@ -179,6 +179,7 @@
 - [11-27 批 7 用户可感知问题](progress/2026-11-27-batch7-user-visible.md)：ring 双重销毁诊断链、ALS 修复与 USB 回归、亮度抖动机制、翻页与 Safari 多标签性能测量。
 - [11-27 批 8 性能归因](progress/2026-11-27-batch8-opening.md)：xfm 运动真值穷尽分类、ioctl 放大器修复、背光去重验证、黑窗机制判别、sensors bitbang 扫描终结。
 - [11-27 批 9 收官与批 10 开局](progress/2026-11-27-batch9-opening.md)：keep 池扩容、Mesa `0030` 导出位与 `reap` 锁外释放、`MiniFramebuffer` 10 Hz 内联优化、Reminders 黑闪与 `G18` 定案、ADSP `IPCRTR` 发现 `QMI SNS_CLIENT`（`0x190`）及 Mesa `0031` 首轮实测。
+- [11-27 批 14 与批 15a 真机实测记录](progress/2026-11-27-batch14-results.md)：`b5r42`（`BT_EN` `20 ms` 硬复位通过、FastRPC GLINK 建立）、`b5r43`（`modem=3` 映射定因）、`b5r44`（`psci_idle=1 + adreno8_ifpc=1` 联合省电验收）、`b5r45`（`flipwd25` `adreno8_preempt=1` 阶段 1 验收）与 `b5r46`（`flipwd25` `modem=3` `MPSS node 0` + 双槽 `QMI_UIM` 验收）。
 
 ## 10. 代码仓库中的说明
 

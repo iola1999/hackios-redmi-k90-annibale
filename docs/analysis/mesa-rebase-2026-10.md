@@ -4,8 +4,8 @@
 
 ## 1. 结论
 
-- 基线为 26.2.5 加 rebase-26 适配层：`0001`、`0002` 是两个 a8xx 修复的 cherry-pick，`0003` 恢复 OSMesa 并带上 26.x 适配，之后各补丁的用途见 rebase-26 的 README。`userland/build.sh` 的 GL 分支固定 `REBASE=26 VERSION=26.2.5`；`mk-mesa.sh` 不带参数时仍构建 25.0.7。
-- 2026-10-23 的 8 个 fork 补丁在 26.2.5 上：4 个原样应用，1 个可以退役，3 个部分失效；失效内容由 `0003` 重建（第 2 节）。
+- 基线为 26.2.5 加 rebase-26 适配层：`tools/mesa/*.patch` 保留 11 份跨基线共用补丁，20 份 25.0.7 专用与旧版补丁移至 `tools/mesa/rebase-25/`，`tools/mesa/rebase-26/` 新增 `0000a`～`0000e` 刷新层（含 `ir3-ssbo-subdword` 上下文刷新与失效 hunk 清理）、`0001`/`0002` a8xx 修复、`0003` OSMesa 恢复及后续适配。`userland/build.sh` 的 GL 分支固定 `REBASE=26 VERSION=26.2.5`；`mk-mesa.sh` 不带参数时仍构建 25.0.7。
+- 2026-11-27 完成 `ENG-04` 基线拆分并刷新 `0024`（`freedreno_query_acc.c`）：`mk-mesa.sh` 对 25.0.7（`rebase-25/`）与 26.2.5（`rebase-26/`）均以 `patch --fuzz=0` 严格应用，26.2.5 全量 50 份补丁（11 共用 + 39 `rebase-26`）实现零 reject、零 skip、零 fuzz。
 - 上游删除了 OSMesa，`0003` 从 25.0.7 恢复它（第 3 节）。AIR 前端已迁移到 26.x API（第 4 节）。
 - hackios-dev 容器内的 iOS 交叉构建可以复现，交叉产物与主机产物的导出符号集合一致（第 9 节）。
 
@@ -21,14 +21,14 @@
 | freedreno-darwin | 失败：`src/freedreno/drm/meson.build` 的 libvdrm TODO hunk 上游已修；`fd6_draw.cc` 的 fb_read 锚点偏移；`freedreno_screen.c` 的 `pipe_screen.ram_size`／sysinfo 已删除；osmesa 三个文件缺失被跳过 | 删除失效 hunk，fb_read 重新定位与 osmesa 钩子并入 0003 |
 | osmesa-es-profile | 空跑：`include/GL/osmesa.h`、`osmesa.c` 在 26.x 不存在 | 内容并入 0003 恢复的文件 |
 | ir3-round-default | 严格应用通过；`create_cov` 舍入块在 26.2.5 仍没有 else 分支 | 保留 |
-| ir3-shift-split | 使用点 hunk 失败：26.x 重写的 `ir3_nir_try_propagate_bit_shift` 只匹配纯 ishl/ishr/ushr，不再拆 `(c+x)>>s` | 可以退役，它修的 bug（`grid_buf[id-1]` 读 0）的成因已在上游消失 |
-| ir3-ssbo-subdword | 严格应用失败，默认 fuzz 下两个 hunk 均应用；vanilla 26.2.5 没有 `may_lower_*` 字段，确认补丁生效 | 保留，hunk 上下文待刷新为严格匹配 |
+| ir3-shift-split | 使用点 hunk 失败：26.x 重写的 `ir3_nir_try_propagate_bit_shift` 只匹配纯 ishl/ishr/ushr，不再拆 `(c+x)>>s` | 保留于 `rebase-25/`，`rebase-26/` 退役清理 |
+| ir3-ssbo-subdword | 原 25.0.7 `.modes` 上下文偏移 | 原版移入 `rebase-25/`，`rebase-26/0000c-ir3-ssbo-subdword.patch` 已刷新 26.2.5 上下文并通过 `--fuzz=0` |
 
-26.1.8 与 26.3.0-rc1 上的失败集合与 26.2.5 基本相同。`REBASE=26` 时 `mk-mesa.sh` 容忍旧补丁的失败或跳过，实际丢弃的 hunk 记在产物目录的 `out/patch.log` 和 `out/patch-survey.txt`。
+26.1.8 与 26.3.0-rc1 上的历史失败记录见前序排查；2026-11-27 按基线拆分 `rebase-25/` 与 `rebase-26/0000a`～`0000e` 并刷新 `0024` 后，`mk-mesa.sh` 在 `REBASE=26` 与 25.0.7 下均以 `patch --fuzz=0` 严格执行，不再容忍跳过或拒绝（`out/patch-rejects.txt` 保持为空）。
 
 ## 3. OSMesa 恢复
 
-上游 027ccd963b（自 25.1-branchpoint 起）删除了 OSMesa 前后端，替代路线是 EGL surfaceless。iOS 侧没有 EGL 栈，`userland/src/eagl.c` 与 `gl_osmesa.c` dlopen 的是 `libOSMesa.8.dylib`，因此由 `0003-restore-osmesa-26.x-drift-adaptations.patch` 恢复：
+上游 027ccd963b（自 25.1-branchpoint 起）删除了 OSMesa 前后端，替代路线是 EGL surfaceless。iOS 侧没有 EGL 栈，`userland/src/eagl.c` 与 `gl_osmesa.c` dlopen 的是 `libOSMesa.8.dylib`，因此由 `0003-restore-osmesa.patch` 恢复 OSMesa，非 OSMesa 的 26.x 平台适配（`fd6_draw.cc`、`freedreno/meson.build`、`src/util/meson.build`）拆至 `0003b-darwin-26.x-adaptations.patch`：
 
 1. 反向应用 027ccd963b 的 meson 改动：`meson.options` 加回 `osmesa`，根 `meson.build`、`include/meson.build`、`src/gallium/meson.build` 恢复 `frontends/osmesa` 和 `targets/osmesa`。
 2. 从打过补丁的 25.0.7 树取回 9 个文件（`include/GL/osmesa.h`、frontends/osmesa 2 个、targets/osmesa 6 个），其中已含 osmesa-es-profile 与 freedreno-darwin 的 osmesa 钩子。
@@ -72,8 +72,8 @@ fork 补丁加 rebase-26 适配层后，26.2.5 可以完整构建。构建命令
 VERSION=26.2.5 SHA256=794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5 REBASE=26 tools/mk-mesa.sh
 ```
 
-- `REBASE=26` 在 `tools/mesa/*.patch` 循环之后按文件名顺序应用 `tools/mesa/rebase-26/*.patch`。rebase-26 是子目录，原有的 `tools/mesa/*.patch` 通配不会收进它，25.0.7 构建因此不受影响。
-- 旧补丁在 `REBASE=26` 时允许失败或跳过，其他版本仍要求严格应用（第 2 节）。
+- `REBASE=26` 在共用 `tools/mesa/*.patch`（11 份）之后按文件名顺序应用 `tools/mesa/rebase-26/*.patch`（含 `0000a`～`0000e`）；25.0.7 则应用共用补丁加 `tools/mesa/rebase-25/*.patch`（20 份），两组补丁互不干扰。
+- `mk-mesa.sh` 与 `mesa-stamp.sh` 均只纳入对应基线的补丁集合，且 `mk-mesa.sh` 全局启用 `patch --fuzz=0`，任意 reject 或 skip 均立即失败退出。
 - 补丁戳 `mesa-$VERSION/.annibale-patches` 在 `REBASE=26` 时计入 rebase-26 的补丁内容；`out/built-from` 另计入版本号与 `REBASE`，`userland/build.sh` 据此判断库是否过期。两个戳的计算逻辑见 `hackios-xnu-userland/tools/mk-mesa.sh` 与 `hackios-xnu-userland/tools/mesa-stamp.sh`。
 
 ## 7. 源码副本与构建树

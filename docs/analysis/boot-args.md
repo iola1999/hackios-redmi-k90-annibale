@@ -2,7 +2,7 @@
 
 本文由 `tools/bootargs.py` 从 `hackios-xnu-kernel` 的 `xnu/files/`、`xnu26/files/` 与 `xnu26/patches/` 生成，不要手工修改。参数的取值与作用见「读取位置」列出的源文件。运行时拼出的参数名和经由其他封装函数读取的参数不在表内。
 
-共 180 个参数。
+共 181 个参数。
 
 | 参数 | 读取位置 |
 |---|---|
@@ -20,6 +20,7 @@
 | `adreno8_keep` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_only` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_pause` | `bsd/dev/adreno8/adreno8.c` |
+| `adreno8_preempt` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_raw_nop` | `bsd/dev/adreno8/adreno8.c`、`bsd/dev/adreno8/adreno8_gpu.c` |
 | `adreno8_return` | `bsd/dev/adreno8/adreno8.c` |
 | `adreno8_secure_preflight` | `bsd/dev/adreno8/adreno8.c` |

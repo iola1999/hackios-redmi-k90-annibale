@@ -22,7 +22,7 @@
 | 1 | GPU 阶梯式按需调频与触摸提频收敛 | `xnu/files/bsd/dev/adreno8/adreno8_hfi.c` | 已完成 | GPU 频率随负载在 160～1100 MHz 共 14 档间按需切换；开机与设置交互期 GPU 44.4～49.8 °C、CPU 53.1～59.7 °C，桌面稳态（14 分钟）降至 CPU 簇 0 38.4 °C、簇 1 39.1 °C、GPU 40.5 °C（160 MHz），较基线降温 24～35 °C（内核 `0e0f19bb`） |
 | 2 | 开机沿用上次亮度（阻止 33 s 解冻骤降）及熄屏归零 | `MiniFramebufferDCS.inc`、`MiniAppleARMBacklight.cpp`、`ramfs_disk.inc`、`ramfs_disk_mount.inc` | 已完成 | 无有效持久化记录或记录越界时默认写 `DCS_PANEL_MAX`（6750，400 nits），有效用户记录随 `darwin_var` 挂载恢复；33 s 解冻时的非滑块 `IOMFBBrightnessLevel` 降光被拦截（`framebuffer update outside slider window ignored, keeping 400.000 nits`），开机全程保持 400 nits；锁屏超时 `s16 <= 0` 正常归零熄屏（内核 `0e0f19bb`） |
 | 3 | 终止 `nearbyd` 后台守护进程崩溃重启循环 | `userland/mkjobs.py` | 已完成 | `com.apple.nearbyd.plist` 列入 `DISABLED_LAUNCHD_PLISTS`；两次开机日志中 `nearbyd` 启动与崩溃均为 0 次（用户态 `e052bd4`） |
-| 4 | CoreAnimation 脏区局部重绘（`DIRTY_REGIONS=1`）残留与停绘根因修复 | `tools/userland-driver/annibalemetal_renderencoder.inc`、`tools/k90auto/package.py` | 已完成 | 修复 `endEncoding` 存在 `prior_copy` 时未同步等待内部拷贝命令完成即返回导致主命令缓冲区读到未完成纹理的竞态；默认开启 `DIRTY_REGIONS=1`，主屏、TrollStore 与设置页渲染无残留，50% 以上帧跳过未变化行（内核 `0e0f19bb`） |
+| 4 | CoreAnimation 脏区局部重绘（`DIRTY_REGIONS=1`）裁剪修复 | `tools/userland-driver/annibalemetal_renderencoder.inc`、`tools/k90auto/package.py` | 已完成 | 将原本为空实现的 `-[MTLRenderCommandEncoder setScissorRects:count:]` 转发至 `[self setScissorRect:rects[0]]`（`count > 1` 时记录一次告警），消除局部重绘失去裁剪边界导致的残留；默认开启 `DIRTY_REGIONS=1`，主屏、TrollStore 与设置页渲染无残留，50% 以上帧跳过未变化行（内核 `0e0f19bb`） |
 | 5 | 面板上屏与缩放开销优化 | `MiniFramebufferScale.h`、`MiniFramebufferRows.inc`、`MiniIOMobileFramebuffer.cpp` | 已完成 | 预计算 X 方向插值表并以 64 位双像素 SWAR 合成，全屏哈希改为 64 位 8 路步进，跳过无变化帧背光脉冲重写；单帧驱动耗时由 13.7～15.2 ms 降至 3.29～5.28 ms（无变化帧 0.69 ms）（内核 `0e0f19bb`） |
 | 6 | `ir3` 着色器磁盘缓存跨开机黑屏与跨进程未命中修复及启用 | `0015-ir3-disk-cache-darwin-uuid.patch`、`inject_sb26.c`、`ramfs_disk.inc`、`setup-mesa-arm64e.py`、`build-air.py` | 已完成 | 补齐跨 UID（`501`／`254`）缓存目录 `0777` 与文件 `0666` 权限、`ramfs_disk_flush_all()` 的 `MAP_SHARED` 脏页 `ubc_msync` 落盘，以及 `inject_sb26.c` 解锁前唤醒屏幕；第二次开机 `backboardd` 命中 `61 hits, 3 stores`（命中率 95.3%），`iconservicesagent` 命中 `128 hits, 0 stores`（命中率 100%），`MercuryPosterExtension` 命中 `8 hits, 0 stores`，桌面图标全彩正常显示（内核 `0e0f19bb`、用户态 `e052bd4`） |
 
@@ -56,9 +56,9 @@
 
 ### 3.4 第 4 项：CoreAnimation 脏区局部重绘（`DIRTY_REGIONS=1`）残留与停绘根因修复
 
-- 根因：开启局部重绘（`CA_DISABLE_DIRTY_REGIONS=0`）时，CoreAnimation 在渲染编码器之前通过驱动内部拷贝队列（`_copyQueue`）将上一帧未变化区域拷入当前可绘制纹理。[`annibalemetal_renderencoder.inc`](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal_renderencoder.inc) 的 `endEncoding` 原先创建内部 `prior_copy` 命令缓冲区并调用 `[copy_cb commit]`，但未调用 `[copy_cb waitUntilCompleted]` 即返回，外层命令缓冲区随即提交主渲染管线，导致 GPU 在内部拷贝尚未完成时读写同一目标纹理，产生旧帧块残留与后续合成停滞。
+- 根因：开启局部重绘（`CA_DISABLE_DIRTY_REGIONS=0`）时，CoreAnimation 调用 `-[MTLRenderCommandEncoder setScissorRects:count:]` 将绘制裁剪到脏区。[`annibalemetal_renderencoder.inc`](../../hackios-xnu-kernel/tools/userland-driver/annibalemetal_renderencoder.inc) 原先将 `setScissorRects:count:` 留空（`(void)rects; (void)count;`），使局部绘制失去裁剪边界并覆盖未变化区域（`0e0f19bb` 在该文件仅改动此方法，全仓不存在 `prior_copy` 与 `_copyQueue`）。
 - 修复（`annibalemetal_renderencoder.inc`、`tools/k90auto/package.py`）：
-  1. 在 `endEncoding` 提交 `copy_cb` 后立即调用 `[copy_cb waitUntilCompleted]`，保证前序纹理拷贝在主渲染命令缓冲区提交前完成。
+  1. 在 `setScissorRects:count:` 中转发至 `[self setScissorRect:rects[0]]`（`count > 1` 时输出一次告警日志）。
   2. `tools/k90auto/package.py` 的 `DIRTY_REGIONS` 默认值改为 `"1"`（不注入 `CA_DISABLE_DIRTY_REGIONS=1`）。
 - 验证：真机 `boot1-home-p1.png`、`boot1-home-p2.png`、`boot1-real-settings2.png` 与 `boot2-later.png` 显示主屏翻页、TrollStore 与设置页均无局部重绘残留；日志确认 `19 of 40 frames had no row changed`，平均每帧仅重绘变化行。
 

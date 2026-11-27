@@ -1,6 +1,6 @@
 # 工程、构建与系统版本待办
 
-2026-11-27 同步批 1～批 10 实测更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
+2026-11-27 同步批 1～批 15a 实测与审核更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
 
 ## 1. 构建、发布与测试环境
 
@@ -8,38 +8,29 @@
 |---|---|---|---|---|
 | ENG-01 | 后续正式 Release 的干净克隆验证 | 待下一次发布执行 | 从已提交的顶层仓库及子模块重新克隆，按开发指南重建内核、用户态、AIR、UEFI、loader 和 Android 分区工具；记录源码与工具链版本。`build-release.py` 的根盘重建、loader 封装、隐私检查通过，再在 Linux 或容器按体验说明完成合成校验。 | [开发指南 §10](../development.md#10-生成-release)、[发布脚本](../../tools/release/build-release.py) |
 | ENG-02 | adreno8 与 ir3 的外部输入对照测试 | 2026-11-16 统一运行主机测试：mic、payload、mkpayload 等全部成功；13 个 `test-adreno8-*.py` 与 `test-ir3-output-contracts.py` 缺少外部输入时跳过，尚未在提供输入的环境中运行 | 按脚本里的版本与 SHA-256 准备 graphics-kernel 源码、`msm_kgsl.ko`、厂商内核时钟源码、MiCode 内核与上游 adreno 源码，设置环境变量后运行 `python3 tools/run-host-tests.py adreno8 ir3`；验收为这 14 项全部成功，或逐项记录失败位置并区分输入版本、源码断言与环境错误 | [合入前检查](../plan/debugging-and-collaboration.md#10-合入前检查)、[主机测试入口](../../tools/run-host-tests.py) |
-| ENG-03 | AIR 参考编译的 LLVM 基线 | 候选验证未完成 | 固定可解析 opaque `ptr` 的参考工具链，重跑 FMA 与 argument-buffer 对照；单独定位仍拒绝的跨成员 phi。验收记录要区分参考编译器错误与 AIR 语义差异，再决定是否更新生产检查规则。 | [多媒体验证 §9](../analysis/2026-11-11-multimedia-validation.md#9-air-常规检查与缓存) |
 | ENG-21 | Wi-Fi 下的 SSH 调试 | 11-23 `tgl40` 验证运行期落盘（`oem push` + `annsh pull` 写入 `/var/jb`，sshd、zsh、sftp 均实测可用）；持久化需装进 UFS 系统镜像再刷机一次或每次开机脚本化落盘 | 按需补齐 `zsh/zle` 模块并决定是否编入后续系统盘或 `rc.jobs` 脚本；SSH 仍依赖 iOS 网络栈，不作恢复通道 | [SSH 真机验证记录](../progress/2026-11-23-ssh-over-wifi.md)、[USB 与调试方式核查 §4](../analysis/2026-11-12-usb-debugging.md#4-现有调试方式的可用范围) |
-| ENG-24 | k90auto 的环境检查、恢复超时与测试清理 | `test-tools.py` 52 项、`recover-loader.py` 等待、`cycle.py` NumPy 检查、`prof.py` 共享缓存过滤、内核日志互斥去重（`say3` `1308->82`）、`annsh sysctl` 子树枚举（`9146fd0`）、`trollstorehelper open` 误报修复（`582b283`）、`test-annibale-gpu-dispatch.py`（6 组及 7 项变异全过）、`test-annibale-apple80211-events.py`（`say4`/`scants` 桩修复，`PASS`）及 `make-payload.py` `--memsize`/`--identity` 强制校验（`test-make-payload.py` `6/6`、`test-tools.py` `52/52` 成功，兼容环境变量并写入 `manifest.json`）均已验证通过。仍余一项：真机缺 `/usr/bin/log` 与 `uuidtext` 导致宿主 `log show` 无法解码 `tracev3`（批 6 §8） | 补齐 `tracev3` 解码或 `oslogwatch` 落盘覆盖（需保留还原系统日志文本的能力） | [全局现状分析 §6](../analysis/2026-11-22-global-review.md#6-工具链)、[批 4 进展 §1](../progress/2026-11-25-batch4-identity.md#1-身份修正轮-b4r2-已验)、[批 6 进展 §8](../progress/2026-11-26-batch6-stall-verdict.md#8-残余问题与下轮输入) |
 
 ## 2. Mesa、AIR 与代码维护
 
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
-| ENG-04 | Mesa 补丁按支持版本严格应用 | 补丁已扩至 `0001`–`0031`（`0024`–`0029` ring 引用修复、`0030` 导出位、`0031` heap 与 cache 复用待 `v2`） | 为支持的基线保留各自补丁集合，清理 26.x 已失效的 hunk，刷新 `ir3-ssbo-subdword` 上下文。从干净 tarball 应用时要求零 reject、零 skip、零 fuzz，并完成主机与 iOS 交叉构建 | [Mesa 分析 §2](../analysis/mesa-rebase-2026-10.md#2-fork-补丁在-2625-上的应用结果)、[§8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[mk-mesa.sh](../../hackios-xnu-userland/tools/mk-mesa.sh) |
-| ENG-05 | OSMesa 恢复补丁与平台适配分开维护 | 待整理 | 将 OSMesa 恢复从 `0003` 的其他 26.x 适配中拆出，按职责整理 `freedreno-darwin.patch`。运行现有 GL、GLES smoke 程序，核对当前导出符号集合、上下文创建与像素读回；更换 Mesa 后复核 EAGL 消费路径。 | [Mesa 分析 §3](../analysis/mesa-rebase-2026-10.md#3-osmesa-恢复)、[§8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[smoke-osmesa.c](../../hackios-xnu-userland/tools/mesa/rebase-26/smoke-osmesa.c)、[smoke-osmesa-es.c](../../hackios-xnu-userland/tools/mesa/rebase-26/smoke-osmesa-es.c) |
-| ENG-06 | AIR 主文件与超长文件按职责拆分 | 批 9/10 新增与调整的内核文件均守住 1200 行上限（`MiniFramebufferRows.inc` 388、`AnnibaleGPU.cpp` 1194、`AnnibaleGPUMemory.inc` 832、`annibale_adsp_ipcrtr.inc` 187、`annibale_adsp.c` 1191、`annibale_sensors_ssc.inc` 685、`MiniIOMobileFramebuffer.cpp` 保持 1248 净增 0）；下表用户态超长文件仍待逐步拆分 | 在对应文件发生大改前，沿现有资源、翻译阶段和测试职责继续拆分；新文件和本次大改文件满足行数约定，相关宿主测试及 arm64e 构建通过 | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[§16](../analysis/2026-11-08-architecture-review.md#16-工程流程)、[AGENTS.md §2](../../AGENTS.md#2-代码行数约定必须遵守) |
+| ENG-06 | AIR 主文件与超长文件按职责拆分 | 批 14/15 已将 `tools/mesa/air/` 超标文件清零（`air_module.c` 988 + 2 `.inc`、`air_run.c` 1174 + 1 `.inc`、`air_to_nir.c` 971 + 3 `.inc`、`air_metal_test.c` 1077 + 7 `.inc`、`air_metal.h` 673 + `air_metal_render.h` 763、`air_metal.c` 751 + 7 `.inc` 均 `<= 1200` 行且过审）；`userland/` 与 `tools/` 的 `metal_drv_test.m`（1078 + 8 `.inc`）、`triangle_app.m`（762 + 1 `.inc`）、`inject_store.c`（1064 + 1 `.inc`）、`camera_isp.c`（1011 + 1 `.inc`）、`camera_device_stream.inc`（888 + 1 `.inc`）与 `metalcheck.py`（920 + `metalcheck_sweep.py` 488）均已拆分过审（`#510`/`#529`/`#533`），全仓 C/ObjC/头文件已清零超标 | 拆完下表最后 2 份 Python 辅助脚本（`intrincheck.py` 与 `kinput.py`），使 `hackios-xnu-userland` 全仓源码与脚本均 `<= 1200` 行 | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[§16](../analysis/2026-11-08-architecture-review.md#16-工程流程)、[AGENTS.md §2](../../AGENTS.md#2-代码行数约定必须遵守) |
 | ENG-07 | 剩余注入钩子逐项核对原生契约 | 待逐项评估 | 按实际消费者检查关机、激活状态、图标、AirDrop、显示名、WebKit 偏好和状态栏布局；记录原生调用要求与底层缺口，完成内核、驱动或构建层修复后移除对应钩子。每项验收覆盖原消费者与未注入进程；诊断和测试用途单独确认。 | [注入钩子 §2](../analysis/2026-11-09-injection-hooks.md#2-逐项归类)、[§3](../analysis/2026-11-09-injection-hooks.md#3-结论) |
 
-ENG-06 的行数基线取自 2026-11-12 工作树。AIR 已有 `air_metal_*.inc`、指针槽、argument buffer、GEP、调用、phi 和采样器分片，后续拆分沿这些职责进行。
+ENG-06 在 `hackios-xnu-userland/` 全仓 C/ObjC/头文件已清零，仅余 2 份 Python 辅助脚本：
 
 | userland 仓库文件 | 当前行数 |
 |---|---:|
-| `tools/mesa/air/air_metal.c` | 6782 |
-| `tools/mesa/air/air_metal.h` | 1438 |
-| `tools/mesa/air/air_metal_test.c` | 6931 |
-| `tools/mesa/air/air_module.c` | 1950 |
-| `tools/mesa/air/air_run.c` | 2093 |
-| `tools/mesa/air/air_to_nir.c` | 3407 |
-| `userland/src/tests/metal_drv_test.m` | 7799 |
+| `tools/air/intrincheck.py` | 2452 |
+| `tools/air/kinput.py` | 1451 |
 
 ## 3. 着色器覆盖与对照验证
 
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
-| ENG-08 | 23G90 着色器清单与最小 corpus | 部分模块已验证，完整清单待补 | 离线枚举 QuartzCore、CoreImage、UIKit 的目标 metallib，分别记录读取、AIR→NIR、A830 IR3 编译和 GPU 执行结果；为拒绝项提炼可公开的自编最小 shader。验收时每项失败都有具体模块、输入、阶段与复现命令。 | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[多媒体验证 §5](../analysis/2026-11-11-multimedia-validation.md#5-接手后的静态与宿主检查)、[corpus.py](../../hackios-xnu-userland/tools/air/corpus.py) |
-| ENG-09 | 材质样本的原生 Metal 与 A830 像素对照 | 未开始 | 为玻璃、背景模糊、合成滤镜和 SDF 文本固定输入、附件格式、混合状态及 load/store；在 Mac 原生 Metal 与 `metal_drv_test.m` 执行相同描述。先确定各样本可解释的误差判据，再用像素结果验证格式替换与相关 Mesa 补丁。 | [架构审查 §8.2](../analysis/2026-11-08-architecture-review.md#82-建立材质着色器回归样本) |
-| ENG-10 | Mesa 26 主机检查跳过的 A830 指令与执行语义 | 待设备验证 | 用实际 A830 配置复核 discard/demote、framebuffer fetch 和 vertex fetch；`discardcheck.py` 的默认 chip ID 需要按目标覆盖。记录实际指令与像素结果，汇总检查时单列 `SKIPPED`，不计作该阶段已通过。 | [Mesa 分析 §8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[§10.2](../analysis/mesa-rebase-2026-10.md#102-discardcheckpy)、[§10.3](../analysis/mesa-rebase-2026-10.md#103-26x-没有离线-ir3-编译入口) |
+| ENG-08 | 23G90 着色器清单与最小 corpus | 批 14（`#472`/`#473`）更新 `metallib.py`（`112` 行，解包 `0xCAFEBABE` Fat 容器）、`air_env.py`（`81` 行）、`corpus.py`（`381` 行，默认 A830 `0x44050001`、单列 `archives` 与 `ir3 SKIPPED`）与 `test-corpus-discard.py`（`4/4` 通过）；`23G90` `corpus.py --ir3`（`QuartzCore`、`CoreImage` 等）实测 `container 3971/3971`、`reader 3971/3971`、`translate 549/3971`（`QuartzCore 174/189`、`AppleMetalGLRenderer 268/274`、`CoreImage/default 60/60`、`PortraitFilters 36/36`、`AV1SW 11/11`，`ir3 SKIPPED 549`、`archives SKIPPED 5`） | 在具备离线/真机 A830 IR3 编译器与 GPU 执行环境的节点补跑 IR3 编译与执行统计；为拒绝项提炼可公开的自编最小 shader | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[多媒体验证 §5](../analysis/2026-11-11-multimedia-validation.md#5-接手后的静态与宿主检查)、[corpus.py](../../hackios-xnu-userland/tools/air/corpus.py) |
+| ENG-09 | 材质样本的原生 Metal 与 A830 像素对照 | 批 15（`#537`）完成只读审计：定稿 6 类可公开样本（双附件 fbfetch、RGBA16Float 模糊、混合状态矩阵、A8/R8 SDF、`81`/`71`/`115`/`94` 格式契约、`DontCare`/`writeMask=0` 多 Pass）及容差判据（UNORM `<= 1 LSB`、sRGB `<= 2 LSB`、`RGBA16Float <= 2 ULP`），并确认 `metal_drv_test.m` 绑定 iOS 私有符号且缺目标格式/混合/写掩码支持 | 新增纯公共 Metal API 双端对比程序（如 `material_regress.m` + `material_regress_check.py`），先在 macOS 宿主固化 6 类参考像素，待设备开测时在 A830 对比验证 | [架构审查 §8.2](../analysis/2026-11-08-architecture-review.md#82-建立材质着色器回归样本) |
+| ENG-10 | Mesa 26 主机检查跳过的 A830 指令与执行语义 | 批 14（`#472`/`#473`）接入 `air_env.py`（默认 `0x44050001`、`TemporaryDirectory`、`materialize_metallib()`）：`discardcheck.py`（`442` 行）输出 `2 of 2 shapes as expected; ir3: 0 compiled, 2 SKIPPED (chip 0x44050001)`、`fbfetchcheck.py`（`313` 行）`7/7` 通过、`vattrcheck.py`（`623` 行）`16/16` 并完成 `QuartzCore` 18/37 顶点着色器 58 个输入属性核对 | 在实际 A830 配置执行 discard/demote、framebuffer fetch 与 vertex fetch 编译和像素结果对照，汇总时保持单列 `SKIPPED` | [Mesa 分析 §8](../analysis/mesa-rebase-2026-10.md#8-剩余工作)、[§10.2](../analysis/mesa-rebase-2026-10.md#102-discardcheckpy)、[§10.3](../analysis/mesa-rebase-2026-10.md#103-26x-没有离线-ir3-编译入口) |
 
 `tools/air/check.sh` 当前默认读取 iOS 26 的 AV1SW、AppleMetalGLRenderer 和 PortraitFilters 共四个 metallib 文件，缺少输入会退出。ENG-08 需要扩充框架覆盖范围，并明确本地原版库与可公开测试样本的存放边界；已有局部编译结果见来源文档。
 
@@ -65,4 +56,8 @@ ENG-06 的行数基线取自 2026-11-12 工作树。AIR 已有 `air_metal_*.inc`
 
 | 编号 | 事项 | 解决结论与验证范围 | 来源 |
 |---|---|---|---|
+| ENG-24 | k90auto 环境检查、恢复超时与 `tracev3` 离线解码 | 全部残余已闭环验证：`test-tools.py`（52 项）、`recover-loader.py` 重枚举等待、`cycle.py` NumPy 检查、`prof.py` 共享缓存过滤、内核日志互斥去重（`say3` `1308->82`）、`annsh sysctl`（`9146fd0`）、`trollstorehelper`（`582b283`）、`test-annibale-gpu-dispatch.py`、`test-annibale-apple80211-events.py`、`make-payload.py` `--memsize`/`--identity` 校验（`6/6`、`b349219`）；批 14（`#442`/`#444`）新增 `build-logarchive.py`（`530` 行）离线提取 `23G90__iPhone18,3`（`hcsd` v2）与 `ios26/{rootfs,cryptex,cryptex-app}`（`0x66778899` v2.1）组装 `.logarchive`（全量产出 `uuidtext=3520`/`dsc_uuids=4315`/`dsc_ranges=7114`、`test-build-logarchive.py` `4/4` 含本机 `/usr/bin/log show --archive --style json` 通过） | [全局现状分析 §6](../analysis/2026-11-22-global-review.md#6-工具链)、[批 6 进展 §8](../progress/2026-11-26-batch6-stall-verdict.md#8-残余问题与下轮输入)、[离线组装脚本](../../tools/k90auto/build-logarchive.py) |
 | ENG-25 | 宿主侧着色器回放 | 11-24 在 macOS 重建 `air2nir`、`air_run` 与顶点回放程序（内核 `fdf59ad4`、用户态 `ab2eb6c`），使用 `g25capture1` 两次图库绘制的特化顶点 AIR 在 `llvmpipe` 与 Mac Metal 逐像素对比，差异均为 `0/16,384`，已验收 `G25` 顶点几何 | [构建与回放步骤](../../tools/k90auto/README.md#81-用-mac-回放图库的顶点着色器) |
+| ENG-03 | AIR 参考编译的 LLVM 基线 | 批 14（`#485`/`#487`）固定 Homebrew LLVM `22.1.7`（支持 opaque `ptr`）并更新 `tools/air/argbufcheck.py`（`1112` 行）：将跨不同成员指针 `phi`（`air_ptr_phi.inc` `resolve_pointer_phi_places()` / `AIR_VAL_PTR_SELECT`）移入正向 `cases()`（16/16 字与参考编译一致）、在 `a sampler and two textures` 区分 `llvmpipe` 与 `softpipe`、保留 8/8 有效拒绝用例；`argbufcheck.py`（5/5 正向 + 8/8 拒绝）与 `ffma_contractcheck.py` 全过 | [多媒体验证 §9](../analysis/2026-11-11-multimedia-validation.md#9-air-常规检查与缓存)、[argbufcheck.py](../../hackios-xnu-userland/tools/air/argbufcheck.py) |
+| ENG-04 | Mesa 补丁按支持版本严格应用 | 批 14（`#511`/`#518`）拆分为 `tools/mesa/*.patch`（11 份共用）、`rebase-25/*.patch`（20 份 `25.0.7` 专用）与 `rebase-26/*.patch`（39 份 `26.2.5` 专用，刷新 `ir3_nir.c` `.modes` 与 `0024` `freedreno_query_acc.c` 上下文并剔除 `26.x` 失效 hunk），`mk-mesa.sh`（303 行）/`mesa-stamp.sh`（42 行）/`mk-host.sh`（120 行）启用 `--fuzz=0`；`mesa-26.2.5.tar.xz` `50/50` 零 reject/skip/fuzz 通过，与 `mesa-arm64e` `diff -rq` 一致，macOS 宿主与 iOS `arm64e` `libannibaleair.dylib` 双端构建通过 | [Mesa 分析 §2](../analysis/mesa-rebase-2026-10.md#2-fork-补丁在-2625-上的应用结果)、[mk-mesa.sh](../../hackios-xnu-userland/tools/mk-mesa.sh) |
+| ENG-05 | OSMesa 恢复补丁与平台适配分开维护 | 批 14（`#470`/`#473`）将原 `0003` 拆为 `0003-restore-osmesa.patch`（13 个纯 OSMesa 文件，剔除 6 个 CI/文档回滚噪音）与 `0003b-darwin-26.x-adaptations.patch`（3 个非 OSMesa 26.x 文件：`fd6_draw.cc`、`freedreno/meson.build`、`src/util/meson.build`），更新 `rebase-26/README.md` 与文档引用；`--fuzz=0` 零 reject/fuzz/skip，`smoke-osmesa.c` 与 `smoke-osmesa-es.c` 链接 `libOSMesa.8.dylib` 通过 | [Mesa 分析 §3](../analysis/mesa-rebase-2026-10.md#3-osmesa-恢复)、[smoke-osmesa.c](../../hackios-xnu-userland/tools/mesa/rebase-26/smoke-osmesa.c) |
