@@ -175,6 +175,8 @@
 - [11-25 批 5 ANE 回退](progress/2026-11-25-batch5-ane-fallback.md)：E5RT 权重部署、APFS getattrlist 契约修复与图库分析链验证。
 - [11-26 批 6 停顿判决](progress/2026-11-26-batch6-stall-verdict.md)：出片后停顿终局归因、蜂群治理验证、air 0024 风暴审计与相机线封存。
 - [11-27 批 7 用户可感知问题](progress/2026-11-27-batch7-user-visible.md)：ring 双重销毁诊断链、ALS 修复与 USB 回归、亮度抖动机制、翻页与 Safari 多标签性能测量。
+- [11-27 批 8 性能归因](progress/2026-11-27-batch8-opening.md)：xfm 运动真值穷尽分类、ioctl 放大器修复、背光去重验证、黑窗机制判别、sensors bitbang 扫描终结。
+- [11-27 批 9 需求侧治理](progress/2026-11-27-batch9-opening.md)：keep 池扩容验证、Mesa bo cache 需求侧根因、0030 导出位修复、空闲定时器测量基础设施修复。
 
 ## 10. 代码仓库中的说明
 

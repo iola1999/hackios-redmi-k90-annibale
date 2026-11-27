@@ -56,3 +56,38 @@ Safari 多标签用已校准命令 `drag 0.565 0.932 0.565 0.30 216 200 1`，首
 运动真值人工抽查先行定性（穷尽量化进行中）：**动画位置在 25-34ms 掉拍期间持续推进**（g46/g49 直接证据）——real-stutter 坐实在生产/呈现路径；H3 暂停零样本；H2 静止段须剔除但属干净无运动形态。修复优先级判断不变：SpringBoard/RenderBox/Metal/rwa 生产路径。kevent 段闭合到调用级：RenderBox+0x236ac 是 dispatch_sync_f 族调用（工作函数 0x196a58df0→0x196a58e20 大渲染工作项），等待对象为本进程渲染线程在制品，收益并入方向 1/2（`out/goal-1124/batch8/kevent-segment-verdict.md`）。
 
 b5r25 已放行（agent f818b879）：flipwd14+0029+`gpu_io_log=1 xfm_log=1`+sensors P2/P3 扩展扫描（36/37、48/49、hub 70/71、72/73、76/77、82/83、206/207、80/81）+图形回归搭车（提醒事项黑窗、设置黑带）。批 8 已用两轮，剩一轮预算。
+
+## 8. b5r25 判决（11-27 上午）
+
+详细判读 `docs/progress/evidence/k90auto/kernel-12377-flipwd14-b5r25/RESULTS.md`。四组判决：
+
+- **ioctl 放大器修复机制性强命中**：gemInfo 23637 次调用 queue/held 全零退出锁竞争；keep 池复用率 24.3% vs 4.9%；bo 分配量降 70%（23864 vs 79026）；gemNew 快速路径 p50 9µs。tl:L 尾部未干净下降，剩余瓶颈在 gemNew 未命中与 submit 路径。
+- **xfm 弱命中**：全口径多节拍间隔 271→191（-30%），活跃 settle 掉拍 68→61/22 手势，全部仍是动画推进的 real-stutter。
+- **sensors 扩展扫描证伪空闲池假设**：gpio36/37 或 48/49 的 bitbang 是启动致死动作（1~2 秒内内核死亡 USB 断联）；hub SE3/5/7 引擎被 SSC 活跃占用；默认三对扫描机制完好。内核需逐引脚打点定位致死相位后才能继续。
+- **图形回归负判决**：Preferences/Reminders 前台全幅扫描输出纯黑（含状态栏，mean/std 0.0），回桌面恢复；Safari 正常。fb 内存本身全零，指向合成/扫描输出级问题。flipwd14 相对 flipwd13 唯一内核增量是 ioctl/keep 池改动，小 bo 复用正确性是首要嫌疑。逐帧证据因 trollstorehelper 误报 open 失败缺失（tooling bug 待修）。
+
+## 9. b5r26 判决与批 8 收官（11-27 中午）
+
+详细判读 `docs/progress/evidence/k90auto/kernel-12377-flipwd15-b5r26/RESULTS.md`。批 8 三轮预算（b5r24/25/26）用完，批次收官。
+
+### 9.1 四组判决
+
+- **keep 池缺口成因直读**：miss 96.2% 为尺寸类无条目（flags 仅 3.8%）；驱逐 86.8% 因 128 条目上限（字节上限仅 2/159 窗口顶满）；in_pool p99=128 顶满。行动项明确：GPU_KEPT 扩容或尺寸配额分桶。
+- **submit 尾部分段**：锁内 87% 是 room 深度等待（GPU 管线背压），flush 近零符合 gpu_coherent 预期；最坏 backboardd room 29.8ms。结论改写性能线：瓶颈在 GPU 管线吞吐与深度，锁竞争治理已近收益尽头。
+- **黑窗未复现**：保持唤醒后提醒事项/设置冷开完整渲染，zero-swap 全轮零命中。b5r25 的持续黑扫描与 pocketTouches 误锁链一致——测量污染嫌疑大于渲染缺陷。残留冷开转场单帧黑闪。G18 族定性需按此复核。
+- **回归通过**：0029 十项风暴标记全零、Safari 多标签渲染完整。
+
+### 9.2 sensors bisect 终结扫描线
+
+gpio36/37 与 48/49 各自独立致死；hub 六对被 SSC 引擎门控构造性不可探测（SE3/5/7 恒活跃被跳过）。bitbang 扫描路线终结。sensors 线下一步只剩两条：设备树/persist 离线普查找正确引脚，或改用 SE 引擎原生路径而非 bitbang。pocketTouches 误触发与 sensors 线耦合，ALS/prox 定位价值上升。
+
+### 9.3 测量学教训（沉淀为规则）
+
+注入触摸不重置空闲定时器，设备 1-2 分钟自动回锁污染测量——b5r25 黑窗判决即受此影响。链式+微拖动范式已沉淀在轮次脚本。内核侧需确认 anntouch 是否喂 BMUserActivity。
+
+### 9.4 批 9 候选输入
+
+1. GPU_KEPT 扩容+尺寸配额分桶（判决 1 直接行动项，离线实施）
+2. GPU 管线背压深挖：backboardd 单笔提交 90 buffers 的构成与管线深度瓶颈（生产静默同根因族）
+3. anntouch 空闲定时器修复（测量基础设施）
+4. 静止重绘 dirty 设计（功耗线，仍欠）
