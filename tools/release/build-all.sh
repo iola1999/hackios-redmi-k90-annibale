@@ -60,7 +60,7 @@ mesa() {
 	python3 tools/k90auto/build-air.py
 }
 
-package() { SHARE=1 python3 tools/k90auto/package.py; }
+package() { AX="" SHARE=1 python3 tools/k90auto/package.py; }
 
 loader() {
 	(cd "$K" && EXTRA_CFLAGS=-DDIRECT_PHONE_PLAT BUILD_ID=$(git log -1 --format=%H -- xnuloader) xnuloader/build.sh)

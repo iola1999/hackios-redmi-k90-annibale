@@ -151,15 +151,12 @@ XPCWATCH_PROCESSES = os.environ.get("XPCWATCH", "").split()
 OSLOG_PROCESSES = os.environ.get("OSLOG", "").split()
 OSLOG_LINES = os.environ.get("OSLOG_LINES", "")
 OSLOG_MATCH = os.environ.get("OSLOG_MATCH", "")
-# libannibale-ax.dylib goes into these programs unless AX is set to the empty string. userland/src/ax.m:
-# on the notification com.annibale.ax each writes what it shows, labels and frames, to /tmp/ax-NAME.txt,
-# which tools/k90auto/ui.py reads to tap by name; it does nothing until that notification.
-# userland/src/statusbar26.m: the status bar's time and battery 12 points closer to the screen edges.
-# Each application lays out its own status bar, so one not named here keeps iOS's place
-# (docs/analysis/2026-11-02-status-bar-layout.md). init hands etc/inject.conf to kern.exec_inject;
-# the size check below follows the kernel buffer limit.
-AX_PROCESSES = os.environ.get("AX", "SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail "
-                              "MobileCal Files").split()
+# libannibale-ax.dylib (userland/src/inject/ax.m): dumps UI frames on com.annibale.ax for ui.py;
+# release builds pass AX="" to omit it. libannibale-statusbar.dylib (statusbar26.m): widens the
+# status bar gap by 12 pt in each named GUI process (docs/analysis/2026-11-02-status-bar-layout.md).
+DEFAULT_GUI_INJECT = "SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal Files"
+AX_PROCESSES = os.environ.get("AX", DEFAULT_GUI_INJECT).split()
+STATUSBAR_PROCESSES = os.environ.get("STATUSBAR", DEFAULT_GUI_INJECT).split()
 # MercuryPosterExtension, the provider of the default wallpaper, gets the Metal device unless
 # POSTER_METAL=0: it draws the wallpaper with its own Metal shaders (default.metallib in its bundle),
 # and without a device the wallpaper window hosts its context empty. It is an ExtensionKit service
@@ -170,19 +167,21 @@ POSTER_METAL = os.environ.get("POSTER_METAL", "1") == "1"
 # (20F66) addresses and find other code there on 23G90, so on iOS 26 they install nothing; its touch
 # thread stays off where the input26-service job exists, the one reader /dev/annibale-touch has.
 TOUCH_LAT = os.environ.get("TOUCH_LAT") == "1"
+SB26_EXTRA = os.environ.get("SB26_EXTRA", "").split()
 INJECT = (
     "/annibale/lib/libannibale-sbmetal-experiment.dylib SpringBoard backboardd" +
     (" iconservicesagent" if os.environ.get("ICON_METAL", "1") == "1" else "") +
     (" MercuryPosterExtension" if POSTER_METAL else "") + "\n" +
     ("/annibale/lib/libannibale.dylib backboardd\n" if TOUCH_LAT else "") +
-    "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension WidgetRenderer_Default SharingUIService Preferences lsd wifid\n"
+    "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension WidgetRenderer_Default SharingUIService Preferences lsd wifid" + (" " + " ".join(SB26_EXTRA) if SB26_EXTRA else "") + "\n" +
     "/annibale/lib/libannibale-media.dylib cameracaptured mediaserverd deferredmediad\n"
     "/annibale/lib/libannibale-vt.dylib videocodecd mediaserverd com.apple.WebKit.GPU video_decode_test video_player_test\n"
     "/annibale/lib/libannibale-app.dylib Calculator MobileNotes Reminders MobileCal Preferences MobileSMS systemstatusd Weather weatherd Maps geod MobileSafari com.apple.WebKit.Networking com.apple.WebKit.WebContent nsurlsessiond chronod\n" +
     ("/annibale/lib/libannibale-xpcwatch.dylib " + " ".join(XPCWATCH_PROCESSES) + "\n"
      if XPCWATCH_PROCESSES else "") +
     ("/annibale/lib/libannibale-oslog.dylib " + " ".join(OSLOG_PROCESSES) + "\n" if OSLOG_PROCESSES else "") +
-    ("/annibale/lib/libannibale-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "")
+    ("/annibale/lib/libannibale-ax.dylib " + " ".join(AX_PROCESSES) + "\n" if AX_PROCESSES else "") +
+    ("/annibale/lib/libannibale-statusbar.dylib " + " ".join(STATUSBAR_PROCESSES) + "\n" if STATUSBAR_PROCESSES else "")
 )
 JOBS = "etc/rc.jobs"
 # JOBS_SOURCE=... runs a different touch script than the acceptance one. A diagnostic that has
@@ -415,9 +414,10 @@ SB26_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "CoreFoundatio
 XPCWATCH_SOURCES = ["userland/src/inject/xpcwatch.c"]
 OSLOG_SOURCES = ["userland/src/inject/oslogwatch.c"]
 XPCWATCH_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror"]
-AX_SOURCES = ["userland/src/inject/ax.m", "userland/src/inject/statusbar26.m"]
-AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation",
-            "-framework", "CoreGraphics"]
+AX_SOURCES = ["userland/src/inject/ax.m"]
+STATUSBAR_SOURCES = ["userland/src/inject/statusbar26.m"]
+AX_FLAGS = ["-Os", "-Wall", "-Wextra", "-Werror", "-framework", "UIKit", "-framework", "Foundation", "-framework", "CoreGraphics"]
+STATUSBAR_FLAGS = AX_FLAGS
 USERLAND_SOURCES = ["userland/src/inject/inject.c"]
 USERLAND_FLAGS = ["-O1", "-framework", "CoreFoundation", "-framework", "IOKit"]
 MEDIA_SOURCES = ["userland/src/inject/inject_media.c", "userland/src/services/camera_device.c",
@@ -808,6 +808,10 @@ def main():
     ax = OUT / "libannibale-ax.dylib"
     if AX_PROCESSES:
         commands["ax"] = build(AX_SOURCES, "/annibale/lib/libannibale-ax.dylib", AX_FLAGS, ax)
+    statusbar = OUT / "libannibale-statusbar.dylib"
+    if STATUSBAR_PROCESSES:
+        commands["statusbar"] = build(STATUSBAR_SOURCES, "/annibale/lib/libannibale-statusbar.dylib",
+                                      STATUSBAR_FLAGS, statusbar)
     probe = OUT / "lsprobe"
     if PROBE:
         commands["probe"] = build(PROBE_SOURCES, "", PROBE_FLAGS, probe, dynamic=False)
@@ -816,6 +820,7 @@ def main():
                             *(XPCWATCH_SOURCES if XPCWATCH_PROCESSES else []),
                             *(OSLOG_SOURCES if OSLOG_PROCESSES else []),
                             *(AX_SOURCES if AX_PROCESSES else []),
+                            *(STATUSBAR_SOURCES if STATUSBAR_PROCESSES else []),
                             *(AUDIO_SOURCES if AUDIO else []),
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
                             "userland/src/inject/inject_sb26_airdrop.inc",
@@ -918,6 +923,8 @@ def main():
         shutil.copy2(oslog, dest / "lib/libannibale-oslog.dylib")
     if AX_PROCESSES:
         shutil.copy2(ax, dest / "lib/libannibale-ax.dylib")
+    if STATUSBAR_PROCESSES:
+        shutil.copy2(statusbar, dest / "lib/libannibale-statusbar.dylib")
     if AUDIO:
         shutil.copy2(audio, dest / AUDIO_PLUGIN.lstrip("/"))
     if BLUETOOTH:
@@ -1038,6 +1045,7 @@ def main():
              | ({"/lib/libannibale-xpcwatch.dylib"} if XPCWATCH_PROCESSES else set())
              | ({"/lib/libannibale-oslog.dylib"} if OSLOG_PROCESSES else set())
              | ({"/lib/libannibale-ax.dylib"} if AX_PROCESSES else set())
+             | ({"/lib/libannibale-statusbar.dylib"} if STATUSBAR_PROCESSES else set())
              | ({"/lib/libannibale-vt.dylib"} - set(before))
              | {"/LaunchDaemons/" + name for name in rest_added}
              | ({"/etc/env"} | {"/etc/env/" + name for name in EXT_ENV} if EXT_ENV else set())
@@ -1059,6 +1067,7 @@ def main():
                 *(["/lib", "/lib/libannibale-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-oslog.dylib"] if OSLOG_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-ax.dylib"] if AX_PROCESSES else []),
+                *(["/lib", "/lib/libannibale-statusbar.dylib"] if STATUSBAR_PROCESSES else []),
                 *([AUDIO_PLUGIN] if AUDIO else []),
                 *(["/bin/bluetool", "/bin/bluetoothd"] if BLUETOOTH else []),
                 "/etc/inject.conf",

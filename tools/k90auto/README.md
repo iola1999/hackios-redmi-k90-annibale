@@ -145,7 +145,8 @@ python3 tools/k90auto/ui-health.py docs/progress/evidence/k90auto/RUN/device-*.l
 | `DIRTY_REGIONS` | `1` | backboardd 默认只重绘变化区域；`0` 设置 `CA_DISABLE_DIRTY_REGIONS=1`，整帧重绘供对照，定义见 [`package.py`](package.py) |
 | `MSAA` | 关 | `1` 时 backboardd 与 SpringBoard 的渲染 pass 用 4 倍采样 |
 | `WIFI_FW` | 自动 | `out/fw-wifi/` 里有驱动读的四个文件（`amss20.bin`、`regdb.bin`、`bd_p11.elf`、`phy_ucode20.elf`，约 6.9 MB）时放进根盘；`1` 放入全部文件（约 27 MB）；`0` 不放 |
-| `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal Files` | 插入 `libannibale-ax.dylib` 的进程，默认列表见 [`package.py`](package.py) 的 `AX_PROCESSES`；空字符串时不插入。供 `ui.py` 按文字查找和点按；同一个库把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6）。整个注入配置写进 `kern.exec_inject`；`package.py` 要求去掉末尾换行和空格后的 UTF-8 长度至多 4094 字节 |
+| `AX` | `SpringBoard Preferences MobileSafari Weather MobileSMS MobileNotes MobileMail MobileCal Files` | 插入 `libannibale-ax.dylib` 的进程，默认列表见 [`package.py`](package.py) 的 `AX_PROCESSES`；空字符串时不插入。供 `ui.py` 按文字查找和点按；发版打包时通过 `AX=""` 剥离。整个注入配置写进 `kern.exec_inject`；`package.py` 要求去掉末尾换行和空格后的 UTF-8 长度至多 4094 字节 |
+| `STATUSBAR` | 同 `AX` 默认列表 | 插入独立状态栏布局库 `/annibale/lib/libannibale-statusbar.dylib`（`statusbar26.m`）的进程，默认列表见 [`package.py`](package.py) 的 `STATUSBAR_PROCESSES`；把状态栏的时间和电池各向屏幕边缘移 12 点（[状态栏布局分析](../../docs/analysis/2026-11-02-status-bar-layout.md) §6），空字符串时不插入 |
 | `AUDIO` | `1` | 放行音频任务（audiomxd 等）并把 `AnnibaleAudio.driver` 按 arm64e 重新编译，音量键、音量条和控制中心的音量滑块可用（还没有声音）；`0` 不放行 |
 | `PAYLOAD_PROGRAMS` | 空 | `路径[:路径]`，把重新构建的程序装进根盘 |
 | `GPU_SPEED` | `3` | 记进 manifest，与载荷的 `adreno8_speed` 不一致时 `make-payload.py` 拒绝 |

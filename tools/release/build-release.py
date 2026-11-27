@@ -263,9 +263,24 @@ def boot_image(work, kernel, root_image, flashboot, loader_image, name):
     return out
 
 
+def verify_release_root(root):
+    """Refuse test-only libannibale-ax.dylib or an oversized etc/inject.conf in a release root."""
+    if (root / "lib/libannibale-ax.dylib").exists():
+        raise SystemExit(f"{root / 'lib/libannibale-ax.dylib'}: test-only ax library must be stripped "
+                         "(run tools/k90auto/package.py with AX='')")
+    inject = root / "etc/inject.conf"
+    if inject.is_file():
+        raw = inject.read_bytes()
+        if len(raw.rstrip(b"\n ")) >= 4095:
+            raise SystemExit(f"{inject}: {len(raw.rstrip(b'\\n '))} bytes exceeds 4094 kern.exec_inject limit")
+        if "libannibale-ax.dylib" in raw.decode("utf-8", errors="replace"):
+            raise SystemExit(f"{inject}: references test-only libannibale-ax.dylib (pack with AX='')")
+
+
 def private(bundle):
     """Refuse a bundle with an ssh key (userland/build.sh without SHARE=1) or this machine's home path."""
     home = str(Path.home()).encode()
+    verify_release_root(bundle / "root")
     for path in bundle.rglob("*"):
         if ".ssh" in path.parts or path.name.startswith("ssh_host_"):
             raise SystemExit(f"{path}: an ssh key; build the userland with SHARE=1")
@@ -305,6 +320,7 @@ def main():
         if not path.is_file():
             raise SystemExit(f"{path}: missing; build it first (docs/development.md)")
     volume = volume_name()
+    verify_release_root(root)
     system = plistlib.loads((IOS_VOLUMES["os"] / "System/Library/CoreServices/SystemVersion.plist").read_bytes())
 
     print("build-release: splitting the root tree")

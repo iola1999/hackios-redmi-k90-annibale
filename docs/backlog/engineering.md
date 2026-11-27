@@ -1,6 +1,6 @@
 # 工程、构建与系统版本待办
 
-2026-11-28 同步批 1～批 19 实测与审核更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
+2026-11-28 同步批 1～批 20 实测与审核更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
 
 ## 1. 构建、发布与测试环境
 
@@ -12,9 +12,7 @@
 
 ## 2. Mesa、AIR 与代码维护
 
-| 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
-|---|---|---|---|---|
-| ENG-07 | 剩余注入钩子逐项核对原生契约 | 批 16 只读审计（`#592`）确认 `shouldForceBitmapImages` 与日历 `iconLayerWithInfo:` 已从 `inject_sb26.c` 移除；定位 3 项可对照测试移除项（`sb26_ensure_chinese_preferences()` 与显示名钩子、`sb26_clear_wifi_join_failures()`、`inject_app.c:413` `WKPreferences` VP9）及剩余真实缺口钩子（关机链、`SBLockdownManager`、`awdl0`、`statusbar26.m` 需从 `libannibale-ax.dylib` 拆离、`defaultATX`） | 批 17+ 优先从 `libannibale-ax.dylib` 拆离 `statusbar26.m`，并逐项做移除对照测试（每项覆盖原消费者与未注入进程） | [注入钩子 §2](../analysis/2026-11-09-injection-hooks.md#2-逐项归类)、[§3](../analysis/2026-11-09-injection-hooks.md#3-结论) |
+原列于本节的 `ENG-07`（拆分 `statusbar26.m` 并对齐包投递校验）已在批 20（`b5r61`）完成拆离与真机验收，详见 §6；其余注入项移除对照测试按[注入钩子分析](../analysis/2026-11-09-injection-hooks.md#2-逐项归类)按需开展。
 
 ## 3. 着色器覆盖与对照验证
 
@@ -54,3 +52,4 @@
 | ENG-04 | Mesa 补丁按支持版本严格应用 | 批 14（`#511`/`#518`）拆分为 `tools/mesa/*.patch`（11 份共用）、`rebase-25/*.patch`（20 份 `25.0.7` 专用）与 `rebase-26/*.patch`（39 份 `26.2.5` 专用，刷新 `ir3_nir.c` `.modes` 与 `0024` `freedreno_query_acc.c` 上下文并剔除 `26.x` 失效 hunk），`mk-mesa.sh`（303 行）/`mesa-stamp.sh`（42 行）/`mk-host.sh`（120 行）启用 `--fuzz=0`；`mesa-26.2.5.tar.xz` `50/50` 零 reject/skip/fuzz 通过，与 `mesa-arm64e` `diff -rq` 一致，macOS 宿主与 iOS `arm64e` `libannibaleair.dylib` 双端构建通过 | [Mesa 分析 §2](../analysis/mesa-rebase-2026-10.md#2-fork-补丁在-2625-上的应用结果)、[mk-mesa.sh](../../hackios-xnu-userland/tools/mk-mesa.sh) |
 | ENG-05 | OSMesa 恢复补丁与平台适配分开维护 | 批 14（`#470`/`#473`）将原 `0003` 拆为 `0003-restore-osmesa.patch`（13 个纯 OSMesa 文件，剔除 6 个 CI/文档回滚噪音）与 `0003b-darwin-26.x-adaptations.patch`（3 个非 OSMesa 26.x 文件：`fd6_draw.cc`、`freedreno/meson.build`、`src/util/meson.build`），更新 `rebase-26/README.md` 与文档引用；`--fuzz=0` 零 reject/fuzz/skip，`smoke-osmesa.c` 与 `smoke-osmesa-es.c` 链接 `libOSMesa.8.dylib` 通过 | [Mesa 分析 §3](../analysis/mesa-rebase-2026-10.md#3-osmesa-恢复)、[smoke-osmesa.c](../../hackios-xnu-userland/tools/mesa/rebase-26/smoke-osmesa.c) |
 | ENG-06 | AIR 主文件与超长文件按职责拆分 | 批 14/15 陆续完成并过审全套用户态拆分：`tools/mesa/air/`（`air_module.c` 988 + 2 `.inc`、`air_run.c` 1174 + 1 `.inc`、`air_to_nir.c` 971 + 3 `.inc`、`air_metal_test.c` 1077 + 7 `.inc`、`air_metal.h` 673 + `air_metal_render.h` 763、`air_metal.c` 751 + 7 `.inc`）、`userland/src/`（`metal_drv_test.m` 1078 + 8 `.inc`、`triangle_app.m` 762 + 1 `.inc`、`inject_store.c` 1064 + 1 `.inc`、`camera_isp.c` 1011 + 1 `.inc`、`camera_device_stream.inc` 888 + 1 `.inc`）与 `tools/air/`（`metalcheck.py` 920 + `metalcheck_sweep.py` 488、`intrincheck.py` 1138 + `intrincheck_ref.py` 715 + `intrincheck_suite.py` 636、`kinput.py` 1095 + `kinput_check.py` 371，均过 `#492`/`#495`/`#500`/`#507`/`#510`/`#518`/`#529`/`#533`/`#536`）。`hackios-xnu-userland/{userland,tools}/` 全仓源码与脚本超 `1200` 行文件数为 `0`（内核仓存量文件按 `AGENTS.md §2` 在大改时拆分） | [架构审查 §7.2](../analysis/2026-11-08-architecture-review.md#72-air-翻译器的完整性)、[AGENTS.md §2](../../AGENTS.md#2-代码行数约定必须遵守) |
+| ENG-07 | 拆离 `statusbar26.m` 与发布包投递校验 | 批 20 将 `statusbar26.m`（`124` L）从 `ax.m`（`170` L）拆离为独立 `libannibale-statusbar.dylib`，补齐 `package.py`（`1199` L）`SB26_EXTRA`、`build-all.sh`（`AX="" SHARE=1`）与 `build-release.py`（`435` L）`verify_release_root()`；`test-ui.py`（`14/14`）、`test-tools.py`（`52/52`）与 `test-build-release-provenance.py`（`4/4`）均通过，`b5r61` 验证 `/annibale/etc/inject.conf`（`957` B）与主屏/通知中心/设置/控制中心截图全正常（其余可选清理项见 `2026-11-09-injection-hooks.md`） | [注入钩子 §2](../analysis/2026-11-09-injection-hooks.md#2-逐项归类)、[批 20 记录 §2、§3](../progress/2026-11-28-batch20-results.md#2-批-20-已合入代码与宿主测试) |

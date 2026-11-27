@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline command failures and AX freshness checks; K90_UI_SOURCE selects an older ui.py."""
+import ast
 import contextlib
 import io
 import os
@@ -14,6 +15,7 @@ from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent.parent
 SOURCE = Path(os.environ.get("K90_UI_SOURCE", HERE / "ui.py"))
+PACKAGE = HERE / "package.py"
 sys.path.insert(0, str(HERE))
 
 OLD = "# Demo pid 41 screen 100 200\n10 20 20 40\tUIButton\tOld\t\n"
@@ -141,6 +143,59 @@ class UICommandTests(unittest.TestCase):
         self.assertIn("ax-Demo.txt", errors)
         self.assertIsNone(data)
         self.assertEqual(len(calls), 5)
+
+
+class PackageInjectSplitTests(unittest.TestCase):
+    def eval_inject_config(self, env_overrides):
+        tree = ast.parse(PACKAGE.read_text(), filename=str(PACKAGE))
+        wanted = {"XPCWATCH_PROCESSES", "OSLOG_PROCESSES", "DEFAULT_GUI_INJECT",
+                  "AX_PROCESSES", "STATUSBAR_PROCESSES", "POSTER_METAL", "TOUCH_LAT",
+                  "SB26_EXTRA", "INJECT", "AX_SOURCES", "STATUSBAR_SOURCES"}
+        selected = [node for node in tree.body
+                    if isinstance(node, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id in wanted for t in node.targets)]
+        ns = {"os": types.SimpleNamespace(environ={**env_overrides})}
+        exec(compile(ast.Module(body=selected, type_ignores=[]), str(PACKAGE), "exec"), ns)
+        return ns
+
+    def test_ax_and_statusbar_are_split_and_within_inject_limit(self):
+        ns = self.eval_inject_config({})
+        self.assertEqual(ns["AX_SOURCES"], ["userland/src/inject/ax.m"])
+        self.assertEqual(ns["STATUSBAR_SOURCES"], ["userland/src/inject/statusbar26.m"])
+        inject = ns["INJECT"]
+        self.assertLess(len(inject.rstrip("\n ").encode()), 4095)
+        self.assertIn("/annibale/lib/libannibale-ax.dylib SpringBoard ", inject)
+        self.assertIn("/annibale/lib/libannibale-statusbar.dylib SpringBoard ", inject)
+
+    def test_release_strips_ax_while_preserving_statusbar(self):
+        ns = self.eval_inject_config({"AX": ""})
+        self.assertEqual(ns["AX_PROCESSES"], [])
+        self.assertTrue(ns["STATUSBAR_PROCESSES"])
+        self.assertNotIn("libannibale-ax.dylib", ns["INJECT"])
+        self.assertIn("/annibale/lib/libannibale-statusbar.dylib SpringBoard ", ns["INJECT"])
+
+    def test_statusbar_can_be_disabled_without_affecting_ax(self):
+        ns = self.eval_inject_config({"STATUSBAR": ""})
+        self.assertEqual(ns["STATUSBAR_PROCESSES"], [])
+        self.assertIn("/annibale/lib/libannibale-ax.dylib SpringBoard ", ns["INJECT"])
+        self.assertNotIn("libannibale-statusbar.dylib", ns["INJECT"])
+
+    def test_sb26_extra_appends_only_when_set(self):
+        base = self.eval_inject_config({})
+        self.assertEqual(base["SB26_EXTRA"], [])
+        self.assertIn(
+            "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension "
+            "WidgetRenderer_Default SharingUIService Preferences lsd wifid\n",
+            base["INJECT"],
+        )
+        extra = self.eval_inject_config({"SB26_EXTRA": "Weather"})
+        self.assertEqual(extra["SB26_EXTRA"], ["Weather"])
+        self.assertIn(
+            "/annibale/lib/libannibale-sb26.dylib SpringBoard PosterBoard MercuryPosterExtension "
+            "WidgetRenderer_Default SharingUIService Preferences lsd wifid Weather\n",
+            extra["INJECT"],
+        )
+        self.assertLess(len(extra["INJECT"].rstrip("\n ").encode()), 4095)
 
 
 if __name__ == "__main__":

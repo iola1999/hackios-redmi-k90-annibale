@@ -2,6 +2,7 @@
 """Verify ENG-19 third-party license, provenance and submodule commit checks in build-release.py."""
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -42,6 +43,28 @@ class BuildReleaseProvenanceTest(unittest.TestCase):
                 if field in item:
                     fname = Path(item[field]).name
                     self.assertIn(fname, BR.LICENSES)
+
+    def test_verify_release_root_strips_ax_and_keeps_statusbar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lib").mkdir()
+            (root / "etc").mkdir()
+            (root / "lib/libannibale-statusbar.dylib").write_bytes(b"sb")
+            (root / "etc/inject.conf").write_text("/annibale/lib/libannibale-statusbar.dylib SpringBoard\n")
+            BR.verify_release_root(root)
+
+            (root / "lib/libannibale-ax.dylib").write_bytes(b"ax")
+            with self.assertRaises(SystemExit):
+                BR.verify_release_root(root)
+            (root / "lib/libannibale-ax.dylib").unlink()
+
+            (root / "etc/inject.conf").write_text("/annibale/lib/libannibale-ax.dylib SpringBoard\n")
+            with self.assertRaises(SystemExit):
+                BR.verify_release_root(root)
+
+            (root / "etc/inject.conf").write_text("/annibale/lib/libannibale-statusbar.dylib " + ("A" * 4096) + "\n")
+            with self.assertRaises(SystemExit):
+                BR.verify_release_root(root)
 
 
 if __name__ == "__main__":

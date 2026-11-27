@@ -99,8 +99,8 @@
 | `hv_wdt_pet` | `osfmk/arm64/loader_return.c` |
 | `iris_hw` | `bsd/dev/annibale/annibale_iris_hw.c` |
 | `loader_return_after` | `osfmk/arm64/loader_return.c` |
-| `lowdma` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/annibale/annibale_ipa.c`、`bsd/dev/annibale/annibale_modem_svc.inc`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
-| `lowdma_mb` | `bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/annibale/annibale_ipa.c`、`bsd/dev/annibale/annibale_modem_svc.inc`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
+| `lowdma` | `bsd/dev/annibale/annibale_adsp_fastrpc_rpc.inc`、`bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/annibale/annibale_ipa.c`、`bsd/dev/annibale/annibale_modem_svc.inc`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
+| `lowdma_mb` | `bsd/dev/annibale/annibale_adsp_fastrpc_rpc.inc`、`bsd/dev/annibale/annibale_audio_reach.c`、`bsd/dev/annibale/annibale_ipa.c`、`bsd/dev/annibale/annibale_modem_svc.inc`、`bsd/dev/mhi/mhi_pcie_fw.c`、`bsd/dev/mhi/mhi_pcie_wlfw.c` |
 | `m2_log` | `iokit/Kernel/MiniM2Scaler.cpp` |
 | `machine_name` | `iokit/Kernel/GenericARMPE.cpp` |
 | `metal` | `iokit/Kernel/MiniFramebufferUserClient.inc` |

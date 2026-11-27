@@ -185,6 +185,7 @@
 - [11-27 批 17 阶段实测、根因定位与修复记录](progress/2026-11-27-batch17-results.md)：`b5r51`（`G30` 阶段 2 + `nircache` 跨重启验证）、`G15` 量化（`air_to_nir` 采样 `6/7 -> 0`、峰值 `712/417 ms -> 59/49 ms`）、`b5r52`（`S6` `'l10r'` 24/24 全过、`ENG-09`/`G3` 16/18 通过、2 项材质差异及 `S7`/`G31` 采样）、`b5r53` `apps_smmu` panic 修复（`flipwd28` `#650`/`#651`）与 `b5r54`（`P14` `compute-cb@2` 零 panic 推至 `adsp_mem_heap`、`M1` `dsz == 2*bsz` 诊断、`P21` `cwjoin`）。
 - [11-28 批 18～批 19 真机实测与代码合流总结（b5r55～b5r60）](progress/2026-11-28-batch18-results.md)：`b5r55`～`b5r57` 验收前后摄切换与默认 `front_cam_rotation_isp = 0` 正立、`ENG-09` `18/18 PASS`；`b5r58`～`b5r59` 验收 `inject_sb26.c` 修复通知中心全黑（`near_black=0.00%`、`backlight-off=0`）及天气 4/4 城市卡片深靛蓝夜空（`errors=0`、`encode max 1.03–1.75 ms`）；`b5r60` 验收 `M16` `ldob8` 按需单次供电与 VCM 软着陆零报错，并确认天气全屏 `905×1967` 输出不透明夜空渐变（黑屏属 `#767` 分支 B 视图/合成待修）。
 - [v0.2.4 发布记录（2026-11-28）](progress/2026-11-28-release-v0.2.4.md)：批 12～批 19 发布归档，包含四仓提交基线、四平台构建校验、macOS/Linux 跨平台合成与真机刷写 `boot_a` 验收。
+- [11-28 批 20 真机实测、代码交付与下批方案（b5r61～b5r63）](progress/2026-11-28-batch20-results.md)：`b5r61` 验收 `M6` 前摄 `-16808`/`-31710` 归零、`M4` 3 槽连拍、`S7` 阶段 2 结案（`528` 窗全满高转 DPU）、`S12` `BiomeStorageError=0`、`S11` `copyio_abort=0` 与 `ENG-07`；`b5r62` 验收 `M1` HEVC P010 `15/15 PASS` 与 `G32` 根因；`b5r63` 打通 `P14` `{0x16,0x25} perm=7`、重定因 `P21` `wifid INVALIDATED` 并采 `M3` 调音与 `backboardd.harvest`。
 
 ## 10. 代码仓库中的说明
 
