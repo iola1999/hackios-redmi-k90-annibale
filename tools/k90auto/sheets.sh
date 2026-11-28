@@ -1,15 +1,16 @@
 #!/bin/bash
 # sheets.sh RUN_DIR: full-size PNG per raw screenshot (raw removed), and contact sheets of 8x2 thumbnails.
 set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$1"
 mkdir -p png thumbs
 for raw in shot-*.raw; do
 	[ -e "$raw" ] || continue
 	base=${raw%.raw}
-	ffmpeg -v error -y -f rawvideo -pix_fmt bgra -s 1156x2510 -i "$raw" "png/$base.png" &&
+	python3 "$HERE/shotraw.py" to-png "$raw" "png/$base.png" &&
 	ffmpeg -v error -y -i "png/$base.png" -vf "scale=231:-1,drawtext=text='${base#shot-}':x=4:y=4:fontsize=22:fontcolor=red:box=1" "thumbs/$base.png" 2>/dev/null ||
 	ffmpeg -v error -y -i "png/$base.png" -vf "scale=231:-1" "thumbs/$base.png"
-	rm -f "$raw"
+	rm -f "$raw" "$raw.json"
 done
 ls thumbs/*.png | sort > thumbs/list.txt
 n=0

@@ -26,7 +26,11 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-WIDTH, HEIGHT = 1156, 2510
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import shotraw  # noqa: E402
+
+WIDTH, HEIGHT = shotraw.DEFAULT_WIDTH, shotraw.DEFAULT_HEIGHT
 SHOT_BYTES = WIDTH * HEIGHT * 4
 STATUS_BAR_ROWS = 150      # the clock changes every minute
 CHANGED = 24               # a channel difference above this counts as a changed pixel
@@ -45,6 +49,14 @@ def parse(step):
     return label, command.strip(), float(settle), int(shots or 1)
 
 
+def _shot_complete(path):
+    try:
+        shotraw.inspect_shot(path)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def take_shot(run):
     """Ask for one screenshot and return its path once the whole file is there."""
     before = {p.name for p in run.glob("shot-*.raw")}
@@ -56,7 +68,7 @@ def take_shot(run):
         time.sleep(0.2)
     request.write_text("")
     while time.monotonic() < deadline:
-        new = [p for p in run.glob("shot-*.raw") if p.name not in before and p.stat().st_size == SHOT_BYTES]
+        new = [p for p in run.glob("shot-*.raw") if p.name not in before and _shot_complete(p)]
         if new and not request.exists():
             return max(new, key=lambda p: p.name)
         time.sleep(0.3)
@@ -64,7 +76,7 @@ def take_shot(run):
 
 
 def pixels(path):
-    return np.frombuffer(path.read_bytes(), np.uint8).reshape(HEIGHT, WIDTH, 4)[:, :, :3]
+    return shotraw.decode_shot_rgb(path)[:, :, ::-1].copy()
 
 
 def compare(a, b):
@@ -98,11 +110,15 @@ def sheet(run, entries, per_row=8):
         tile = pixels(run / entry["shot"])[::4, ::4][:, :, ::-1].copy()   # BGRA rows to RGB, 1/4 size
         stamp(tile, i)
         tiles.append(tile)
-    h, w = tiles[0].shape[:2]
+    h = max(tile.shape[0] for tile in tiles)
+    w = max(tile.shape[1] for tile in tiles)
     rows = (len(tiles) + per_row - 1) // per_row
     grid = np.zeros((rows * h, min(len(tiles), per_row) * w, 3), np.uint8)
     for i, tile in enumerate(tiles):
-        grid[(i // per_row) * h:(i // per_row + 1) * h, (i % per_row) * w:(i % per_row + 1) * w] = tile
+        th, tw = tile.shape[:2]
+        y0 = (i // per_row) * h
+        x0 = (i % per_row) * w
+        grid[y0:y0 + th, x0:x0 + tw] = tile
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
                     f"{grid.shape[1]}x{grid.shape[0]}", "-i", "-", str(run / "tour-sheet.png")],
                    input=grid.tobytes(), check=True)

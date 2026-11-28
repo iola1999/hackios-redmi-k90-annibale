@@ -933,9 +933,9 @@ def main():
     shutil.copy2(userland, dest / "lib/libannibale.dylib")
     shutil.copy2(media, dest / "lib/libannibale-media.dylib")
     shutil.copy2(vt, dest / "lib/libannibale-vt.dylib")
-    shutil.copy2(vdec_test, dest / "bin/video_decode_test")
-    shutil.copy2(vplay_test, dest / "bin/video_player_test")
-    shutil.copy2(vcomb_test, dest / "bin/video_combined_test")
+    for src, rel in ((vdec_test, "bin/video_decode_test"), (vplay_test, "bin/video_player_test"), (vcomb_test, "bin/video_combined_test")):
+        shutil.copy2(src, dest / rel)
+    if (SRC_ROOT / "out/av-test-4s.mp4").is_file(): shutil.copy2(SRC_ROOT / "out/av-test-4s.mp4", dest / "share/av-test-4s.mp4")
     shutil.copy2(reflection_test, dest / "bin/metal_reflection_test")
     shutil.copy2(app, dest / "lib/libannibale-app.dylib")
     assert sha(dest / "lib/libannibale.dylib") == sha(userland), \
@@ -1036,7 +1036,7 @@ def main():
     added = ({"/LaunchDaemons/" + name for name in EXTRA_JOBS if name not in JOBS_DROP}
              | ({"/bin/lsprobe"} if PROBE and "/bin/lsprobe" not in before else set())
              | ({"/bin/bluetool", "/bin/bluetoothd"} - set(before) if BLUETOOTH else set())
-             | ({"/bin/video_decode_test", "/bin/video_player_test", "/bin/video_combined_test", "/bin/metal_reflection_test"} - set(before))
+             | (({"/bin/video_decode_test", "/bin/video_player_test", "/bin/video_combined_test", "/bin/metal_reflection_test"} | ({"/share/av-test-4s.mp4"} if (SRC_ROOT / "out/av-test-4s.mp4").is_file() else set())) - set(before))
              | ({"/fw"} - set(before) if (WIFI_FW or BT_FW or IRIS_FW) else set())
              | ({"/fw/" + name for name in [*WIFI_FW_FILES, WIFI_CONTROL]} - set(before) if WIFI_FW else set())
              | ({"/fw/" + name for name in BT_FW_FILES} - set(before))
@@ -1063,7 +1063,7 @@ def main():
                 "/lib/libannibaleair.dylib", "/lib/libannibale.dylib", "/lib/libannibale-sb26.dylib",
                 "/lib/libannibale-media.dylib", "/lib/libannibale-vt.dylib", "/lib/libannibale-app.dylib",
                 "/bin/video_decode_test", "/bin/video_player_test", "/bin/video_combined_test",
-                "/bin/metal_reflection_test",
+                "/bin/metal_reflection_test", *(["/share", "/share/av-test-4s.mp4"] if (SRC_ROOT / "out/av-test-4s.mp4").is_file() else []),
                 *(["/lib", "/lib/libannibale-xpcwatch.dylib"] if XPCWATCH_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-oslog.dylib"] if OSLOG_PROCESSES else []),
                 *(["/lib", "/lib/libannibale-ax.dylib"] if AX_PROCESSES else []),

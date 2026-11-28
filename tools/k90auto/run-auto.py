@@ -42,6 +42,7 @@ import time
 WORKSPACE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import screenrec  # noqa: E402  (tools/k90auto/screenrec.py: frames of the screen stream, read in this loop)
+import shotraw  # noqa: E402
 screenrec_mtime = Path(screenrec.__file__).stat().st_mtime
 def digest(path):
     result = hashlib.sha256()
@@ -401,7 +402,16 @@ def take_shot(elapsed):
     """One screenshot at the given elapsed second. The name keeps the fixed-interval format so a
     reader converts a file name to a moment the same way it did for the earlier rounds."""
     if call(["oem", "screenshot"], 8, False)["rc"] == 0:
-        call(["get_staged", run / f"shot-{int(elapsed * 10):05d}.raw"], 30, False)
+        shot = run / f"shot-{int(elapsed * 10):05d}.raw"
+        part = run / f".{shot.name}.part"
+        if call(["get_staged", part], 30, False)["rc"] == 0 and part.is_file():
+            screen_var = call(["getvar", "screen"], 8, False)
+            geom = shotraw.parse_getvar_screen(screen_var["output"]) if screen_var["rc"] == 0 else None
+            if geom is not None and geom[2] * geom[1] == part.stat().st_size:
+                shotraw.write_shot_meta(shot, *geom)
+            part.replace(shot)
+        elif part.is_file():
+            part.unlink()
 
 
 def leave_running(elapsed):

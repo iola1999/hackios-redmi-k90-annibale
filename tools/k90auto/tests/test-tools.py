@@ -85,6 +85,8 @@ elif args[:1] == ["getvar"]:
         say("ramdisk-protocol: 1")
     elif key == "ramdisk-state":
         say("ramdisk-state: " + pathlib.Path(os.environ["FB_RAMDISK"]).read_text().strip())
+    elif key == "screen" and "FB_SCREEN" in os.environ:
+        say("screen: " + os.environ["FB_SCREEN"])
     else:
         say(key + ": ")
 elif args[:2] == ["oem", "run"]:
@@ -147,6 +149,8 @@ elif args[:1] == ["get_staged"]:
     if target.name.startswith("cmd-") and seq_path.exists():
         seq = int(seq_path.read_text())
         target.write_text("console log\nannsh %d start echo hi\nannsh %d| hi\nannsh %d exit 0 3 ms\n" % (seq, seq, seq))
+    elif ".raw" in target.name and "FB_SHOT_BYTES" in os.environ:
+        target.write_bytes(bytes(int(os.environ["FB_SHOT_BYTES"])))
     else:
         target.write_text(os.environ.get("FB_KERNEL_LOG", "console log\n"))
 else:
@@ -622,6 +626,7 @@ class RunAutoTests(unittest.TestCase):
         shutil.copy(HERE / "run-auto.py", root / "tools/k90auto/run-auto.py")
         shutil.copy(HERE / "recover-loader.py", root / "tools/k90auto/recover-loader.py")
         shutil.copy(HERE / "screenrec.py", root / "tools/k90auto/screenrec.py")
+        shutil.copy(HERE / "shotraw.py", root / "tools/k90auto/shotraw.py")
         for name, body in (("fastboot", FAKE_FASTBOOT), ("adb", "#!/bin/bash\nexit 0\n")):
             (root / "bin" / name).write_text(body)
             (root / "bin" / name).chmod(0o755)
@@ -868,6 +873,36 @@ class RunAutoTests(unittest.TestCase):
         self.assertIn(["oem", "sh", "echo hi"], sent)
         self.assertIn("cmd-1.log", files)
         self.assertFalse([name for name in files if name.startswith("cmd-request-")])
+
+    def test_on_demand_screenshot_writes_geometry_sidecar(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base = self.prepare(root)
+            (root / "state").write_text("idle")
+            (root / "ramdisk").write_text("idle 0 0 0")
+            env = dict(os.environ, PATH=str(root / "bin") + os.pathsep + os.environ["PATH"],
+                       FB_LOG=str(root / "fastboot.jsonl"), FB_STATE=str(root / "state"),
+                       FB_RAMDISK=str(root / "ramdisk"), FB_DEVICES=str(root / "devices"),
+                       FB_STAGE_LOG=str(root / "stage.log"), FB_AFTER_STOP="returned",
+                       FB_SCREEN="1206 2622 4864 l10r", FB_SHOT_BYTES=str(4864 * 2622),
+                       K90_STOP_WAIT="6", K90_FREEZE_OFF="1")
+            runner = subprocess.Popen(
+                [sys.executable, str(root / "tools/k90auto/run-auto.py"), str(base), "3"],
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=root,
+            )
+            run_dir = base / "run"
+            for _ in range(100):
+                if (root / "state").read_text().strip() == "running" and run_dir.is_dir():
+                    break
+                time.sleep(0.05)
+            (run_dir / "shot-request").write_text("")
+            output = runner.communicate(timeout=120)[0]
+            shots = sorted(run_dir.glob("shot-*.raw"))
+            sidecars = [Path(f"{p}.json") for p in shots if Path(f"{p}.json").is_file()]
+            meta = json.loads(sidecars[0].read_text()) if sidecars else None
+        self.assertEqual(runner.returncode, 0, output)
+        self.assertEqual(len(shots), 1, output)
+        self.assertEqual(meta, {"width": 1206, "height": 2622, "stride": 4864, "format": "l10r"})
 
     def test_small_boot_volume_is_the_only_resident_image_staged(self):
         with tempfile.TemporaryDirectory() as directory:

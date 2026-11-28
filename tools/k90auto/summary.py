@@ -28,7 +28,12 @@ import re
 import subprocess
 import sys
 
-WIDTH, HEIGHT, STRIDE = 1156, 2510, 1156 * 4
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import shotraw  # noqa: E402
+
+WIDTH, HEIGHT, STRIDE = shotraw.DEFAULT_WIDTH, shotraw.DEFAULT_HEIGHT, shotraw.DEFAULT_STRIDE
 BAND = (1286, 1400, 100, 1100)          # rows and columns, panel coordinates
 BLUE = (9, 126, 201)                    # RGB, with a tolerance of 5 to 6
 FRAME_PAUSE = 90                        # ms; the driver's FRAME_PAUSE, from here on nothing was moving
@@ -162,31 +167,50 @@ def percentile(values, p):
     return values[min(len(values) - 1, int(len(values) * p))] if values else 0
 
 
+def band_hits_rgb(rgb):
+    h, w = rgb.shape[:2]
+    y0 = BAND[0] * h // HEIGHT
+    y1 = BAND[1] * h // HEIGHT
+    x0 = BAND[2] * w // WIDTH
+    x1 = BAND[3] * w // WIDTH
+    patch = rgb[y0:y1, x0:x1].astype(int)
+    r, g, b = patch[..., 0], patch[..., 1], patch[..., 2]
+    m = (abs(r - BLUE[0]) <= 5) & (abs(g - BLUE[1]) <= 6) & (abs(b - BLUE[2]) <= 5)
+    return int(m.sum())
+
+
 def band_hits(pixels, rgba_order):
     try:
         import numpy as np
     except ImportError:
         return None
-    a = np.frombuffer(pixels, np.uint8).reshape(HEIGHT, WIDTH, 4).astype(int)
-    r, g, b = (a[..., 2], a[..., 1], a[..., 0]) if rgba_order == 'bgra' else (a[..., 0], a[..., 1], a[..., 2])
-    y0, y1, x0, x1 = BAND
-    r, g, b = r[y0:y1, x0:x1], g[y0:y1, x0:x1], b[y0:y1, x0:x1]
-    m = (abs(r - BLUE[0]) <= 5) & (abs(g - BLUE[1]) <= 6) & (abs(b - BLUE[2]) <= 5)
-    return int(m.sum())
+    a = np.frombuffer(pixels, np.uint8).reshape(HEIGHT, WIDTH, 4)
+    rgb = a[..., 2::-1] if rgba_order == 'bgra' else a[..., :3]
+    return band_hits_rgb(rgb)
 
 
 def screenshots(run):
     shots = sorted(glob.glob(os.path.join(run, 'shot-*.raw')))
     hits = []
     for s in shots:
-        data = Path(s).read_bytes()
-        if len(data) == STRIDE * HEIGHT:
-            hits.append(band_hits(data, 'bgra'))
+        try:
+            hits.append(band_hits_rgb(shotraw.decode_shot_rgb(s)))
+        except (OSError, ValueError):
+            pass
+    try:
+        import numpy as np
+        from PIL import Image
+    except ImportError:
+        Image = None
     for p in sorted(glob.glob(os.path.join(run, 'png', 'shot-*.png'))):
-        raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'],
-                             capture_output=True).stdout
-        if len(raw) == STRIDE * HEIGHT:
-            hits.append(band_hits(raw, 'rgba'))
+        if Image is not None:
+            rgb = np.array(Image.open(p).convert('RGB'), dtype=np.uint8)
+            hits.append(band_hits_rgb(rgb))
+        else:
+            raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', p, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'],
+                                 capture_output=True).stdout
+            if len(raw) == STRIDE * HEIGHT:
+                hits.append(band_hits(raw, 'rgba'))
     hits = [h for h in hits if h is not None]
     return len(hits), sum(1 for h in hits if h >= 200)
 

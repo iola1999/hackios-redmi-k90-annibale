@@ -29,7 +29,7 @@ MPSS 启动后经 QRTR 上的 TFTP 服务（服务号 4096）读写文件。它�
 
 ## 3. 实现
 
-- [annibale_modem_tftp.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_modem_tftp.inc)：TFTP 服务端，支持 `blksize`、`timeoutms`、`tsize`、`wsize`、`rsize`、`seek` 选项。块大小上限 7,168 字节，使数据块连同报头不超过 QRTR 数据报的 8,192 字节。
+- `annibale_modem_tftp.inc`（批 23 已公共化并替换为 [annibale_tftp.inc](../../hackios-xnu-kernel/xnu/files/bsd/dev/annibale/annibale_tftp.inc)）：TFTP 服务端，支持 `blksize`、`timeoutms`、`tsize`、`wsize`、`rsize`、`seek` 选项。块大小上限 7,168 字节，使数据块连同报头不超过 QRTR 数据报的 8,192 字节。
   - `/readwrite/`：内存文件，最多 16 个、每个不超过 1 MiB，重启后清空。
   - `/readonly/firmware/`：映射到 modem 固件卷的根目录，整文件读入内存，保留最近 4 个文件。MPSS 用带 `rsize`／`seek` 的多个请求分段读同一个文件。
   - 其余路径答复「文件不存在」并记录文件名。

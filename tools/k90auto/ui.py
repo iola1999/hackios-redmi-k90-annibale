@@ -128,9 +128,10 @@ def main():
             print("ui: no screenshot came back")
             return 1
         rgb = tour.pixels(raw)[:, :, ::-1].copy()
+        height, width = rgb.shape[:2]
         png = run / f"{rest[0]}.png"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
-                        f"{tour.WIDTH}x{tour.HEIGHT}", "-i", "-", str(png)], input=rgb.tobytes(), check=True)
+                        f"{width}x{height}", "-i", "-", str(png)], input=rgb.tobytes(), check=True)
         print(f"ui: {png}")
         return 0
     print(__doc__.strip())

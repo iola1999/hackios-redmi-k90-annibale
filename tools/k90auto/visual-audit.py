@@ -27,23 +27,25 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-WIDTH, HEIGHT = 1156, 2510
+HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import shotraw  # noqa: E402
+
+WIDTH, HEIGHT = shotraw.DEFAULT_WIDTH, shotraw.DEFAULT_HEIGHT
 RAW_BYTES = WIDTH * HEIGHT * 4
 STATUS_BAR_ROWS = 150
 GRID_CELL = 16
 
 
 def load_image(path):
-    """Load screenshot from .raw (1156x2510 BGRA) or standard image file (.png, .jpg)."""
+    """Load screenshot from .raw (BGRA/l10r via sidecar or known scanout sizes) or image file."""
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"File not found: {path}")
 
-    data = p.read_bytes()
-    if len(data) == RAW_BYTES and p.suffix.lower() == ".raw":
-        raw = np.frombuffer(data, dtype=np.uint8).reshape((HEIGHT, WIDTH, 4))
-        # Convert BGRA to RGB
-        return raw[:, :, :3][:, :, ::-1].copy()
+    if p.suffix.lower() == ".raw":
+        return shotraw.decode_shot_rgb(p)
 
     # Fallback to PIL for PNG / other formats
     img = Image.open(path).convert("RGB")
@@ -143,8 +145,8 @@ def detect_bar_punch_through(rgb, baseline_rgb=None, threshold_var=15.0):
 
     # Regions to inspect: top navigation bar and bottom bar
     bars = [
-        {"name": "top_bar", "y1": 140, "y2": 320, "x1": 60, "x2": min(w - 60, 1096)},
-        {"name": "bottom_bar", "y1": max(0, min(2350, h - 160)), "y2": min(2510, h), "x1": 60, "x2": min(w - 60, 1096)},
+        {"name": "top_bar", "y1": 140, "y2": 320, "x1": 60, "x2": w - 60},
+        {"name": "bottom_bar", "y1": max(0, h - 160), "y2": h, "x1": 60, "x2": w - 60},
     ]
 
     for bar in bars:

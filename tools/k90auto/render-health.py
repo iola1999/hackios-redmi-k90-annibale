@@ -21,6 +21,7 @@ Exit code: 0 always; this reports, it does not gate.
 """
 import argparse
 import os
+import pathlib
 import re
 import sys
 from collections import defaultdict
@@ -64,6 +65,7 @@ SIGNATURES = [
     ("ir3", r"((?:Unhandled ALU op|ir3_context_error|nir_validate|NIR validation failed).*)",
      "the shader compiler hit an unsupported construct"),
     ("crash", r"(\b(?:userabort|usertrap): .*|exited due to .*|Assertion failed.*)", "a process died"),
+    ("apfs-write", r"(apfs: write .* (?:failed|refused): .*)", "a writable APFS write failed"),
     ("stall", r"(annibale: stall.*)", "a commit waited past the driver's stall limit"),
 ]
 SIGNATURES = [(kind, re.compile(rx), cost) for kind, rx, cost in SIGNATURES]
@@ -133,7 +135,12 @@ def scan(base):
     pids = defaultdict(set)
     first_ts = last_ts = ts = None
     names, before_stop, stopped, sync_fails, sync_draws = {}, [], False, [], []
+    g31_lines, g32_lines = [], []
     for line in text.splitlines():
+        if "g31-trace" in line:
+            g31_lines.append(line)
+        if "g32-probe" in line or "g32-tex-" in line:
+            g32_lines.append(line)
         if DUMP_CHUNK.search(line):
             continue
         named = PIPELINE.search(line)
@@ -186,7 +193,19 @@ def scan(base):
         hang = [HANDLE.sub(lambda m: names.get(m.group(0), m.group(0)), line)
                 for line in before_stop[-12:] + sync_draws[-8:] + sync_fails]
     return {"bytes": len(text), "gaps": gaps, "first": first_ts, "last": last_ts, "rows": rows,
-            "unclassified": unclassified, "restarts": restarts, "hang": hang}
+            "unclassified": unclassified, "restarts": restarts, "hang": hang,
+            "g31": g31_lines, "g32": g32_lines}
+
+
+def save_sidecars(round_arg, result):
+    base = pathlib.Path(round_arg)
+    if not base.is_dir():
+        return
+    out_dir = base.parent if base.name == "run" else base
+    for key, filename in (("g31", "g31-trace.txt"), ("g32", "g32-probe.txt")):
+        lines = result.get(key)
+        if lines:
+            (out_dir / filename).write_text("\n".join(lines) + "\n")
 
 
 def main():
@@ -196,6 +215,7 @@ def main():
     ap.add_argument("--examples", type=int, default=1, help="print the first line of each row (0: none)")
     args = ap.parse_args()
     now = scan(args.round)
+    save_sidecars(args.round, now)
     old = scan(args.baseline) if args.baseline else None
     print(f"merged log {now['bytes']} bytes, device time {now['first']} .. {now['last']}, "
           f"{now['gaps']} merge gaps")
