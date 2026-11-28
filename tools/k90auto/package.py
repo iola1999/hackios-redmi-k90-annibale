@@ -824,7 +824,7 @@ def main():
                             *(AUDIO_SOURCES if AUDIO else []),
                             *(BLUETOOL_SOURCES if BLUETOOTH else []),
                             "userland/src/inject/inject_sb26_airdrop.inc",
-                            "userland/src/inject/inject_sb26_loc.inc",
+                            "userland/src/inject/inject_sb26_loc.inc", "userland/src/inject/inject_sb26_layers_extra.inc",
                             "userland/src/inject/sb_metal_registration_sequence.inc",
                             "userland/src/inject/sb_metal_compression_policy.inc",
                             "userland/src/inject/inject_media.c",
