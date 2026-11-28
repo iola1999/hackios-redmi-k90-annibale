@@ -60,8 +60,10 @@ FIXED_ARGS = " ".join([
     # administered one of ours; the card's firmware carries none. package.py puts the firmware in.
     "pcie=10 pcie_power=1 pcie_sleep_clock=board pcie_bdf=bd_p11.elf pcie_smps_hpm=1 pcie_bt_en=1 pcie_aop_pdc=1",
     "pcie_rddm=1 wifi_mlo=1 wifi_station=1",
-    # ANNFS001 writes /private/var to darwin_var; bt=4 selects SE14 UART / WCN7850.
-    "ufs_write=1 bt=4",
+    # UFS writes /private/var to darwin_var, bt=4 selects SE14 UART / WCN7850, and cam=5 exposes
+    # /arm-io/isp (camera-rear) & /product/camera so MobileGestalt still-camera stays true and
+    # SpringBoard keeps Camera.app on the home screen (matches release mkstandalone.py DEFAULT_CMDLINE).
+    "ufs_write=1 bt=4 cam=5",
 ])
 TOUR = [
     "home@3*2",

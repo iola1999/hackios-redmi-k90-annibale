@@ -1,12 +1,12 @@
 # 工程、构建与系统版本待办
 
-2026-11-28 同步批 1～批 20 实测与审核更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
+2026-11-28 同步批 1～批 24 实测与审核更新。本文记录尚未完成的工程事项、验收条件和来源；历史结果保留在对应分析或进展文档中。其他主题见[待办入口](README.md)。
 
 ## 1. 构建、发布与测试环境
 
 | 编号 | 事项 | 状态 | 下一步与验收条件 | 来源 |
 |---|---|---|---|---|
-| ENG-01 | 后续正式 Release 的干净克隆验证 | `v0.2.4`（`ec4ba873` / `adb193ad` / `93cef6d5` / `5a84ac25`）已完成新克隆全量构建、四平台 `apfs-tool` `test_annfs.py`、macOS/Linux `assemble.py` 合成与 `boot_a` 真机验证；发版复核观察到 XNU `newvers.pl` 在发布构建的 `Darwin Kernel Version` 字符串中默认保留了宿主构建用户名 | 下一次发布按同流程在新克隆执行并记录版本号；评估在发布内核构建中统一覆盖 `newvers.pl` 宿主构建用户名 | [开发指南 §10](../development.md#10-生成-release)、[Release 执行清单 §9](../plan/release-checklist.md#9-历次发版遇到的问题)、[v0.2.4 发布记录](../progress/2026-11-28-release-v0.2.4.md) |
+| ENG-01 | 后续正式 Release 的干净克隆验证 | `v0.2.4`（`ec4ba873` / `adb193ad` / `93cef6d5` / `5a84ac25`）已完成新克隆全量构建、四平台 `apfs-tool`、双平台 `assemble.py` 与 `boot_a` 真机验证；批 24 合入 `85-config%newvers.pl.patch`（`12` L，`--fuzz=0`，在 `newvers.pl:163` 后读取 `KERNEL_BUILDER`）并在 `12377-b24` 生效固定 `; builder:xnu12377[...]`；发版前置单测 `test-build-release-provenance.py`（`4/4`）、`test-localfiles.py`（`8/8`）与 `test-assemble-wifi.py`（`4/4`）均通过 | 批 24 完成后按同流程在新克隆执行 `v0.2.5` 发布构建、刷写验证批 23+ 新版 `xnuloader`（`getvar screen` 与 `EVNTEN+WFE`）并记录版本号 | [开发指南 §10](../development.md#10-生成-release)、[Release 执行清单 §9](../plan/release-checklist.md#9-历次发版遇到的问题)、[批 24 记录 §2、§6](../progress/2026-11-28-batch24-results.md#6-批-24-离线定因与批-25--v025-发版输入) |
 | ENG-02 | adreno8 与 ir3 的外部输入对照测试 | 批 16（`#596`/`#603`）实测本地已就绪的 1 项 `test-ir3-output-contracts.py`（传入 `IR3_MESA_ARCHIVE=xnu-deps/build/mesa/mesa-26.2.5.tar.xz` 与 Homebrew `bison 3.8.2`）：`PASS 54.6s`（`0018` 修复将基线 3 项失败 `alias relative`、`fsat_ixor_one_use`、`fsat_iadd_one_use` 降为 `failures=0`）。其余 13 项 `test-adreno8-*.py` 核实全部依赖外部未下载源或设备模块（`OnePlusOSS graphics-kernel`、`vendor_dlkm` `msm_kgsl.ko`、`drivers/clk/qcom`、`MiCode annibale-w-oss`、Linux `drm/msm/adreno`） | 仅在获取上述 5 类外部对照输入后按脚本 SHA-256 设置环境变量运行 `python3 tools/run-host-tests.py adreno8` | [合入前检查](../plan/debugging-and-collaboration.md#10-合入前检查)、[主机测试入口](../../tools/run-host-tests.py) |
 | ENG-21 | Wi-Fi 下的 SSH 调试 | 11-23 `tgl40` 验证运行期落盘（`oem push` + `annsh pull` 写入 `/var/jb`，sshd、zsh、sftp 均实测可用）；持久化需装进 UFS 系统镜像再刷机一次或每次开机脚本化落盘 | 按需补齐 `zsh/zle` 模块并决定是否编入后续系统盘或 `rc.jobs` 脚本；SSH 仍依赖 iOS 网络栈，不作恢复通道 | [SSH 真机验证记录](../progress/2026-11-23-ssh-over-wifi.md)、[USB 与调试方式核查 §4](../analysis/2026-11-12-usb-debugging.md#4-现有调试方式的可用范围) |
 

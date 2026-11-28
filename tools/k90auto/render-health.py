@@ -139,7 +139,7 @@ def scan(base):
     for line in text.splitlines():
         if "g31-trace" in line:
             g31_lines.append(line)
-        if "g32-probe" in line or "g32-tex-" in line:
+        if "g32-" in line:
             g32_lines.append(line)
         if DUMP_CHUNK.search(line):
             continue
