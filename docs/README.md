@@ -187,6 +187,7 @@
 - [v0.2.4 发布记录（2026-11-28）](progress/2026-11-28-release-v0.2.4.md)：批 12～批 19 发布归档，包含四仓提交基线、四平台构建校验、macOS/Linux 跨平台合成与真机刷写 `boot_a` 验收。
 - [11-28 批 20 真机实测、代码交付与下批方案（b5r61～b5r63）](progress/2026-11-28-batch20-results.md)：`b5r61` 验收 `M6` 前摄 `-16808`/`-31710` 归零、`M4` 3 槽连拍、`S7` 阶段 2 结案（`528` 窗全满高转 DPU）、`S12` `BiomeStorageError=0`、`S11` `copyio_abort=0` 与 `ENG-07`；`b5r62` 验收 `M1` HEVC P010 `15/15 PASS` 与 `G32` 根因；`b5r63` 打通 `P14` `{0x16,0x25} perm=7`、重定因 `P21` `wifid INVALIDATED` 并采 `M3` 调音与 `backboardd.harvest`。
 - [11-28 批 21 真机实测、代码交付与定因汇总（b5r64～b5r66）](progress/2026-11-28-batch21-results.md)：合入 `G30` 阶段 3 切片 1～2、`G7` `split` 上限修复、`S7` `fb_dpu_scale=1`、`P23` `psci_cl5=1`、`G32` 渐变探针、`M4` AE/播放器诊断与 `P21` `CFStringRef` 修复；`b5r64` 验收 `G30` 零拒绝、`324>256` 清零、`P21` 越过 `4097`（止步 `-3905`）、`M3` `0.457`/`0.45` 一致与 `G32` 已传 `colors=5`；`b5r65` 实测 DPU 缩放跑通 `59 fps`（截屏条纹源于 `oem screenshot` 固定读 `1156x2510`）；`b5r66` 录得 `OSI -3` 回退与 `c4` 待机唤醒正常；同步完成 `P14` 与 `M4` PDAF 只读定因。
+- [11-28 批 22 真机实测、PDAF 验收与调研定因（b5r67～b5r69）](progress/2026-11-28-batch22-results.md)：双端合入 `OVX8000 Mode 24 VC1` PDAF 全链路、`P23` `0x8400000Fu` / `(int32_t)` 修复及 `ANNIBALE_G32_PROBE=1`；经 `b5r67` BE16 端序与 `b5r68` 极性修正后，`b5r69` 实机验收 PDAF 零回退 CDAF（冷启 `2 moves / 201 ms`、点按 `100–101 ms`、`focus: searched = 0`）；`b5r68` 实测 Weather 输出 `0` 条非 `Line` `VfxLln*`/`Tcma*Lln*`；同步完成 `P14` `QRTR 0x1000 instance=2`/`SSCRPCD` 与 `P21` `-3905` 只读定因。
 
 ## 10. 代码仓库中的说明
 
