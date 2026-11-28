@@ -1,6 +1,6 @@
 # 多媒体待办
 
-本表集中相机、视频与音频的剩余工作，2026-11-28 同步批 1～批 23 实测与审核更新。当前多媒体批次持续更新[验证结果](../analysis/2026-11-11-multimedia-validation.md)，实现状态、运行产物和轮次结果以该文为准。其他主题见[待办入口](README.md)。
+本表集中相机、视频与音频的剩余工作，2026-11-28 同步批 1～批 28 实测与审核更新。当前多媒体批次持续更新[验证结果](../analysis/2026-11-11-multimedia-validation.md)，实现状态、运行产物和轮次结果以该文为准。其他主题见[待办入口](README.md)。
 
 ## 1. 当前验证
 
@@ -8,7 +8,6 @@
 |---|---|---|---|---|
 | M2 | 真实相机流与 DMA | 前摄 `OV20B40` 连续流（`1,404` 帧零超时）、后摄 `OV50E40` 连续流（`3,000` 帧 `29.9 fps`）、`system_cache_cfg` 整帧写入（`6e902c09`）与曝光滞后消除亮度循环（`c9cc846c`）均已验证 | 复核场景明暗大幅变化时的曝光收敛，单独测量前摄曝光；保持 DMA 停止与缓存同步保护 | [相机管线与 ISP 修复](../analysis/2026-11-17-camera-pipeline-and-isp-fixes.md)、[11-21 真机体验问题 §11、§12](../progress/2026-11-21-user-test-issues.md#11-后摄条纹cam-1) |
 | M3 | 扬声器实际出声与音量控制 | `AudioReach`、双路 TFA9866、AAC/HLS 与 `1 kHz` 环回音调通过；`b5r64` 验证单次 `voldown` `0.457`/`0.45` 一致；批 23 `b5r71` 连降 `7` 格实测低音量段曲线从 `1.000 (0.0 dB)` 连续至 `0.020 (47.0 dB)`（`1/16..7/16` 均无提前静音，仅最低归零档 `sound_test route` 输出 `volume 0.00`） | 人工听辨左右声道与上下扬声器方向（含 `M16` 后摄马达咔嗒声听感终验） | [多轮代码审查 §1](../analysis/2026-11-15-code-and-commit-review.md#1-真机回归与系统应用闪退根因)、[批 21 记录 §3、§6](../progress/2026-11-28-batch21-results.md#3-b5r64基线集成与诊断真机实测详情)、[批 23 记录 §4](../progress/2026-11-28-batch23-results.md#4-b5r71综合集成与定因采集真机实测详情) |
-| M4 | Safari 带音频网页冷启动 | 批 20 后摄连拍、批 22 后摄 PDAF 均已归档（见 §3）；批 23 生成并条件打包带音轨样片 `/annibale/share/av-test-4s.mp4`（`442,098` B，H.264 + AAC），`b5r71` 实机 `video_player_test /annibale/share/av-test-4s.mp4` `exit 0`（`result=pass frames=120 pixel_errors=0 stalls=0 output_bytes=41472000 elapsed_ms=4808 first_frame_ms=661`）；仅余 Safari 网页带音频冷启动播放测试 | 在 Safari 实测本地带音轨测试页冷启动播放、容器 token 消费与输出设备 ID（新失败保留原生 `NSError`） | [批 7 进展 §2](../progress/2026-11-27-batch7-user-visible.md#2-b5r18-四判决11-27-下午pre-0024-基线稳定轮-41-分钟)、[网页硬解播放](../analysis/2026-11-11-multimedia-validation.md#90-safari-正文与网页硬解播放)、[批 23 记录 §2、§4](../progress/2026-11-28-batch23-results.md#4-b5r71综合集成与定因采集真机实测详情) |
 | M16 | 后摄切入／对焦／离开时 VCM 对焦马达与 OIS 咔嗒碰撞声 | 批 19（`#765`/`#768`）已完成 `ldob8` 按需供电、16 步软着陆与 `cam_return_lens_park()` 断电前停泊；`b5r60` 与 `b5r61`（`ldob8 = 0`、`tl: C` `164` 行零报错）均日志验证通过；`AK7323` OIS（由 QSH/SLPI 驱动且无固件）属外部边界 | 保持现有 VCM 按需单次供电与软着陆实现，待用户真实听感最终确认马达咔嗒声已消除后归档；`AK7323` OIS 在缺少原生固件与协议前保持外部边界 | [批 18～19 记录 §6](../progress/2026-11-28-batch18-results.md#6-b5r60flipwd30m16-后摄-vcm-与-weather-post_process-探针773775776)、[批 20 记录 §3](../progress/2026-11-28-batch20-results.md#3-b5r6112377-b20真机实测详情) |
 
 NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查已经通过，原版 SLM 两条管线构造也已通过。这些结果用作后续回归基线。
@@ -29,6 +28,7 @@ NV12／P010 的 BT.601／709／2020、有限域／全域 12 组 GPU 色值检查
 
 | 编号 | 事项 | 解决结论与验证范围 | 来源 |
 |---|---|---|---|
+| M4（Safari 音视频播放） | Safari 网页内带音频彩色视频播放 | 批 28 新增 `MiniFramebufferYuv.inc`（`477` L，并将 `MiniIOMobileFramebuffer.cpp` 减至 `1187` L），实现 `'420v'`/`'420f'`（BT.601/BT.709/BT.2020）缩放转换与 `layer 3 -> 0` 预乘 `srcOver` 多层合成（单层 32-bit 快速路径不变），`test-framebuffer-yuv-composite.py`（含 2 项变异）通过；`b5r86` 实机在 Safari 播放 `/annibale/share/av-test-4s.mp4` 命中 `planar layer 2 surface 182 '420v' 640x360`、`m4_safari_playing.png` 中心 `16:9` 视频区非黑占比 `0.9877`（RGB `(107.59, 112.97, 109.51)`）且 `daudio: PCM periods` 正常出声 | [网页硬解播放](../analysis/2026-11-11-multimedia-validation.md#90-safari-正文与网页硬解播放)、[批 28 记录 §5](../progress/2026-11-28-batch28-results.md#5-m4-safari-带音频彩色视频播放miniframebufferyuvinc--b5r86) |
 | M8 | 默认麦克风录音（DMIC0） | 11-24（`say52-ubo54`，内核 `6e19aa93`、用户态 `082040c`）锁定 `TX macro dec1` + `RXTX TX_CDC_DMA_TX_3`，`record_test` 保存 5 s WAV、`micloop_test` `1 kHz` 环回净增 `89.5 dB` 验收通过；其余多麦（`dmic23/45`）与立体声映射按需补充 | [11-24 麦克风录音验证](../progress/2026-11-24-mic-m8-resolved.md) |
 | M13 | IOSurface copy wrapper 别名读写 | 批 14（`#454`/`#457`）在 `air_metal_texture.inc`（714 行）、`air_metal_copy.inc`（296 行）与 `air_metal.c` 新增 `buffer_texture_sync_aliases()` 并把 `rwa_buffer_textures_refresh()` 拆为两阶段：对同一 `rwa_buffer` 或共享 `mirror` 重叠区间的写后读先下载写端再经 `mirror_read()` 刷新目标映射，`!t->backing || written_buffer_textures == 0` 快速路径保持只读相机输入零额外开销；`test-air-surface-alias.py`（ASan+UBSan `-Werror`）、`test-air-rwa-lock-narrowing.py`（TSan + ASan+UBSan）与 `arm64e` 编译均通过 | [多媒体验证 §36](../analysis/2026-11-11-multimedia-validation.md#36-进程自有-iosurface-的相机输入) |
 | M9 | UEFI `ExitBootServices` 与固件异步失败恢复 | 批 16（`#600 §3`）核实 `xnuloader/efi.h:59` 仅声明函数指针，`xnuloader/` 全文 `0` 处调用 `exit_boot_services()`（刻意保留 UEFI 环境以支持 `oem stop` 退回 Fastboot）；`adreno8` 已通过 `BO_FAILED` + `recover_terminal`（`#556`/`#559`）阻止终态恢复，`annibale_iris` 与 `annibale_adsp` 的 SCM/PAS 调用均为同步有界等待，无异步迟到完成覆写成功态路径 | [上游对照 §4.2、§6](../analysis/2026-11-12-upstream-review.md)、[批 16 记录 §6](../progress/2026-11-27-batch16-results.md#6-批-16-只读定案与归档结论) |

@@ -18,6 +18,7 @@
 
 | 批次 | 当前安排与结果 |
 |---|---|
+| 批 28 图形、内存、电源与音视频（`b5r83`～`b5r86`） | [批 28 记录](../progress/2026-11-28-batch28-results.md)：`G6` 可清除纹理、`G14` 地图模式缩略图、`M4` Safari `'420v'` 带音频彩条播放与 `S11` `batteryintelligenced` 长期运行均已验收归档；`backboardd` `0xf1` 取消映射清零（`107.1 fps`）；`P2` 已解析 `HAL ID 51` 待跟进 `hapticd`，`P14` 待核查 `adsp.b25`/`SSCRPCD`，`G31` 保留同轮抓 trace |
 | 天气渲染、BO 缓存与搜城延迟（批 27） | [批 27 记录](../progress/2026-11-28-batch27-weather-air-bo-cache.md)：`b5r83` 修复 `air_metal_render_create.inc` 误删 `path_conditional*` 并解决天气详情页与 10 日温标条全黑；合入 `0032` + `AnnibaleGPUMemory` 后详情滚动由 `25 fps` 提至 `97.1–109.4 fps`（余 `fb_dpu_scale=1`、`adreno8_inflight`、`0xf1` unmap 候选）；搜城 `6.58 s` 延迟定因 FairPlay Mescal `-42184` 触发 `RequestRacing` `4.20 s` 等待转 CloudKit 兜底 |
 | 性能、图形与传感器主线（批 7～批 10） | [批 7 用户可感知问题](../progress/2026-11-27-batch7-user-visible.md)、[批 8 性能归因](../progress/2026-11-27-batch8-opening.md)、[批 9 收官与批 10 开局](../progress/2026-11-27-batch9-opening.md) |
 | 相机与多媒体（批 2～批 6 延续） | [多媒体设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[批 6 进展](../progress/2026-11-26-batch6-stall-verdict.md) |
