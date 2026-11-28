@@ -91,4 +91,5 @@
 | v0.2.2 | 新克隆的内核与真机验证的 `12377-lens` 有 16 字节不同，位置是 LC_UUID：日常构建每次换 `KERNEL_UUID`，发布构建用固定值 | 把真机内核的 LC_UUID 改成默认值后比 SHA-256（第 4 节） |
 | v0.2.2 | `camtuning.py` 改为按传感器模式的读出区域映射镜头阴影表（内核 `aa069aef`），多了模块文件和模式号两个参数；`assemble.py` 仍只传调校文件，用户合成的 `camera-*.isp` 与根盘里的不同，合成时报「the phone's firmware differs」 | `CAMERA_TUNINGS` 同时记录模块文件和模式号，`assemble.py` 一并传给 `camtuning.py`。`build-release.py` 不重新生成手机固件，这类差异只在第 6 节合成时出现；生成固件的脚本参数有变化时，对照 `userland/build.sh` 检查发布配方 |
 | v0.2.3 | 新克隆 `xnu26/apply.sh` 因 `30-iokit%conf%files.patch` 块头行数未随新增 `+iokit/Kernel/AnnibaleSMC.cpp` 更新（`+80,25` 实际 `+80,26`）报错退出；`TrollStore` 新提交 `582b283` 未推送到远端导致 `git clone --recurse-submodules` 中止 | 改动 `xnu26/patches/*.patch` 后用 `git apply --check` / `patch --dry-run` 校验块头行数；新克隆或发版前先核对包括 `TrollStore` 在内的全部子模块指向提交均已推送远端 |
-| v0.2.4 | XNU `newvers.pl` 在发布构建生成的 `Darwin Kernel Version` 字符串中默认嵌入宿主机当前构建用户名 | 发布构建前核对内核版本字符串，后续可在 `build-all.sh` 或 `xnu26/build-macos.sh` 中统一传入固定构建名 |
+| v0.2.4 | XNU `newvers.pl` 在发布构建生成的 `Darwin Kernel Version` 字符串中默认嵌入宿主机当前构建用户名 | 发布构建前核对内核版本字符串，后续已在 `KERNEL_BUILDER` 路径统一覆盖为固定构建名 `builder:xnu12377` |
+| v0.2.5 | `xnu12377-local.bin` 与真机增量编出内核同长且符号名一致，但 `__DATA`/`OSMetaClass` 段内符号按并行编译顺序排列不同导致字节偏移diff；历史提交信息重写时需同步更新子模块 gitlink 与远端标签 | 核对 `otool -l` 段布局、长度与 `nm -n` 排序符号全集一致性；全仓提交重写按「子模块优先、核对无树差、更新标签与指针」流程并提前建立本地备份引用 |

@@ -193,6 +193,7 @@
 - [11-28 批 25 真机实测、VFX 参数缓冲反射与天气卡片渲染（b5r76～b5r82）](progress/2026-11-28-batch25-results.md)：保持 `cam=5` 相机图标正常；双端合入 `-constantDataAtIndex:` 偏移与 UAF 修复、完整 `MTLRenderPipelineReflection`（`607/607` 语料）、`newArgumentEncoderWithBufferBinding:`、稀疏 `id > 63`、`unused`/`nullable` 裁剪与 `annibale-nircache-v3` 同步；`b5r82` 达成 `draw-failed=0` 与 `Weather` `410 completed, 0 errors`，城市卡片首次渲染蓝天渐变与日光晕光斑（详情页 `905×1967` 黑底留作下一目标）。
 - [11-28 批 27 天气详情渲染修复、BO 缓存复用与搜城延迟定位（b5r83）](progress/2026-11-28-batch27-weather-air-bo-cache.md)：修复 `air_metal_render_create.inc` 误删 `nir_var_function_temp` 写入（补齐 `nir_var_shader_out` 检查），`b5r83` 彻底恢复天气详情页全屏背景与 10 日温标条；合入 Mesa `0032`（`128 MiB`/`3s`/跳过忙条目/统计）与内核 `AnnibaleGPUMemory.inc`（`256 MiB` + `class 3` 保护），详情页滚动帧率升至 `97.1–109.4 fps`；零重启 `oslog` 定因搜城 `6.58 s` 延迟主因属 FairPlay Mescal `-42184` 后 `RequestRacing` 等待 `4.20 s` 转 CloudKit 兜底。
 - [11-28 批 28 多线验收、帧缓存 YUV 合成与驱动修复（b5r83 活机 + b5r84～b5r86）](progress/2026-11-28-batch28-results.md)：`b5r83` 活机验收 `G6` 可清除纹理全过与 `G14` 地图四模式全彩渲染；`b5r84` 合入 `0x7c` `host_bytes` 直用使 `backboardd` `0xf1` 清零（`107.1 fps`）；`b5r85` 修复 `AnnibaleBattery` `TimeAtHighSoc` 过 `432.50 s` 零崩溃并打通 `ADSP` `ROOT_PD` 延迟续发；`b5r86` 解析 `Actuator HAL ID 51` 并通过 `MiniFramebufferYuv.inc` 实现 Safari `'420v'` 带音频彩条播放。
+- [v0.2.5 发布记录（2026-11-28）](progress/2026-11-28-release-v0.2.5.md)：批 20～批 28 与提交历史规范整理后的里程碑发布归档，包含四仓基线提交、干净克隆八阶段全量构建校验、macOS 合成实刷 `boot_a` 上机验证与新发现差异说明。
 
 ## 10. 代码仓库中的说明
 

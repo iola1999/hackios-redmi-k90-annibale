@@ -18,7 +18,7 @@
 | 安装应用 | 预装 TrollStore，支持通过电脑或浏览器下载后在系统内安装解密的 `.ipa`／`.tipa` 应用 |
 | 电池与温控 | 支持电量与充电状态显示、处理器（含 `cluster1`）与 GPU 动态调频、`PSCI OSI` 深睡、`batteryintelligenced` 长期稳定运行及过热降频；连续高负载交互仍有温控限频 |
 
-最新版本为 [v0.2.4](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.2.4)（2026-11-28），重点修复前后摄物理切换与默认正立、后摄对焦马达按需供电与软着陆、通知中心与锁屏壁纸亮屏、天气城市列表夜空渲染、`rwa_lock` 解耦与 `nircache`、材质回归 18/18 通过、蓝牙 `BT_EN` 硬复位及 FastRPC `apps_smmu`。从 `v0.2.3` 升级只需重新合成并刷入 `boot-ios.img`，从 `v0.2.0`～`v0.2.2` 升级需补采 `wifi-mac` 并重新合成刷入，更早版本需先按 `v0.2.0` 发布说明迁移数据盘，完整更新日志见各版 [Releases](https://github.com/iola1999/hackios-redmi-k90-annibale/releases) 说明。
+最新版本为 [v0.2.5](https://github.com/iola1999/hackios-redmi-k90-annibale/releases/tag/v0.2.5)（2026-11-28），重点修复后摄 PDAF 闭环对焦、天气城市卡片与详情页夜空及 10 日预报渲染、免拷贝零拷贝与 BO 复用提速至百帧、主屏相机图标、地图四模式视图缩略图、`batteryintelligenced` 长期运行崩溃、Safari `'420v'` 彩色音视频播放、`PSCI OSI` 深睡与 Wi-Fi 断开重连，并完成三仓提交历史规范化整理。从 `v0.2.3`～`v0.2.4` 升级只需重新合成并刷入 `boot-ios.img`，从 `v0.2.0`～`v0.2.2` 升级需补采 `wifi-mac` 并重新合成刷入，更早版本需先按 `v0.2.0` 发布说明迁移数据盘，完整更新日志见各版 [Releases](https://github.com/iola1999/hackios-redmi-k90-annibale/releases) 说明。
 
 详细开发追踪与实测记录见[进度表](docs/plan/2026-10-23-tracking.md)、[待办目录](docs/backlog/README.md)、[架构总览](docs/plan/architecture.md)与[路线图](docs/plan/2026-10-26-roadmap.md)。原生 FairPlay 与 App Store 不列入项目目标，离线解密后经 `TrollStore` 安装的可行性评估见[FairPlay 与 App Store 可行性调研](docs/analysis/2026-11-27-fairplay-appstore-feasibility.md)。
 
