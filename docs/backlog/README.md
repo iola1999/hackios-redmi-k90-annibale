@@ -18,6 +18,7 @@
 
 | 批次 | 当前安排与结果 |
 |---|---|
+| 天气渲染、BO 缓存与搜城延迟（批 27） | [批 27 记录](../progress/2026-11-28-batch27-weather-air-bo-cache.md)：`b5r83` 修复 `air_metal_render_create.inc` 误删 `path_conditional*` 并解决天气详情页与 10 日温标条全黑；合入 `0032` + `AnnibaleGPUMemory` 后详情滚动由 `25 fps` 提至 `97.1–109.4 fps`（余 `fb_dpu_scale=1`、`adreno8_inflight`、`0xf1` unmap 候选）；搜城 `6.58 s` 延迟定因 FairPlay Mescal `-42184` 触发 `RequestRacing` `4.20 s` 等待转 CloudKit 兜底 |
 | 性能、图形与传感器主线（批 7～批 10） | [批 7 用户可感知问题](../progress/2026-11-27-batch7-user-visible.md)、[批 8 性能归因](../progress/2026-11-27-batch8-opening.md)、[批 9 收官与批 10 开局](../progress/2026-11-27-batch9-opening.md) |
 | 相机与多媒体（批 2～批 6 延续） | [多媒体设计](../analysis/2026-11-11-multimedia-root-causes-and-design.md)、[多媒体验证](../analysis/2026-11-11-multimedia-validation.md)、[批 6 进展](../progress/2026-11-26-batch6-stall-verdict.md) |
 | 早期系统与硬件对齐方案（历史批次与设计蓝图） | [系统后续事项](../plan/2026-11-12-system-followup.md)、[性能与原生硬件对齐改造方案](../plan/2026-11-14-performance-and-native-alignment-plan.md)、[v0.2.0 后续批次](../plan/2026-11-16-followup.md) |
